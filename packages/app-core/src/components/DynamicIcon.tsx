@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { CustomIcon } from '@shared/ipc'
 import { buildCustomIconIndex, resolveIcon } from '../lib/icon-resolve'
-import { sanitizeIconSvg } from '../lib/sanitize-icon'
+import { normalizeIconSvg, sanitizeIconSvg } from '../lib/sanitize-icon'
 import { iconOptionById } from './FolderIcons'
 
 /**
@@ -25,7 +25,10 @@ export function DynamicIcon({
   const customByName = useMemo(() => buildCustomIconIndex(customIcons), [customIcons])
   const resolved = useMemo(() => resolveIcon(iconRef, customByName), [iconRef, customByName])
   const sanitized = useMemo(
-    () => (resolved?.kind === 'custom' ? sanitizeIconSvg(resolved.icon.svg) : ''),
+    () =>
+      // Sanitize FIRST (security), then normalize so large-intrinsic-size SVGs
+      // scale to the sized container in preview and in sidebar/header/tabs.
+      resolved?.kind === 'custom' ? normalizeIconSvg(sanitizeIconSvg(resolved.icon.svg)) : '',
     [resolved]
   )
 

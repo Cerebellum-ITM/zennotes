@@ -7,6 +7,9 @@ import {
   appendToNote,
   archiveNote,
   deleteAsset,
+  deriveCustomIconTarget,
+  importCustomIcon,
+  listCustomIcons,
   duplicateAsset,
   ensureVaultLayout,
   forgetLocalVault,
@@ -751,5 +754,58 @@ describe('archive / trash round-trips', () => {
     const restored = await unarchiveNote(root, archived.path)
     expect(restored.path).toBe('projects/Plan.md')
     await expect(readFile(path.join(root, 'projects', 'Plan.md'), 'utf8')).resolves.toBe('# Plan\n')
+  })
+})
+
+describe('deriveCustomIconTarget', () => {
+  it('returns a flat id (id == name) when no section is given', () => {
+    expect(deriveCustomIconTarget('star')).toEqual({ id: 'star', section: '' })
+  })
+
+  it('derives a sectioned id of the form section/name', () => {
+    expect(deriveCustomIconTarget('star', 'work')).toEqual({
+      id: 'work/star',
+      section: 'work'
+    })
+  })
+
+  it('supports nested sections and trims surrounding slashes', () => {
+    expect(deriveCustomIconTarget('star', '/work/icons/')).toEqual({
+      id: 'work/icons/star',
+      section: 'work/icons'
+    })
+  })
+
+  it('rejects invalid names and section segments', () => {
+    expect(() => deriveCustomIconTarget('bad name')).toThrow()
+    expect(() => deriveCustomIconTarget('star', 'bad section')).toThrow()
+    expect(() => deriveCustomIconTarget('star', 'work/has space')).toThrow()
+  })
+})
+
+describe('importCustomIcon with section', () => {
+  it('writes into <section>/<name>.svg and round-trips through listCustomIcons', async () => {
+    const root = await makeTempDir('zennotes-icons-')
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>'
+
+    const imported = await importCustomIcon(root, { name: 'star', svg, section: 'work' })
+    expect(imported.id).toBe('work/star')
+    expect(imported.section).toBe('work')
+    await expect(
+      readFile(path.join(root, '.zennotes', 'icons', 'work', 'star.svg'), 'utf8')
+    ).resolves.toBe(svg)
+
+    const listed = await listCustomIcons(root)
+    const found = listed.find((i) => i.id === 'work/star')
+    expect(found).toMatchObject({ id: 'work/star', name: 'star', section: 'work' })
+  })
+
+  it('imports at the root (id == name) when no section is given', async () => {
+    const root = await makeTempDir('zennotes-icons-')
+    const imported = await importCustomIcon(root, {
+      name: 'flag',
+      svg: '<svg viewBox="0 0 24 24"></svg>'
+    })
+    expect(imported).toMatchObject({ id: 'flag', name: 'flag', section: '' })
   })
 })

@@ -1825,7 +1825,12 @@ interface Store {
   /** Reload custom SVG icons from disk (called on vault open and after CRUD). */
   refreshCustomIcons: () => Promise<void>
   /** Import an SVG as a custom icon, then refresh the cache. */
-  importCustomIcon: (input: { name: string; svg: string }) => Promise<CustomIcon>
+  importCustomIcon: (input: {
+    name: string
+    svg: string
+    /** Optional target section (subfolder under `.zennotes/icons/`). */
+    section?: string
+  }) => Promise<CustomIcon>
   /** Delete a custom icon by id, then refresh the cache. */
   deleteCustomIcon: (id: string) => Promise<void>
   /**

@@ -284,6 +284,13 @@ export interface ImportCustomIconInput {
   name: string
   /** Raw SVG markup to persist. */
   svg: string
+  /**
+   * Optional target section (subfolder under `.zennotes/icons/`). Each `/`
+   * segment must match `^[A-Za-z0-9._-]+$`. When set, the icon is written to
+   * `<section>/<name>.svg` and its `id` becomes `<section>/<name>`. Empty/
+   * undefined imports at the icons-dir root (id == name).
+   */
+  section?: string
 }
 
 export interface DailyNotesSettings {

@@ -1041,6 +1041,31 @@ function isValidCustomIconId(id: string): boolean {
 
 const CUSTOM_ICONS_MAX_DEPTH = 3
 
+/**
+ * Derive a custom icon's `{ id, section }` from a name and optional section.
+ * Pure (no fs) so the path/id shape can be unit-tested. Validates the name and
+ * every section segment against {@link CUSTOM_ICON_NAME_RE}; throws otherwise.
+ */
+export function deriveCustomIconTarget(
+  name: string,
+  section?: string
+): { id: string; section: string } {
+  const trimmedName = (name ?? '').trim()
+  if (!CUSTOM_ICON_NAME_RE.test(trimmedName)) {
+    throw new Error(`Invalid custom icon name: ${name ?? ''}`)
+  }
+  const rawSection = (section ?? '').trim().replace(/^\/+|\/+$/g, '')
+  if (!rawSection) {
+    return { id: trimmedName, section: '' }
+  }
+  const segments = rawSection.split('/')
+  if (!segments.every((seg) => CUSTOM_ICON_NAME_RE.test(seg))) {
+    throw new Error(`Invalid custom icon section: ${section ?? ''}`)
+  }
+  const normalizedSection = segments.join('/')
+  return { id: `${normalizedSection}/${trimmedName}`, section: normalizedSection }
+}
+
 export async function listCustomIcons(root: string): Promise<CustomIcon[]> {
   const baseDir = customIconsDir(root)
   const icons: CustomIcon[] = []
@@ -1089,20 +1114,19 @@ export async function importCustomIcon(
   root: string,
   input: ImportCustomIconInput
 ): Promise<CustomIcon> {
-  const name = (input?.name ?? '').trim()
-  if (!CUSTOM_ICON_NAME_RE.test(name)) {
-    throw new Error(`Invalid custom icon name: ${input?.name ?? ''}`)
-  }
   if (typeof input?.svg !== 'string' || !input.svg.trim()) {
     throw new Error('Custom icon SVG is empty')
   }
-  const dir = customIconsDir(root)
-  await fs.mkdir(dir, { recursive: true })
-  // Import always lands at the icons-dir root: id == name, section == ''.
-  const abs = resolveSafe(root, customIconRel(name))
+  // Validate name + optional section; an empty section lands at the icons root
+  // (id == name), preserving back-compat with the flat layout.
+  const { id, section } = deriveCustomIconTarget(input?.name, input?.section)
+  const name = (input.name ?? '').trim()
+  const abs = resolveSafe(root, customIconRel(id))
+  // mkdir the parent (recursive) so a new section folder is created on import.
+  await fs.mkdir(path.dirname(abs), { recursive: true })
   await fs.writeFile(abs, input.svg, 'utf8')
   const stat = await fs.stat(abs)
-  return { id: name, name, section: '', svg: input.svg, updatedAt: stat.mtimeMs }
+  return { id, name, section, svg: input.svg, updatedAt: stat.mtimeMs }
 }
 
 export async function deleteCustomIcon(root: string, id: string): Promise<void> {

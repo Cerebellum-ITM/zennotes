@@ -4,6 +4,7 @@ import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@
 import type {
   AppUpdateState,
   CliInstallStatus,
+  CustomIcon,
   IconRule,
   RaycastExtensionStatus,
   RemoteWorkspaceProfile,
@@ -55,6 +56,7 @@ import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
+import { promptApp } from '../lib/prompt-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
 import { FolderIconPickerModal } from './FolderIconPickerModal'
@@ -67,6 +69,7 @@ type SettingsCategoryId =
   | 'keymaps'
   | 'typography'
   | 'vault'
+  | 'icons'
   | 'templates'
   | 'mcp'
   | 'cli'
@@ -1921,6 +1924,31 @@ export function SettingsModal(): JSX.Element {
             </InlineNote>
           </Section>
 
+        </div>
+      )
+    },
+    {
+      id: 'icons',
+      title: 'Icons',
+      description: 'Custom SVG icons and pattern-based icon rules for notes and folders.',
+      keywords: ['icon', 'icons', 'svg', 'custom icon', 'glyph', 'rule', 'rules', 'sidebar icon'],
+      searchItems: [
+        {
+          id: 'custom-icons',
+          title: 'Custom icons',
+          description: 'Import and manage SVG icons stored under .zennotes/icons/.',
+          keywords: ['custom', 'icon', 'svg', 'import', 'folder', 'section']
+        },
+        {
+          id: 'icon-rules',
+          title: 'Icon rules',
+          description: 'Assign icons automatically by path glob, name regex, or frontmatter.',
+          keywords: ['rule', 'rules', 'glob', 'regex', 'frontmatter', 'auto', 'assign']
+        }
+      ],
+      content: (
+        <div className="space-y-6">
+          <CustomIconsSection settingId="custom-icons" />
           <IconRulesSection settingId="icon-rules" />
         </div>
       )
@@ -2843,8 +2871,223 @@ function summarizeIconRule(rule: IconRule): string {
   return parts.length ? parts.join(' · ') : 'no conditions'
 }
 
+/** A rule with no matcher would be dropped on persist; flag it in the editor. */
+function iconRuleHasMatcher(rule: IconRule): boolean {
+  return Boolean(rule.pathGlob?.trim() || rule.nameRegex?.trim() || rule.frontmatter?.key?.trim())
+}
+
 const ICON_RULE_INPUT_CLASS =
   'rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45'
+
+/** Label for root-level custom icons (mirrors the picker). */
+const CUSTOM_ICONS_ROOT_LABEL = 'General'
+/** Each `/`-segment of a section folder name must be a safe stem. */
+const CUSTOM_ICON_SECTION_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Manage custom SVG icons stored under `.zennotes/icons/`: list them grouped by
+ * section, import (root, per-section, or into a brand-new folder), and delete.
+ */
+function CustomIconsSection({ settingId }: { settingId?: string }): JSX.Element {
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const deleteCustomIcon = useStore((s) => s.deleteCustomIcon)
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // The section the next file-chooser result should import into (null = root).
+  const pendingSectionRef = useRef<string | null>(null)
+  // Collapsed sections, keyed by section id ('' = root). Default expanded.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  // Group custom icons by section, preserving the backend's sort order.
+  const sections = useMemo(() => {
+    const bySection = new Map<string, CustomIcon[]>()
+    for (const icon of customIcons) {
+      const list = bySection.get(icon.section)
+      if (list) list.push(icon)
+      else bySection.set(icon.section, [icon])
+    }
+    return [...bySection.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [customIcons])
+
+  const handleFile = useCallback(
+    async (file: File | null | undefined): Promise<void> => {
+      const section = pendingSectionRef.current
+      pendingSectionRef.current = null
+      if (!file) return
+      const svg = await file.text()
+      const base = file.name.replace(/\.svg$/i, '')
+      const name = base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'icon'
+      await importCustomIcon({ name, svg, ...(section ? { section } : {}) })
+    },
+    [importCustomIcon]
+  )
+
+  // Open the OS file chooser; the chosen file imports into `section` ('' = root).
+  const pickFileFor = useCallback((section: string): void => {
+    pendingSectionRef.current = section || null
+    fileInputRef.current?.click()
+  }, [])
+
+  // Prompt for a new folder name, then import the chosen SVG into it.
+  const importIntoNewFolder = useCallback(async (): Promise<void> => {
+    const entered = await promptApp({
+      title: 'New icon folder',
+      description: 'Subfolder under .zennotes/icons/. Letters, numbers, ., _ and - only.',
+      placeholder: 'work',
+      okLabel: 'Choose SVG…',
+      validate: (value) => {
+        const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
+        if (!trimmed) return 'Enter a folder name.'
+        if (!trimmed.split('/').every((seg) => CUSTOM_ICON_SECTION_RE.test(seg))) {
+          return 'Use only letters, numbers, ., _ and - (slashes allowed between folders).'
+        }
+        return null
+      }
+    })
+    if (entered == null) return
+    const section = entered.trim().replace(/^\/+|\/+$/g, '')
+    if (!section) return
+    pickFileFor(section)
+  }, [pickFileFor])
+
+  const handleDelete = useCallback(
+    async (icon: CustomIcon): Promise<void> => {
+      const ok = await confirmApp({
+        title: 'Delete custom icon',
+        description: `Remove “${icon.name}”? Notes or folders using it will fall back to a default icon.`,
+        confirmLabel: 'Delete',
+        danger: true
+      })
+      if (!ok) return
+      await deleteCustomIcon(icon.id)
+    },
+    [deleteCustomIcon]
+  )
+
+  return (
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
+          Custom icons
+        </div>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
+          Import SVG icons stored under{' '}
+          <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">.zennotes/icons/</code>.
+          Subfolders become sections. Imported icons are available in the icon picker.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="text-sm font-medium text-ink-900">
+            {customIcons.length === 0
+              ? 'No custom icons yet.'
+              : `${customIcons.length} icon${customIcons.length === 1 ? '' : 's'}`}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => pickFileFor('')}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:border-accent/45 hover:bg-paper-200/70"
+            >
+              Import SVG…
+            </button>
+            <button
+              type="button"
+              onClick={() => void importIntoNewFolder()}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:border-accent/45 hover:bg-paper-200/70"
+            >
+              New folder…
+            </button>
+          </div>
+        </div>
+
+        {customIcons.length > 0 && (
+          <div className="max-h-80 space-y-3 overflow-y-auto border-t border-paper-300/40 px-5 py-4">
+            {sections.map(([section, icons]) => {
+              const isCollapsed = collapsed[section] ?? false
+              return (
+                <div key={section || '__root__'} className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsed((prev) => ({ ...prev, [section]: !isCollapsed }))
+                      }
+                      className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink-600 transition-colors hover:text-ink-900"
+                      aria-expanded={!isCollapsed}
+                    >
+                      <span
+                        className={[
+                          'inline-block text-ink-400 transition-transform',
+                          isCollapsed ? '' : 'rotate-90'
+                        ].join(' ')}
+                        aria-hidden
+                      >
+                        ▶
+                      </span>
+                      <span className="truncate">{section || CUSTOM_ICONS_ROOT_LABEL}</span>
+                      <span className="text-ink-400">({icons.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pickFileFor(section)}
+                      className="shrink-0 rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-paper-400 hover:bg-paper-200/70"
+                      title={`Import an SVG into ${section || CUSTOM_ICONS_ROOT_LABEL}`}
+                    >
+                      Import here
+                    </button>
+                  </div>
+                  {!isCollapsed && (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {icons.map((icon) => (
+                        <div
+                          key={icon.id}
+                          className="flex items-center gap-3 rounded-xl border border-paper-300 bg-paper-50 px-3 py-2"
+                        >
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-paper-300 bg-white text-ink-700">
+                            <DynamicIcon
+                              iconRef={`custom:${icon.id}`}
+                              customIcons={customIcons}
+                              size={20}
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
+                            {icon.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(icon)}
+                            className="shrink-0 rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-rose-400/60 hover:text-rose-600"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".svg,image/svg+xml"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          void handleFile(file)
+        }}
+      />
+    </section>
+  )
+}
 
 function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -2861,24 +3104,39 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
 
   const commit = useCallback(
     (next: IconRule[]) => {
-      void persistVaultSettings({ ...vaultSettings, iconRules: next })
+      // Always normalize before persisting so the committed list matches what
+      // the on-disk normalizer (vault-layout / desktop vault) would keep.
+      void persistVaultSettings({ ...vaultSettings, iconRules: normalizeIconRules(next) })
     },
     [persistVaultSettings, vaultSettings]
   )
 
   const updateRule = useCallback(
     (id: string, patch: Partial<IconRule>) => {
-      commit(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+      // Keep the rule the user is editing even if a mid-edit value would fail
+      // normalization (e.g. an empty matcher): normalize the rest, but preserve
+      // the edited rule verbatim so the open editor never vanishes.
+      const next = rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
+      const normalized = normalizeIconRules(next)
+      const edited = next.find((r) => r.id === id)
+      const survived = normalized.some((r) => r.id === id)
+      const merged =
+        edited && !survived
+          ? next.map((r) => (r.id === id ? r : normalized.find((n) => n.id === r.id) ?? r))
+          : normalized
+      void persistVaultSettings({ ...vaultSettings, iconRules: merged })
     },
-    [commit, rules]
+    [persistVaultSettings, rules, vaultSettings]
   )
 
   const addRule = useCallback(() => {
+    // Seed with a VALID default matcher so the rule survives normalization and
+    // stays editable; the user narrows it from there.
     const rule: IconRule = {
       id: newIconRuleId(),
-      target: 'note',
-      nameRegex: '',
-      icon: 'document'
+      target: 'folder',
+      pathGlob: '*',
+      icon: 'folder'
     }
     commit([...rules, rule])
     setEditingId(rule.id)
@@ -2917,8 +3175,8 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
         icon: 'document'
       }
     ]
-    // Normalize so any malformed preset is dropped consistently with persistence.
-    commit(normalizeIconRules([...rules, ...presets]))
+    // `commit` normalizes, dropping any malformed preset consistently.
+    commit([...rules, ...presets])
   }, [commit, rules, vaultSettings.dailyNotes.directory])
 
   const pickerRule = rules.find((r) => r.id === iconPickerRuleId) ?? null
@@ -2974,8 +3232,13 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                       <DynamicIcon iconRef={rule.icon} customIcons={customIcons} size={16} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-ink-900">
+                      <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
                         {rule.target === 'note' ? 'Note' : 'Folder'}
+                        {!iconRuleHasMatcher(rule) && (
+                          <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+                            Incomplete
+                          </span>
+                        )}
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ink-500">
                         {summarizeIconRule(rule)}
@@ -3149,8 +3412,8 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
             updateRule(pickerRule.id, { icon: iconRef })
             setIconPickerRuleId(null)
           }}
-          onImport={async ({ name, svg }) => {
-            const icon = await importCustomIcon({ name, svg })
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, ...(section ? { section } : {}) })
             updateRule(pickerRule.id, { icon: `custom:${icon.id}` })
             setIconPickerRuleId(null)
           }}
