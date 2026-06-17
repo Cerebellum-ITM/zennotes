@@ -18,3 +18,7 @@ apps/server/bin
 data/
 /vault/
 /remotevault/
+
+# Local spec-driven-dev methodology (personal fork tooling — not for upstream)
+/CLAUDE.md
+/context/
