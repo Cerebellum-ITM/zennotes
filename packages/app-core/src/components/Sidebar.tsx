@@ -67,6 +67,7 @@ import {
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
 import { DynamicIcon } from "./DynamicIcon";
 import {
+  buildCustomIconIndex,
   resolveIcon,
   resolveNoteIconRef,
   resolveFolderIconRefByRules,
@@ -358,6 +359,8 @@ export function Sidebar(): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings);
   const customIcons = useStore((s) => s.customIcons);
   const importCustomIcon = useStore((s) => s.importCustomIcon);
+  const refreshCustomIcons = useStore((s) => s.refreshCustomIcons);
+  const setNoteIcon = useStore((s) => s.setNoteIcon);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
   const setView = useStore((s) => s.setView);
@@ -837,6 +840,12 @@ export function Sidebar(): JSX.Element {
     subpath: string;
     label: string;
   } | null>(null);
+  // Per-note icon picker: writes the `icon:` frontmatter key on the note.
+  const [noteIconPicker, setNoteIconPicker] = useState<{
+    path: string;
+    label: string;
+    currentIconRef: string;
+  } | null>(null);
   const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -874,9 +883,20 @@ export function Sidebar(): JSX.Element {
   const openFolderIconPicker = useCallback(
     (folder: NoteFolder, subpath: string, label: string) => {
       setFolderMenu(null);
+      // Safety net: pick up SVGs dropped into `.zennotes/icons/` by hand.
+      void refreshCustomIcons();
       setFolderIconPicker({ folder, subpath, label });
     },
-    [],
+    [refreshCustomIcons],
+  );
+
+  const openNoteIconPicker = useCallback(
+    (path: string, label: string, currentIconRef: string) => {
+      setNoteMenu(null);
+      void refreshCustomIcons();
+      setNoteIconPicker({ path, label, currentIconRef });
+    },
+    [refreshCustomIcons],
   );
 
   const saveFolderIcon = useCallback(
@@ -911,7 +931,7 @@ export function Sidebar(): JSX.Element {
     [setVaultSettings, vaultSettings],
   );
   const customIconsByName = useMemo(
-    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    () => buildCustomIconIndex(customIcons),
     [customIcons],
   );
   // Icon node for a (system) folder, preferring a custom SVG when its stored
@@ -1955,6 +1975,23 @@ export function Sidebar(): JSX.Element {
         });
       }
     }
+    if (n.folder !== "trash") {
+      items.push({ kind: "separator" });
+      items.push({
+        label: "Set icon…",
+        onSelect: async () => {
+          openNoteIconPicker(n.path, n.title, n.icon ?? "");
+        },
+      });
+      if (n.icon) {
+        items.push({
+          label: "Clear icon",
+          onSelect: async () => {
+            await setNoteIcon(n.path, null);
+          },
+        });
+      }
+    }
     items.push({ kind: "separator" });
     if (n.folder === "inbox" || n.folder === "quick") {
       items.push({
@@ -2038,6 +2075,8 @@ export function Sidebar(): JSX.Element {
     folderLabels.archive,
     folderLabels.inbox,
     folderLabels.trash,
+    openNoteIconPicker,
+    setNoteIcon,
   ]);
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -3093,10 +3132,27 @@ export function Sidebar(): JSX.Element {
             await saveFolderIcon(
               folderIconPicker.folder,
               folderIconPicker.subpath,
-              `custom:${icon.name}`,
+              `custom:${icon.id}`,
             );
           }}
           onCancel={() => setFolderIconPicker(null)}
+        />
+      )}
+      {noteIconPicker && (
+        <FolderIconPickerModal
+          targetLabel={noteIconPicker.label}
+          currentIconRef={noteIconPicker.currentIconRef}
+          customIcons={customIcons}
+          onSelect={(iconRef) => {
+            void setNoteIcon(noteIconPicker.path, iconRef);
+            setNoteIconPicker(null);
+          }}
+          onImport={async ({ name, svg }) => {
+            const icon = await importCustomIcon({ name, svg });
+            await setNoteIcon(noteIconPicker.path, `custom:${icon.id}`);
+            setNoteIconPicker(null);
+          }}
+          onCancel={() => setNoteIconPicker(null)}
         />
       )}
       {sortMenu && (
@@ -3750,7 +3806,7 @@ function SubTree({
   const customIcons = useStore((s) => s.customIcons);
   const storedIconRef = vaultSettings.folderIcons[folderIconKey(folder, node.subpath)];
   const customByName = useMemo(
-    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    () => buildCustomIconIndex(customIcons),
     [customIcons],
   );
   const resolvedCustom =
@@ -4006,7 +4062,7 @@ const NoteLeaf = memo(function NoteLeaf({
   const customIcons = useStore((s) => s.customIcons);
   const vaultSettings = useStore((s) => s.vaultSettings);
   const customByName = useMemo(
-    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    () => buildCustomIconIndex(customIcons),
     [customIcons],
   );
   const iconRules = vaultSettings.iconRules;

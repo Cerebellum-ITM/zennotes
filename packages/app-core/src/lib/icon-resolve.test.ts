@@ -2,17 +2,18 @@
 
 import { describe, expect, it } from 'vitest'
 import type { CustomIcon } from '@shared/ipc'
-import { resolveIcon, resolveNoteIcon } from './icon-resolve'
+import { buildCustomIconIndex, resolveIcon, resolveNoteIcon } from './icon-resolve'
 import { sanitizeIconSvg } from './sanitize-icon'
 
-function icon(name: string): CustomIcon {
-  return { name, svg: `<svg><title>${name}</title></svg>`, updatedAt: 1 }
+function icon(id: string, section = ''): CustomIcon {
+  const name = id.includes('/') ? (id.split('/').pop() as string) : id
+  return { id, name, section, svg: `<svg><title>${id}</title></svg>`, updatedAt: 1 }
 }
 
 describe('resolveIcon', () => {
-  const customByName = new Map<string, CustomIcon>([
-    ['star', icon('star')], // shadows the built-in "star"
-    ['logo', icon('logo')]
+  const customByName = buildCustomIconIndex([
+    icon('star'), // shadows the built-in "star"
+    icon('logo')
   ])
 
   it('resolves a custom: prefixed ref', () => {
@@ -52,8 +53,41 @@ describe('resolveIcon', () => {
   })
 })
 
+describe('resolveIcon — sections / stems', () => {
+  it('resolves a sectioned custom:<id> ref containing a slash', () => {
+    const idx = buildCustomIconIndex([icon('work/star', 'work'), icon('home/star', 'home')])
+    expect(resolveIcon('custom:work/star', idx)).toEqual({
+      kind: 'custom',
+      icon: idx.get('work/star')
+    })
+  })
+
+  it('resolves a bare stem to a sectioned icon when the stem is unique', () => {
+    const idx = buildCustomIconIndex([icon('pack/foo', 'pack')])
+    // `icon: foo` (no section) → pack/foo because the stem is unique.
+    expect(resolveIcon('foo', idx)).toEqual({ kind: 'custom', icon: idx.get('pack/foo') })
+    // `custom:foo` (no exact id match) also falls back to the unique stem.
+    expect(resolveIcon('custom:foo', idx)).toEqual({
+      kind: 'custom',
+      icon: idx.get('pack/foo')
+    })
+  })
+
+  it('returns null for an ambiguous stem (same name in two sections)', () => {
+    const idx = buildCustomIconIndex([icon('a/foo', 'a'), icon('b/foo', 'b')])
+    expect(resolveIcon('foo', idx)).toBeNull()
+    expect(resolveIcon('custom:foo', idx)).toBeNull()
+  })
+
+  it('prefers an exact root id over a same-stem sectioned icon', () => {
+    const idx = buildCustomIconIndex([icon('foo'), icon('pack/foo', 'pack')])
+    // Root `foo` (id === stem) wins, and is unambiguous despite pack/foo.
+    expect(resolveIcon('foo', idx)).toEqual({ kind: 'custom', icon: idx.get('foo') })
+  })
+})
+
 describe('resolveNoteIcon', () => {
-  const customByName = new Map<string, CustomIcon>([['logo', icon('logo')]])
+  const customByName = buildCustomIconIndex([icon('logo')])
 
   it('resolves a note icon that names a custom icon', () => {
     expect(resolveNoteIcon({ icon: 'logo' }, customByName)).toEqual({

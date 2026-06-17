@@ -2851,6 +2851,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
   const persistVaultSettings = useStore((s) => s.setVaultSettings)
   const customIcons = useStore((s) => s.customIcons)
   const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const refreshCustomIcons = useStore((s) => s.refreshCustomIcons)
   const rules = vaultSettings.iconRules ?? []
 
   // The rule whose icon is being chosen via the picker (by id).
@@ -3118,7 +3119,10 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                         <div className="text-xs font-medium text-ink-600">Icon</div>
                         <button
                           type="button"
-                          onClick={() => setIconPickerRuleId(rule.id)}
+                          onClick={() => {
+                            void refreshCustomIcons()
+                            setIconPickerRuleId(rule.id)
+                          }}
                           className="flex items-center gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                         >
                           <span className="flex h-5 w-5 items-center justify-center text-ink-700">
@@ -3147,7 +3151,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
           }}
           onImport={async ({ name, svg }) => {
             const icon = await importCustomIcon({ name, svg })
-            updateRule(pickerRule.id, { icon: `custom:${icon.name}` })
+            updateRule(pickerRule.id, { icon: `custom:${icon.id}` })
             setIconPickerRuleId(null)
           }}
           onCancel={() => setIconPickerRuleId(null)}

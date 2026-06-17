@@ -81,6 +81,55 @@ export function upsertFrontmatterKey(body: string, key: string, value: string): 
   return `---\n${inner}\n${key}: ${scalar}\n---\n${rest}`
 }
 
+/**
+ * Set `key: value` in a note body's leading frontmatter, **overwriting** an
+ * existing key (unlike {@link upsertFrontmatterKey}, which never overwrites). If
+ * the body has no frontmatter, a fresh block is prepended. Pure and tolerant —
+ * never throws. Value is YAML-scalar quoted to match {@link composeTemplateFile}.
+ */
+export function setFrontmatterKey(body: string, key: string, value: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  const scalar = yamlScalar(value)
+  if (!match) {
+    return `---\n${key}: ${scalar}\n---\n${body}`
+  }
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  const lines = inner.length ? inner.split(/\r?\n/) : []
+  let replaced = false
+  const nextLines = lines.map((line) => {
+    const idx = line.indexOf(':')
+    if (idx === -1) return line
+    if (line.slice(0, idx).trim() !== key) return line
+    replaced = true
+    return `${key}: ${scalar}`
+  })
+  if (!replaced) nextLines.push(`${key}: ${scalar}`)
+  return `---\n${nextLines.join('\n')}\n---\n${rest}`
+}
+
+/**
+ * Remove `key` from a note body's leading frontmatter. If the key (or the
+ * frontmatter block) is absent, the body is returned unchanged. When removing
+ * the key empties the block, the whole `---…---` fence is dropped. Pure and
+ * tolerant — never throws.
+ */
+export function removeFrontmatterKey(body: string, key: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  if (!match) return body
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  const lines = inner.length ? inner.split(/\r?\n/) : []
+  const nextLines = lines.filter((line) => {
+    const idx = line.indexOf(':')
+    if (idx === -1) return true
+    return line.slice(0, idx).trim() !== key
+  })
+  if (nextLines.length === lines.length) return body // key absent: unchanged
+  if (nextLines.length === 0) return rest // block now empty: drop the fence
+  return `---\n${nextLines.join('\n')}\n---\n${rest}`
+}
+
 function normalizeCategory(value: string | undefined): TemplateCategory {
   if (value === 'Engineering' || value === 'Personal' || value === 'Custom') return value
   return 'Custom'

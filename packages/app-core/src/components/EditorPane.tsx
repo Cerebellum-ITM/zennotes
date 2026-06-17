@@ -71,7 +71,7 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { DynamicIcon } from './DynamicIcon'
-import { resolveNoteIconRef } from '../lib/icon-resolve'
+import { buildCustomIconIndex, resolveNoteIconRef } from '../lib/icon-resolve'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
@@ -550,10 +550,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const customIcons = useStore((s) => s.customIcons)
   const iconRulesSettings = useStore((s) => s.vaultSettings)
   const iconRules = iconRulesSettings.iconRules
-  const customByName = useMemo(
-    () => new Map(customIcons.map((icon) => [icon.name, icon])),
-    [customIcons]
-  )
+  const customByName = useMemo(() => buildCustomIconIndex(customIcons), [customIcons])
   const headerNoteIconRef = useMemo(
     () =>
       content

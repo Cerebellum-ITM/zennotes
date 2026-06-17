@@ -258,8 +258,20 @@ export type IconRef = string
 
 /** A user-supplied SVG icon stored under `.zennotes/icons/`. */
 export interface CustomIcon {
-  /** File name without the `.svg` extension. */
+  /**
+   * Unique key: the POSIX path relative to `.zennotes/icons/` without the
+   * `.svg` extension (e.g. `star` at the root, `work/star` in a subfolder).
+   * The custom IconRef is `custom:<id>`. For a root icon this equals its old
+   * `name`, preserving back-compat with `custom:<name>` refs.
+   */
+  id: string
+  /** Display name: the file's stem without the `.svg` extension. */
   name: string
+  /**
+   * The parent directory relative to `.zennotes/icons/` (`''` = root). Used to
+   * group icons into sections in the picker.
+   */
+  section: string
   /** Raw (unsanitized) SVG text as read from disk. */
   svg: string
   /** File modification time in epoch milliseconds. */
@@ -606,7 +618,13 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
-export type VaultChangeScope = 'content' | 'vault-settings' | 'comments' | 'database' | 'folder'
+export type VaultChangeScope =
+  | 'content'
+  | 'vault-settings'
+  | 'comments'
+  | 'database'
+  | 'folder'
+  | 'custom-icons'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind

@@ -90,6 +90,8 @@ import {
   composeTemplateFile,
   mergeTemplates,
   parseCustomTemplate,
+  removeFrontmatterKey,
+  setFrontmatterKey,
   slugifyTemplateName,
   upsertFrontmatterKey
 } from '@shared/template-files'
@@ -1824,8 +1826,13 @@ interface Store {
   refreshCustomIcons: () => Promise<void>
   /** Import an SVG as a custom icon, then refresh the cache. */
   importCustomIcon: (input: { name: string; svg: string }) => Promise<CustomIcon>
-  /** Delete a custom icon by name, then refresh the cache. */
-  deleteCustomIcon: (name: string) => Promise<void>
+  /** Delete a custom icon by id, then refresh the cache. */
+  deleteCustomIcon: (id: string) => Promise<void>
+  /**
+   * Set (or clear, when `iconRef` is `null`) a note's explicit `icon:`
+   * frontmatter key, then refresh the note list so the sidebar re-renders.
+   */
+  setNoteIcon: (path: string, iconRef: string | null) => Promise<void>
   /** Create + open a note from a template, substituting variables and placing
    *  the caret at `{{cursor}}`. Falls back to a title prompt when the template
    *  has no titleTemplate and no explicit title is supplied. */
@@ -3484,6 +3491,12 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshNotes()
       return
     }
+    if (ev.scope === 'custom-icons') {
+      // A custom SVG was dropped/edited/removed under `.zennotes/icons/`.
+      // Reload the registry so pickers and rendered icons update live.
+      await get().refreshCustomIcons()
+      return
+    }
     const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
     if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
       await get().refreshAssets()
@@ -4490,6 +4503,30 @@ export const useStore = create<Store>((set, get) => {
   deleteCustomIcon: async (name) => {
     await window.zen.deleteCustomIcon(name)
     await get().refreshCustomIcons()
+  },
+
+  setNoteIcon: async (path, iconRef) => {
+    try {
+      const { body } = await window.zen.readNote(path)
+      const next =
+        iconRef === null
+          ? removeFrontmatterKey(body, 'icon')
+          : setFrontmatterKey(body, 'icon', iconRef)
+      if (next === body) return // no-op (e.g. clearing an absent key)
+      await window.zen.writeNote(path, next)
+      lastWrittenByPath.set(path, next)
+      // If the note is open, keep its buffer in sync so the editor shows the
+      // updated frontmatter instead of reverting on the next watcher echo.
+      set((s) => {
+        const existing = s.noteContents[path]
+        if (!existing) return s
+        return { noteContents: { ...s.noteContents, [path]: { ...existing, body: next } } }
+      })
+      await get().refreshNotes()
+    } catch (err) {
+      console.error('setNoteIcon failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
+    }
   },
 
   createFromTemplate: async (template, opts) => {

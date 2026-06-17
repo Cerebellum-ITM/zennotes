@@ -61,13 +61,17 @@ const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
 
 /**
  * Whether a stored `folderIcons` value is a valid IconRef: a bare built-in id,
- * a `builtin:<id>` ref, or a `custom:<name>` ref. Validates the format only —
- * the renderer falls back to the default when a custom file is missing.
+ * a `builtin:<id>` ref, or a `custom:<id>` ref (where `<id>` is a POSIX relpath
+ * whose segments are each a safe stem, e.g. `star` or `work/star`). Validates
+ * the format only — the renderer falls back to the default when missing.
  */
 function isIconRef(value: unknown): value is string {
   if (typeof value !== 'string') return false
   if (value.startsWith('custom:')) {
-    return CUSTOM_ICON_NAME_RE.test(value.slice('custom:'.length))
+    return value
+      .slice('custom:'.length)
+      .split('/')
+      .every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
   }
   if (value.startsWith('builtin:')) {
     return isFolderIconId(value.slice('builtin:'.length))

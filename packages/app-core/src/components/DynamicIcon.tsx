@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { CustomIcon } from '@shared/ipc'
-import { resolveIcon } from '../lib/icon-resolve'
+import { buildCustomIconIndex, resolveIcon } from '../lib/icon-resolve'
 import { sanitizeIconSvg } from '../lib/sanitize-icon'
 import { iconOptionById } from './FolderIcons'
 
@@ -22,10 +22,7 @@ export function DynamicIcon({
   customIcons: CustomIcon[]
   size?: number
 }): JSX.Element | null {
-  const customByName = useMemo(
-    () => new Map(customIcons.map((icon) => [icon.name, icon])),
-    [customIcons]
-  )
+  const customByName = useMemo(() => buildCustomIconIndex(customIcons), [customIcons])
   const resolved = useMemo(() => resolveIcon(iconRef, customByName), [iconRef, customByName])
   const sanitized = useMemo(
     () => (resolved?.kind === 'custom' ? sanitizeIconSvg(resolved.icon.svg) : ''),

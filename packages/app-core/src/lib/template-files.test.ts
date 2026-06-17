@@ -5,6 +5,8 @@ import {
   mergeTemplates,
   parseCustomTemplate,
   parseFrontmatter,
+  removeFrontmatterKey,
+  setFrontmatterKey,
   slugifyTemplateName,
   upsertFrontmatterKey
 } from '@shared/template-files'
@@ -208,5 +210,49 @@ describe('composeTemplateFile builtinId round trip', () => {
       body: '# {{title}}\n'
     })
     expect(parseCustomTemplate(raw, '.zennotes/templates/adr.md').builtinId).toBe('builtin.adr')
+  })
+})
+
+describe('setFrontmatterKey', () => {
+  it('overwrites an existing key in place', () => {
+    const out = setFrontmatterKey('---\nicon: old\ntitle: Hi\n---\n# Body\n', 'icon', 'new')
+    expect(out).toBe('---\nicon: new\ntitle: Hi\n---\n# Body\n')
+  })
+
+  it('inserts the key when absent from an existing block', () => {
+    const out = setFrontmatterKey('---\ntitle: Hi\n---\n# Body\n', 'icon', 'star')
+    expect(out).toBe('---\ntitle: Hi\nicon: star\n---\n# Body\n')
+  })
+
+  it('prepends a fresh block when there is no frontmatter', () => {
+    const out = setFrontmatterKey('# Body\n', 'icon', 'star')
+    expect(out).toBe('---\nicon: star\n---\n# Body\n')
+  })
+
+  it('quotes a sectioned custom ref containing a slash safely', () => {
+    const out = setFrontmatterKey('# Body\n', 'icon', 'custom:work/star')
+    const { data } = parseFrontmatter(out)
+    expect(data.icon).toBe('custom:work/star')
+  })
+})
+
+describe('removeFrontmatterKey', () => {
+  it('removes the key, keeping the rest of the block', () => {
+    const out = removeFrontmatterKey('---\nicon: star\ntitle: Hi\n---\n# Body\n', 'icon')
+    expect(out).toBe('---\ntitle: Hi\n---\n# Body\n')
+  })
+
+  it('drops the whole fence when the block becomes empty', () => {
+    const out = removeFrontmatterKey('---\nicon: star\n---\n# Body\n', 'icon')
+    expect(out).toBe('# Body\n')
+  })
+
+  it('returns the body unchanged when the key is absent', () => {
+    const body = '---\ntitle: Hi\n---\n# Body\n'
+    expect(removeFrontmatterKey(body, 'icon')).toBe(body)
+  })
+
+  it('returns the body unchanged when there is no frontmatter', () => {
+    expect(removeFrontmatterKey('# Body\n', 'icon')).toBe('# Body\n')
   })
 })

@@ -109,6 +109,7 @@ export function TemplateEditorModal({
   const vimMode = useStore((s) => s.vimMode)
   const customIcons = useStore((s) => s.customIcons)
   const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const refreshCustomIcons = useStore((s) => s.refreshCustomIcons)
   const [raw, setRaw] = useState(initialRaw ?? SKELETON)
   const [saving, setSaving] = useState(false)
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
@@ -250,7 +251,10 @@ export function TemplateEditorModal({
         <span className="form-label">Icon</span>
         <button
           type="button"
-          onClick={() => setIconPickerOpen(true)}
+          onClick={() => {
+            void refreshCustomIcons()
+            setIconPickerOpen(true)
+          }}
           title="Notes created from this template start with this icon"
           className="flex items-center gap-2 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-xs text-ink-700 hover:bg-paper-200 hover:text-ink-900"
         >
@@ -309,7 +313,7 @@ export function TemplateEditorModal({
         }}
         onImport={async ({ name: iconName, svg }) => {
           const icon = await importCustomIcon({ name: iconName, svg })
-          applyIcon(`custom:${icon.name}`)
+          applyIcon(`custom:${icon.id}`)
           setIconPickerOpen(false)
         }}
         onCancel={() => setIconPickerOpen(false)}

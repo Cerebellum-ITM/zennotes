@@ -148,7 +148,12 @@ const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
 function isIconRef(value: unknown): value is string {
   if (typeof value !== 'string') return false
   if (value.startsWith('custom:')) {
-    return CUSTOM_ICON_NAME_RE.test(value.slice('custom:'.length))
+    // A custom IconRef is `custom:<id>` where `<id>` is a POSIX relpath whose
+    // segments are each a safe stem (e.g. `star` or `work/star`).
+    return value
+      .slice('custom:'.length)
+      .split('/')
+      .every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
   }
   if (value.startsWith('builtin:')) {
     return isFolderIconId(value.slice('builtin:'.length))
@@ -1018,33 +1023,65 @@ function customIconsDir(root: string): string {
   return path.join(root, INTERNAL_VAULT_DIR, CUSTOM_ICONS_DIR)
 }
 
-function customIconRel(name: string): string {
-  return `${INTERNAL_VAULT_DIR}/${CUSTOM_ICONS_DIR}/${name}.svg`
+/**
+ * Build the vault-relative path of a custom icon from its `id` (the POSIX path
+ * relative to the icons dir, without `.svg`). A root id (no `/`) round-trips to
+ * the same file the flat layout used, preserving back-compat.
+ */
+function customIconRel(id: string): string {
+  return `${INTERNAL_VAULT_DIR}/${CUSTOM_ICONS_DIR}/${id}.svg`
 }
 
+/** Each path segment of a custom icon `id` must be a safe stem. */
+function isValidCustomIconId(id: string): boolean {
+  if (!id) return false
+  const segs = id.split('/')
+  return segs.every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
+}
+
+const CUSTOM_ICONS_MAX_DEPTH = 3
+
 export async function listCustomIcons(root: string): Promise<CustomIcon[]> {
-  const dir = customIconsDir(root)
-  let entries: Dirent[]
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
-  } catch {
-    return [] // no icons dir yet
-  }
+  const baseDir = customIconsDir(root)
   const icons: CustomIcon[] = []
-  for (const entry of entries) {
-    if (!entry.isFile()) continue
-    if (entry.name.startsWith('.') || !entry.name.toLowerCase().endsWith('.svg')) continue
-    const name = entry.name.slice(0, -'.svg'.length)
-    if (!CUSTOM_ICON_NAME_RE.test(name)) continue
-    const abs = resolveSafe(root, customIconRel(name))
+
+  // Recurse `.zennotes/icons/` up to a bounded depth. `section` is the parent
+  // directory relative to the icons dir (`''` = root); `id` is the POSIX
+  // relpath without `.svg` (unique key); `name` is the file stem (display).
+  const walk = async (dir: string, section: string, depth: number): Promise<void> => {
+    let entries: Dirent[]
     try {
-      const [svg, stat] = await Promise.all([fs.readFile(abs, 'utf8'), fs.stat(abs)])
-      icons.push({ name, svg, updatedAt: stat.mtimeMs })
-    } catch (err) {
-      console.warn(`[icons] skipping unreadable custom icon ${entry.name}:`, err)
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return // dir absent or unreadable
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        if (depth >= CUSTOM_ICONS_MAX_DEPTH) continue
+        if (!CUSTOM_ICON_NAME_RE.test(entry.name)) continue
+        const nextSection = section ? `${section}/${entry.name}` : entry.name
+        await walk(path.join(dir, entry.name), nextSection, depth + 1)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (!entry.name.toLowerCase().endsWith('.svg')) continue
+      const name = entry.name.slice(0, -'.svg'.length)
+      if (!CUSTOM_ICON_NAME_RE.test(name)) continue
+      const id = section ? `${section}/${name}` : name
+      const abs = resolveSafe(root, customIconRel(id))
+      try {
+        const [svg, stat] = await Promise.all([fs.readFile(abs, 'utf8'), fs.stat(abs)])
+        icons.push({ id, name, section, svg, updatedAt: stat.mtimeMs })
+      } catch (err) {
+        console.warn(`[icons] skipping unreadable custom icon ${id}:`, err)
+      }
     }
   }
-  icons.sort((a, b) => a.name.localeCompare(b.name))
+
+  await walk(baseDir, '', 0)
+  // Sort by section first (root before subfolders), then by display name.
+  icons.sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))
   return icons
 }
 
@@ -1061,16 +1098,18 @@ export async function importCustomIcon(
   }
   const dir = customIconsDir(root)
   await fs.mkdir(dir, { recursive: true })
+  // Import always lands at the icons-dir root: id == name, section == ''.
   const abs = resolveSafe(root, customIconRel(name))
   await fs.writeFile(abs, input.svg, 'utf8')
   const stat = await fs.stat(abs)
-  return { name, svg: input.svg, updatedAt: stat.mtimeMs }
+  return { id: name, name, section: '', svg: input.svg, updatedAt: stat.mtimeMs }
 }
 
-export async function deleteCustomIcon(root: string, name: string): Promise<void> {
-  const trimmed = (name ?? '').trim()
-  if (!CUSTOM_ICON_NAME_RE.test(trimmed)) {
-    throw new Error(`Invalid custom icon name: ${name ?? ''}`)
+export async function deleteCustomIcon(root: string, id: string): Promise<void> {
+  const trimmed = (id ?? '').trim()
+  // Accept either a flat name (back-compat) or a sectioned id (`work/star`).
+  if (!isValidCustomIconId(trimmed)) {
+    throw new Error(`Invalid custom icon id: ${id ?? ''}`)
   }
   const abs = resolveSafe(root, customIconRel(trimmed))
   await fs.rm(abs, { force: true })
