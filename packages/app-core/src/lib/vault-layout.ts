@@ -56,6 +56,24 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
+const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Whether a stored `folderIcons` value is a valid IconRef: a bare built-in id,
+ * a `builtin:<id>` ref, or a `custom:<name>` ref. Validates the format only —
+ * the renderer falls back to the default when a custom file is missing.
+ */
+function isIconRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  if (value.startsWith('custom:')) {
+    return CUSTOM_ICON_NAME_RE.test(value.slice('custom:'.length))
+  }
+  if (value.startsWith('builtin:')) {
+    return isFolderIconId(value.slice('builtin:'.length))
+  }
+  return isFolderIconId(value)
+}
+
 function pad(n: number): string {
   return n.toString().padStart(2, '0')
 }
@@ -99,10 +117,10 @@ export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
   const folderIcons = settings?.folderIcons
-  const normalizedFolderIcons: Record<string, FolderIconId> = {}
+  const normalizedFolderIcons: Record<string, string> = {}
   if (folderIcons && typeof folderIcons === 'object') {
     for (const [key, value] of Object.entries(folderIcons)) {
-      if (!key || !isFolderIconId(value)) continue
+      if (!key || !isIconRef(value)) continue
       normalizedFolderIcons[key] = value
     }
   }
@@ -132,12 +150,12 @@ export function folderIconKey(folder: NoteFolder, subpath: string): string {
 }
 
 export function rewriteFolderIconsForRename(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   oldSubpath: string,
   newSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, oldSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -155,11 +173,11 @@ export function rewriteFolderIconsForRename(
 }
 
 export function removeFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   subpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, subpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -170,12 +188,12 @@ export function removeFolderIcons(
 }
 
 export function duplicateFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   sourceSubpath: string,
   targetSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = { ...folderIcons }
+): Record<string, string> {
+  const next: Record<string, string> = { ...folderIcons }
   const exactKey = folderIconKey(folder, sourceSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {

@@ -15,8 +15,10 @@ import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
+  type CustomIcon,
   DeletedAsset,
   type FolderIconId,
+  type ImportCustomIconInput,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -131,6 +133,25 @@ const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
 
 function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
+}
+
+const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Whether a stored `folderIcons` value is a valid {@link IconRef}: a bare
+ * built-in id, a `builtin:<id>` ref, or a `custom:<name>` ref. The format is
+ * validated, not the existence of the target — the renderer falls back to the
+ * default icon when a custom file is missing.
+ */
+function isIconRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  if (value.startsWith('custom:')) {
+    return CUSTOM_ICON_NAME_RE.test(value.slice('custom:'.length))
+  }
+  if (value.startsWith('builtin:')) {
+    return isFolderIconId(value.slice('builtin:'.length))
+  }
+  return isFolderIconId(value)
 }
 
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
@@ -757,11 +778,11 @@ function normalizeVaultSettings(
     weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
     folderIcons?: Record<string, unknown> | null
   }
-  const folderIcons: Record<string, FolderIconId> = {}
+  const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
-    for (const [key, iconId] of Object.entries(candidate.folderIcons)) {
-      if (!key || !isFolderIconId(iconId)) continue
-      folderIcons[key] = iconId
+    for (const [key, iconRef] of Object.entries(candidate.folderIcons)) {
+      if (!key || !isIconRef(iconRef)) continue
+      folderIcons[key] = iconRef
     }
   }
   return {
@@ -795,12 +816,12 @@ function folderIconKey(folder: NoteFolder, subpath: string): string {
 }
 
 function rewriteFolderIconsForRename(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   oldSubpath: string,
   newSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, oldSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -818,11 +839,11 @@ function rewriteFolderIconsForRename(
 }
 
 function removeFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   subpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, subpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -833,12 +854,12 @@ function removeFolderIcons(
 }
 
 function duplicateFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   sourceSubpath: string,
   targetSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = { ...folderIcons }
+): Record<string, string> {
+  const next: Record<string, string> = { ...folderIcons }
   const exactKey = folderIconKey(folder, sourceSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -907,6 +928,72 @@ export async function setVaultSettings(
     await fs.mkdir(path.join(root, 'inbox'), { recursive: true })
   }
   return cloneVaultSettings(normalized)
+}
+
+// --- Custom SVG icons (stored as `.zennotes/icons/<name>.svg`) ---------------
+
+const CUSTOM_ICONS_DIR = 'icons'
+
+function customIconsDir(root: string): string {
+  return path.join(root, INTERNAL_VAULT_DIR, CUSTOM_ICONS_DIR)
+}
+
+function customIconRel(name: string): string {
+  return `${INTERNAL_VAULT_DIR}/${CUSTOM_ICONS_DIR}/${name}.svg`
+}
+
+export async function listCustomIcons(root: string): Promise<CustomIcon[]> {
+  const dir = customIconsDir(root)
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return [] // no icons dir yet
+  }
+  const icons: CustomIcon[] = []
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    if (entry.name.startsWith('.') || !entry.name.toLowerCase().endsWith('.svg')) continue
+    const name = entry.name.slice(0, -'.svg'.length)
+    if (!CUSTOM_ICON_NAME_RE.test(name)) continue
+    const abs = resolveSafe(root, customIconRel(name))
+    try {
+      const [svg, stat] = await Promise.all([fs.readFile(abs, 'utf8'), fs.stat(abs)])
+      icons.push({ name, svg, updatedAt: stat.mtimeMs })
+    } catch (err) {
+      console.warn(`[icons] skipping unreadable custom icon ${entry.name}:`, err)
+    }
+  }
+  icons.sort((a, b) => a.name.localeCompare(b.name))
+  return icons
+}
+
+export async function importCustomIcon(
+  root: string,
+  input: ImportCustomIconInput
+): Promise<CustomIcon> {
+  const name = (input?.name ?? '').trim()
+  if (!CUSTOM_ICON_NAME_RE.test(name)) {
+    throw new Error(`Invalid custom icon name: ${input?.name ?? ''}`)
+  }
+  if (typeof input?.svg !== 'string' || !input.svg.trim()) {
+    throw new Error('Custom icon SVG is empty')
+  }
+  const dir = customIconsDir(root)
+  await fs.mkdir(dir, { recursive: true })
+  const abs = resolveSafe(root, customIconRel(name))
+  await fs.writeFile(abs, input.svg, 'utf8')
+  const stat = await fs.stat(abs)
+  return { name, svg: input.svg, updatedAt: stat.mtimeMs }
+}
+
+export async function deleteCustomIcon(root: string, name: string): Promise<void> {
+  const trimmed = (name ?? '').trim()
+  if (!CUSTOM_ICON_NAME_RE.test(trimmed)) {
+    throw new Error(`Invalid custom icon name: ${name ?? ''}`)
+  }
+  const abs = resolveSafe(root, customIconRel(trimmed))
+  await fs.rm(abs, { force: true })
 }
 
 async function primaryNotesRoot(root: string): Promise<string> {

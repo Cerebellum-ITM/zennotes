@@ -3,6 +3,7 @@ import type { EditorView } from '@codemirror/view'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
 import type {
   AssetMeta,
+  CustomIcon,
   DeletedAsset,
   FolderEntry,
   LocalVaultEntry,
@@ -197,7 +198,12 @@ async function listNotesFromBridge(): Promise<NoteMeta[]> {
 
 async function refreshVaultIndexes(): Promise<void> {
   const state = useStore.getState()
-  await Promise.all([state.refreshNotes(), state.refreshAssets(), state.loadCustomTemplates()])
+  await Promise.all([
+    state.refreshNotes(),
+    state.refreshAssets(),
+    state.loadCustomTemplates(),
+    state.refreshCustomIcons()
+  ])
 }
 
 /** Find a template (built-in or custom) by id, or undefined if it's gone. */
@@ -1453,6 +1459,8 @@ interface Store {
   templatePaletteTarget: { folder: NoteFolder; subpath: string } | null
   /** Custom templates loaded from `.zennotes/templates/` (built-ins are constants). */
   customTemplates: NoteTemplate[]
+  /** Custom SVG icons loaded from `.zennotes/icons/`. */
+  customIcons: CustomIcon[]
   query: string
   initialized: boolean
   workspaceRestored: boolean
@@ -1811,6 +1819,12 @@ interface Store {
     previousSourcePath?: string
   }) => Promise<void>
   deleteCustomTemplate: (sourcePath: string) => Promise<void>
+  /** Reload custom SVG icons from disk (called on vault open and after CRUD). */
+  refreshCustomIcons: () => Promise<void>
+  /** Import an SVG as a custom icon, then refresh the cache. */
+  importCustomIcon: (input: { name: string; svg: string }) => Promise<CustomIcon>
+  /** Delete a custom icon by name, then refresh the cache. */
+  deleteCustomIcon: (name: string) => Promise<void>
   /** Create + open a note from a template, substituting variables and placing
    *  the caret at `{{cursor}}`. Falls back to a title prompt when the template
    *  has no titleTemplate and no explicit title is supplied. */
@@ -2676,6 +2690,7 @@ export const useStore = create<Store>((set, get) => {
   templatePaletteMode: 'create',
   templatePaletteTarget: null,
   customTemplates: [],
+  customIcons: [],
   query: '',
   initialized: false,
   workspaceRestored: false,
@@ -4453,6 +4468,27 @@ export const useStore = create<Store>((set, get) => {
   deleteCustomTemplate: async (sourcePath) => {
     await window.zen.deleteTemplate(sourcePath)
     await get().loadCustomTemplates()
+  },
+
+  refreshCustomIcons: async () => {
+    try {
+      const icons = await window.zen.listCustomIcons()
+      set({ customIcons: icons })
+    } catch (err) {
+      console.error('refreshCustomIcons failed', err)
+      set({ customIcons: [] })
+    }
+  },
+
+  importCustomIcon: async (input) => {
+    const icon = await window.zen.importCustomIcon(input)
+    await get().refreshCustomIcons()
+    return icon
+  },
+
+  deleteCustomIcon: async (name) => {
+    await window.zen.deleteCustomIcon(name)
+    await get().refreshCustomIcons()
   },
 
   createFromTemplate: async (template, opts) => {

@@ -2,6 +2,8 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CustomIcon,
+  ImportCustomIconInput,
   DeletedAsset,
   ExternalFileContent,
   FolderEntry,
@@ -122,6 +124,12 @@ export interface ZenBridge {
   readTemplate(sourcePath: string): Promise<string>
   writeTemplate(input: WriteTemplateInput): Promise<CustomTemplateFile>
   deleteTemplate(sourcePath: string): Promise<void>
+  /** List user SVG icons stored under `.zennotes/icons/`. */
+  listCustomIcons(): Promise<CustomIcon[]>
+  /** Write `<name>.svg` under `.zennotes/icons/` and return its record. */
+  importCustomIcon(input: ImportCustomIconInput): Promise<CustomIcon>
+  /** Remove the custom icon named `name` (`.zennotes/icons/<name>.svg`). */
+  deleteCustomIcon(name: string): Promise<void>
   getVaultTextSearchCapabilities(
     paths?: VaultTextSearchToolPaths
   ): Promise<VaultTextSearchCapabilities>

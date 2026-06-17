@@ -11,7 +11,7 @@ import {
 import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
-import type { AssetMeta, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
+import type { AssetMeta, FolderEntry, NoteFolder, NoteMeta } from "@shared/ipc";
 import type { NoteSortOrder } from "../store";
 import { isArchiveTabPath } from "@shared/archive";
 import { isTrashTabPath } from "@shared/trash";
@@ -65,6 +65,8 @@ import {
   resolveFolderIconOption,
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
+import { DynamicIcon } from "./DynamicIcon";
+import { resolveIcon } from "../lib/icon-resolve";
 import {
   getSidebarEdgePrefetchPaths,
   getSidebarEntryLimitIncludingIndex,
@@ -350,6 +352,8 @@ export function Sidebar(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
   const vaultSettings = useStore((s) => s.vaultSettings);
+  const customIcons = useStore((s) => s.customIcons);
+  const importCustomIcon = useStore((s) => s.importCustomIcon);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
   const setView = useStore((s) => s.setView);
@@ -872,13 +876,13 @@ export function Sidebar(): JSX.Element {
   );
 
   const saveFolderIcon = useCallback(
-    async (folder: NoteFolder, subpath: string, iconId: FolderIconId) => {
+    async (folder: NoteFolder, subpath: string, iconRef: string) => {
       const key = folderIconKey(folder, subpath);
       const nextSettings = normalizeVaultSettings({
         ...vaultSettings,
         folderIcons: {
           ...vaultSettings.folderIcons,
-          [key]: iconId,
+          [key]: iconRef,
         },
       });
       await setVaultSettings(nextSettings);
@@ -901,6 +905,22 @@ export function Sidebar(): JSX.Element {
       setFolderIconPicker(null);
     },
     [setVaultSettings, vaultSettings],
+  );
+  const customIconsByName = useMemo(
+    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    [customIcons],
+  );
+  // Icon node for a (system) folder, preferring a custom SVG when its stored
+  // IconRef resolves to one; otherwise the built-in glyph.
+  const folderIconNode = useCallback(
+    (folder: NoteFolder, subpath: string): JSX.Element => {
+      const ref = vaultSettings.folderIcons[folderIconKey(folder, subpath)];
+      if (ref && resolveIcon(ref, customIconsByName)?.kind === "custom") {
+        return <DynamicIcon iconRef={ref} customIcons={customIcons} />;
+      }
+      return resolveFolderIconOption(folder, subpath, vaultSettings.folderIcons).icon;
+    },
+    [customIcons, customIconsByName, vaultSettings.folderIcons],
   );
   const [noteMenu, setNoteMenu] = useState<{
     x: number;
@@ -2689,7 +2709,7 @@ export function Sidebar(): JSX.Element {
           <FolderTreeRoot
             label={folderLabels.quick}
             icon={
-              resolveFolderIconOption("quick", "", vaultSettings.folderIcons).icon
+              folderIconNode("quick", "")
             }
             folder="quick"
             tree={trees.quick}
@@ -2758,7 +2778,7 @@ export function Sidebar(): JSX.Element {
           <div className="mt-1">
             <ArchiveSidebarRow
               label={folderLabels.archive}
-              icon={resolveFolderIconOption("archive", "", vaultSettings.folderIcons).icon}
+              icon={folderIconNode("archive", "")}
               count={countNotesInTree(trees.archive)}
               active={
                 archiveViewActive ||
@@ -2776,7 +2796,7 @@ export function Sidebar(): JSX.Element {
 
             <TrashSidebarRow
               label={folderLabels.trash}
-              icon={resolveFolderIconOption("trash", "", vaultSettings.folderIcons).icon}
+              icon={folderIconNode("trash", "")}
               count={countNotesInTree(trees.trash)}
               active={trashViewActive || !!selectedPath?.startsWith("trash/")}
               onClick={() => {
@@ -2835,7 +2855,7 @@ export function Sidebar(): JSX.Element {
             <FolderTreeRoot
               label={folderLabels.inbox}
               icon={
-                resolveFolderIconOption("inbox", "", vaultSettings.folderIcons).icon
+                folderIconNode("inbox", "")
               }
               folder="inbox"
               tree={trees.inbox}
@@ -3046,18 +3066,32 @@ export function Sidebar(): JSX.Element {
       {folderIconPicker && (
         <FolderIconPickerModal
           targetLabel={folderIconPicker.label}
-          currentIconId={resolveFolderIconId(
-            folderIconPicker.folder,
-            folderIconPicker.subpath,
-            vaultSettings.folderIcons,
-          )}
-          onSelect={(iconId) =>
+          currentIconRef={
+            vaultSettings.folderIcons[
+              folderIconKey(folderIconPicker.folder, folderIconPicker.subpath)
+            ] ??
+            resolveFolderIconId(
+              folderIconPicker.folder,
+              folderIconPicker.subpath,
+              vaultSettings.folderIcons,
+            )
+          }
+          customIcons={customIcons}
+          onSelect={(iconRef) =>
             void saveFolderIcon(
               folderIconPicker.folder,
               folderIconPicker.subpath,
-              iconId,
+              iconRef,
             )
           }
+          onImport={async ({ name, svg }) => {
+            const icon = await importCustomIcon({ name, svg });
+            await saveFolderIcon(
+              folderIconPicker.folder,
+              folderIconPicker.subpath,
+              `custom:${icon.name}`,
+            );
+          }}
           onCancel={() => setFolderIconPicker(null)}
         />
       )}
@@ -3709,6 +3743,16 @@ function SubTree({
 }: { node: TreeNode; depth: number } & TreeRenderProps): JSX.Element {
   const key = `${folder}:${node.subpath}`;
   const isCollapsed = collapsed.has(key);
+  const customIcons = useStore((s) => s.customIcons);
+  const storedIconRef = vaultSettings.folderIcons[folderIconKey(folder, node.subpath)];
+  const customByName = useMemo(
+    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    [customIcons],
+  );
+  const resolvedCustom =
+    storedIconRef && resolveIcon(storedIconRef, customByName)?.kind === "custom"
+      ? storedIconRef
+      : null;
   const iconOption = resolveFolderIconOption(
     folder,
     node.subpath,
@@ -3761,7 +3805,15 @@ function SubTree({
   return (
     <div className="flex flex-col">
       <TreeRow
-        icon={iconOption.id === "folder" ? <FolderGlyphIcon open={!isCollapsed && hasChildren} /> : iconOption.icon}
+        icon={
+          resolvedCustom ? (
+            <DynamicIcon iconRef={resolvedCustom} customIcons={customIcons} />
+          ) : iconOption.id === "folder" ? (
+            <FolderGlyphIcon open={!isCollapsed && hasChildren} />
+          ) : (
+            iconOption.icon
+          )
+        }
         label={node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}

@@ -26,6 +26,7 @@ import type {
   NoteFolder,
   DeletedAsset,
   ExternalFileContent,
+  ImportCustomIconInput,
   MoveExternalFileResult,
   PastedImageInput,
   LocalVaultEntry,
@@ -59,6 +60,9 @@ import {
   generateDemoTour,
   getVaultSettings,
   hasAssetsDir,
+  listCustomIcons,
+  importCustomIcon,
+  deleteCustomIcon,
   importExternalNote,
   importFiles,
   importPastedImage,
@@ -2106,6 +2110,30 @@ function registerIpc(): void {
     }
     const v = requireVault()
     return await deleteCustomTemplate(v.root, sourcePath)
+  })
+
+  // Custom SVG icons live on the local filesystem only; remote vaults return an
+  // empty list and reject mutations (same model as custom templates).
+  handle(IPC.VAULT_LIST_CUSTOM_ICONS, async () => {
+    if (isRemoteWorkspaceActive()) return []
+    const v = requireVault()
+    return await listCustomIcons(v.root)
+  })
+
+  handle(IPC.VAULT_IMPORT_CUSTOM_ICON, async (_e, input: ImportCustomIconInput) => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Custom icons are unavailable on remote vaults')
+    }
+    const v = requireVault()
+    return await importCustomIcon(v.root, input)
+  })
+
+  handle(IPC.VAULT_DELETE_CUSTOM_ICON, async (_e, name: string) => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Custom icons are unavailable on remote vaults')
+    }
+    const v = requireVault()
+    return await deleteCustomIcon(v.root, name)
   })
 
   handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {

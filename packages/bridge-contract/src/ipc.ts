@@ -29,6 +29,9 @@ export const IPC = {
   VAULT_READ_TEMPLATE: 'vault:read-template',
   VAULT_WRITE_TEMPLATE: 'vault:write-template',
   VAULT_DELETE_TEMPLATE: 'vault:delete-template',
+  VAULT_LIST_CUSTOM_ICONS: 'vault:list-custom-icons',
+  VAULT_IMPORT_CUSTOM_ICON: 'vault:import-custom-icon',
+  VAULT_DELETE_CUSTOM_ICON: 'vault:delete-custom-icon',
   VAULT_TEXT_SEARCH_CAPABILITIES: 'vault:text-search-capabilities',
   VAULT_SEARCH_TEXT: 'vault:search-text',
   VAULT_READ_NOTE: 'vault:read-note',
@@ -245,6 +248,32 @@ export type FolderIconId =
   | 'chart'
   | 'home'
 
+/**
+ * Reference to a folder icon. One of:
+ * - `builtin:<FolderIconId>` — an explicitly-namespaced built-in glyph.
+ * - `<FolderIconId>` — a bare built-in id (back-compat with older settings).
+ * - `custom:<name>` — a user SVG stored at `.zennotes/icons/<name>.svg`.
+ */
+export type IconRef = string
+
+/** A user-supplied SVG icon stored under `.zennotes/icons/`. */
+export interface CustomIcon {
+  /** File name without the `.svg` extension. */
+  name: string
+  /** Raw (unsanitized) SVG text as read from disk. */
+  svg: string
+  /** File modification time in epoch milliseconds. */
+  updatedAt: number
+}
+
+/** Payload for importing/creating a custom icon. */
+export interface ImportCustomIconInput {
+  /** Target file name without extension (`^[A-Za-z0-9._-]+$`). */
+  name: string
+  /** Raw SVG markup to persist. */
+  svg: string
+}
+
 export interface DailyNotesSettings {
   enabled: boolean
   directory: string
@@ -277,7 +306,8 @@ export interface VaultSettings {
   primaryNotesLocation: PrimaryNotesLocation
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings
-  folderIcons: Record<string, FolderIconId>
+  /** Map of folder key (`<folder>:<subpath>`) to an {@link IconRef}. */
+  folderIcons: Record<string, IconRef>
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
