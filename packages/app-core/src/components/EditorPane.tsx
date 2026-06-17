@@ -37,7 +37,7 @@ import {
   tooltips
 } from '@codemirror/view'
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
-import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
+import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder, NoteMeta } from '@shared/ipc'
 import {
   defaultKeymap,
   history,
@@ -70,6 +70,8 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
+import { DynamicIcon } from './DynamicIcon'
+import { resolveNoteIcon } from '../lib/icon-resolve'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
@@ -545,6 +547,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   )
   const activeCommentId = useStore((s) => s.activeCommentId)
   const notes = useStore((s) => s.notes)
+  const customIcons = useStore((s) => s.customIcons)
+  const customByName = useMemo(
+    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    [customIcons]
+  )
+  const headerNoteIcon = useMemo(
+    () => (content ? resolveNoteIcon(content, customByName) : null),
+    [content, customByName]
+  )
+  const notesByPath = useMemo(() => {
+    const map = new Map<string, NoteMeta>()
+    for (const note of notes) map.set(note.path, note)
+    return map
+  }, [notes])
   const assetFiles = useStore((s) => s.assetFiles)
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
@@ -2518,6 +2534,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               {tab.isDiagram && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
+              {!isVirtual &&
+                (() => {
+                  const tabNote = notesByPath.get(tab.path)
+                  if (!tabNote || !resolveNoteIcon(tabNote, customByName)) return null
+                  return (
+                    <span className="flex shrink-0 items-center">
+                      <DynamicIcon
+                        iconRef={tabNote.icon as string}
+                        customIcons={customIcons}
+                        size={14}
+                      />
+                    </span>
+                  )
+                })()}
               <span className={['min-w-0 flex-1 truncate', tab.preview ? 'italic' : ''].join(' ')}>
                 {tab.title}
               </span>
@@ -2542,11 +2572,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     [
       activeTab,
       closeTabInPane,
+      customByName,
+      customIcons,
       focusTabInPane,
       focusedPanel,
       getTabDropInfo,
       isActive,
       movePaneTab,
+      notesByPath,
       openNoteInPane,
       paneId,
       promoteTabInPane,
@@ -2916,6 +2949,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar}>
                 <PanelLeftIcon />
               </IconBtn>
+            )}
+            {headerNoteIcon && content.icon && (
+              <span className="flex shrink-0 items-center text-ink-700">
+                <DynamicIcon iconRef={content.icon} customIcons={customIcons} size={18} />
+              </span>
             )}
             <Breadcrumb
               note={content}

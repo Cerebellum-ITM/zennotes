@@ -75,3 +75,19 @@ export function resolveIcon(
 
   return null
 }
+
+/**
+ * Resolve a note's icon.
+ *
+ * Precedence (this unit): the note's explicit `icon` (from frontmatter),
+ * resolved custom-first via {@link resolveIcon} → `null`. Per-pattern rules
+ * arrive in U06. Returns `null` when the note has no icon or it can't be
+ * resolved, so the caller can fall back to the default document glyph.
+ */
+export function resolveNoteIcon(
+  note: { icon?: string },
+  customByName: Map<string, CustomIcon>
+): ResolvedIcon | null {
+  if (!note.icon) return null
+  return resolveIcon(note.icon, customByName)
+}

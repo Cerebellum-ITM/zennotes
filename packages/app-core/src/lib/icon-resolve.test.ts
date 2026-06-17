@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { CustomIcon } from '@shared/ipc'
-import { resolveIcon } from './icon-resolve'
+import { resolveIcon, resolveNoteIcon } from './icon-resolve'
 import { sanitizeIconSvg } from './sanitize-icon'
 
 function icon(name: string): CustomIcon {
@@ -49,6 +49,33 @@ describe('resolveIcon', () => {
     expect(resolveIcon('nope', customByName)).toBeNull()
     expect(resolveIcon('builtin:nope', customByName)).toBeNull()
     expect(resolveIcon('', customByName)).toBeNull()
+  })
+})
+
+describe('resolveNoteIcon', () => {
+  const customByName = new Map<string, CustomIcon>([['logo', icon('logo')]])
+
+  it('resolves a note icon that names a custom icon', () => {
+    expect(resolveNoteIcon({ icon: 'logo' }, customByName)).toEqual({
+      kind: 'custom',
+      icon: customByName.get('logo')
+    })
+  })
+
+  it('resolves a note icon that names a built-in id', () => {
+    expect(resolveNoteIcon({ icon: 'calendar' }, customByName)).toEqual({
+      kind: 'builtin',
+      id: 'calendar'
+    })
+  })
+
+  it('returns null when the note has no icon', () => {
+    expect(resolveNoteIcon({}, customByName)).toBeNull()
+    expect(resolveNoteIcon({ icon: undefined }, customByName)).toBeNull()
+  })
+
+  it('returns null when the icon matches neither custom nor built-in', () => {
+    expect(resolveNoteIcon({ icon: 'nope' }, customByName)).toBeNull()
   })
 })
 

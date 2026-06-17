@@ -552,7 +552,9 @@ describe('listNotes metadata cache', () => {
               tags: ['cached'],
               wikilinks: ['Cached Target'],
               hasAttachments: false,
-              excerpt: 'cached excerpt'
+              excerpt: 'cached excerpt',
+              frontmatter: { icon: 'calendar' },
+              icon: 'calendar'
             }
           }
         ]
@@ -568,6 +570,58 @@ describe('listNotes metadata cache', () => {
     expect(note?.title).toBe('Cached Title')
     expect(note?.tags).toEqual(['cached'])
     expect(note?.excerpt).toBe('cached excerpt')
+    expect(note?.icon).toBe('calendar')
+    expect(note?.frontmatter).toEqual({ icon: 'calendar' })
+  })
+
+  it('reparses when persisted metadata predates the frontmatter fields', async () => {
+    const root = await makeTempDir('zennotes-meta-cache-noicon-')
+    await ensureVaultLayout(root)
+    const rel = 'inbox/legacy.md'
+    const abs = path.join(root, rel)
+    await writeFile(abs, '---\nicon: calendar\n---\n# Disk Title\n\n#disk\n', 'utf8')
+    const info = await stat(abs)
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
+      `${JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            path: rel,
+            mtimeMs: info.mtimeMs,
+            size: info.size,
+            meta: {
+              path: rel,
+              title: 'Cached Title',
+              folder: 'inbox',
+              siblingOrder: 0,
+              createdAt: info.birthtimeMs || info.ctimeMs,
+              updatedAt: info.mtimeMs,
+              size: info.size,
+              tags: ['cached'],
+              wikilinks: [],
+              hasAttachments: false,
+              excerpt: 'cached excerpt'
+              // no frontmatter/icon: written by an older build
+            }
+          }
+        ]
+      })}\n`,
+      'utf8'
+    )
+
+    invalidateNoteMetaCache(root)
+
+    const notes = await listNotes(root)
+    const note = notes.find((item) => item.path === rel)
+
+    // The legacy entry is treated as stale, so the note is reparsed from disk
+    // and the icon/frontmatter fields are populated.
+    expect(note?.title).toBe('legacy')
+    expect(note?.tags).toEqual(['disk'])
+    expect(note?.icon).toBe('calendar')
+    expect(note?.frontmatter).toEqual({ icon: 'calendar' })
   })
 
   it('ignores stale persisted metadata when file stats no longer match', async () => {

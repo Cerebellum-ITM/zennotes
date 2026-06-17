@@ -38,6 +38,24 @@ export function parseFrontmatter(raw: string): ParsedFrontmatter {
   return { data, body: raw.slice(match[0].length) }
 }
 
+export interface NoteFrontmatterMeta {
+  /** Flat scalar key/value pairs from the leading frontmatter block. */
+  frontmatter: Record<string, string>
+  /** The raw `icon:` value, or `undefined` when absent/empty. */
+  icon: string | undefined
+}
+
+/**
+ * Pure helper for note metadata: parse the leading frontmatter block and pull
+ * the `icon:` scalar. Reuses {@link parseFrontmatter}, so it only sees
+ * first-level scalars (nested YAML is ignored). Never throws.
+ */
+export function extractNoteFrontmatter(raw: string): NoteFrontmatterMeta {
+  const { data } = parseFrontmatter(raw)
+  const icon = typeof data.icon === 'string' && data.icon !== '' ? data.icon : undefined
+  return { frontmatter: data, icon }
+}
+
 function normalizeCategory(value: string | undefined): TemplateCategory {
   if (value === 'Engineering' || value === 'Personal' || value === 'Custom') return value
   return 'Custom'

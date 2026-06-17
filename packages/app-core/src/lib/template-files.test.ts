@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   composeTemplateFile,
+  extractNoteFrontmatter,
   mergeTemplates,
   parseCustomTemplate,
   parseFrontmatter,
@@ -29,6 +30,30 @@ describe('parseFrontmatter', () => {
   it('treats a malformed (unterminated) fence as all body', () => {
     const raw = '---\nname: Broken\n# no closing fence\n'
     expect(parseFrontmatter(raw).body).toBe(raw)
+  })
+})
+
+describe('extractNoteFrontmatter', () => {
+  it('pulls the icon scalar and flat frontmatter from a note body', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('---\nicon: calendar\nfoo: bar\n---\n# Body\n')
+    expect(icon).toBe('calendar')
+    expect(frontmatter).toEqual({ icon: 'calendar', foo: 'bar' })
+  })
+
+  it('returns undefined icon when the key is absent', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('---\nfoo: bar\n---\nbody')
+    expect(icon).toBeUndefined()
+    expect(frontmatter).toEqual({ foo: 'bar' })
+  })
+
+  it('returns undefined icon and empty frontmatter for a note without frontmatter', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('# Just a body\n')
+    expect(icon).toBeUndefined()
+    expect(frontmatter).toEqual({})
+  })
+
+  it('treats an empty icon value as undefined', () => {
+    expect(extractNoteFrontmatter('---\nicon:\n---\nx').icon).toBeUndefined()
   })
 })
 

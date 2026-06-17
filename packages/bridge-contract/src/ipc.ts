@@ -351,6 +351,13 @@ export interface NoteMeta {
    *  is linked into the vault). Notes that merely live inside a symlinked
    *  folder are not flagged — the folder carries the marker instead. */
   isSymlink?: boolean
+  /** Raw value of the frontmatter `icon:` key, if present. Resolved against
+   *  the custom icon registry first, then built-ins (see `resolveNoteIcon`). */
+  icon?: string
+  /** Flat scalar key/value pairs parsed from the note's leading frontmatter
+   *  block. Only first-level scalars; nested YAML is ignored. Base for the
+   *  pattern rules that arrive in U06. */
+  frontmatter?: Record<string, string>
 }
 
 export interface ListNotesPageRequest {

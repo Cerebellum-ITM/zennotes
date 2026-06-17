@@ -66,7 +66,7 @@ import {
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
 import { DynamicIcon } from "./DynamicIcon";
-import { resolveIcon } from "../lib/icon-resolve";
+import { resolveIcon, resolveNoteIcon } from "../lib/icon-resolve";
 import {
   getSidebarEdgePrefetchPaths,
   getSidebarEntryLimitIncludingIndex,
@@ -3984,6 +3984,15 @@ const NoteLeaf = memo(function NoteLeaf({
   // Zustand actions are stable references, so pulling this here keeps the
   // memoized row cheap without threading another prop through the tree.
   const openNotePermanent = useStore((s) => s.selectNote);
+  const customIcons = useStore((s) => s.customIcons);
+  const customByName = useMemo(
+    () => new Map(customIcons.map((icon) => [icon.name, icon])),
+    [customIcons],
+  );
+  const resolvedNoteIcon = useMemo(
+    () => resolveNoteIcon(note, customByName),
+    [note, customByName],
+  );
   const handleSelect = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       onSelectItem(event, { kind: "note", path: note.path }, () =>
@@ -4040,19 +4049,23 @@ const NoteLeaf = memo(function NoteLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={strongActive} rowActive={active || selected}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+        {resolvedNoteIcon && note.icon ? (
+          <DynamicIcon iconRef={note.icon} customIcons={customIcons} size={14} />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
       <span className="flex-1 truncate">{note.title}</span>
       {note.isSymlink && (

@@ -41,6 +41,7 @@ import {
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
+import { extractNoteFrontmatter } from '@shared/template-files'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -1277,6 +1278,19 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
   ) {
     return null
   }
+  // `frontmatter` is required for a cache hit: entries written by an older
+  // build lack it, and rejecting them here forces readMeta to reparse so the
+  // icon/frontmatter fields get populated.
+  if (
+    !candidate.frontmatter ||
+    typeof candidate.frontmatter !== 'object' ||
+    Object.values(candidate.frontmatter).some((value) => typeof value !== 'string')
+  ) {
+    return null
+  }
+  if (candidate.icon !== undefined && typeof candidate.icon !== 'string') {
+    return null
+  }
   return {
     path: candidate.path,
     title: candidate.title,
@@ -1288,7 +1302,9 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     tags: candidate.tags,
     wikilinks: candidate.wikilinks,
     hasAttachments: candidate.hasAttachments,
-    excerpt: candidate.excerpt
+    excerpt: candidate.excerpt,
+    frontmatter: candidate.frontmatter,
+    ...(candidate.icon !== undefined ? { icon: candidate.icon } : {})
   }
 }
 
@@ -1919,7 +1935,10 @@ async function readMeta(
     sameMtimeMs(cached.mtimeMs, stat.mtimeMs) &&
     cached.size === stat.size &&
     cached.meta.path === relPath &&
-    cached.meta.folder === folder
+    cached.meta.folder === folder &&
+    // Entries written before the icon/frontmatter fields existed are missing
+    // `frontmatter`; treat them as stale so the note gets reparsed from disk.
+    cached.meta.frontmatter !== undefined
   ) {
     return { ...cached.meta, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
   }
@@ -1930,6 +1949,7 @@ async function readMeta(
   } catch {
     /* ignore — treat as empty */
   }
+  const { frontmatter, icon } = extractNoteFrontmatter(body)
   const meta: NoteMeta = {
     path: relPath,
     title: path.basename(abs, path.extname(abs)),
@@ -1942,7 +1962,9 @@ async function readMeta(
     wikilinks: extractWikilinks(body),
     hasAttachments: bodyHasLocalAsset(body),
     excerpt: buildExcerpt(body),
-    isSymlink: linked
+    isSymlink: linked,
+    frontmatter,
+    ...(icon !== undefined ? { icon } : {})
   }
   noteMetaCache.set(cacheKey, {
     mtimeMs: stat.mtimeMs,
