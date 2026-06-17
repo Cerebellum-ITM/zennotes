@@ -677,7 +677,9 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     dailyNotes: {
       enabled: settings.dailyNotes.enabled,
       directory: settings.dailyNotes.directory,
-      templateId: settings.dailyNotes.templateId
+      templateId: settings.dailyNotes.templateId,
+      pathFormat: settings.dailyNotes.pathFormat,
+      locale: settings.dailyNotes.locale
     },
     weeklyNotes: {
       enabled: settings.weeklyNotes.enabled,
@@ -698,6 +700,21 @@ function normalizeWeeklyNotesDirectory(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_WEEKLY_NOTES_DIRECTORY
   const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
   return trimmed || DEFAULT_WEEKLY_NOTES_DIRECTORY
+}
+
+function normalizeDailyPathFormat(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.md$/i, '')
+  return trimmed || undefined
+}
+
+function normalizeDailyLocale(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
 }
 
 function normalizeTemplateId(value: unknown): string | undefined {
@@ -730,7 +747,13 @@ function normalizeVaultSettings(
   }
   const candidate = value as {
     primaryNotesLocation?: unknown
-    dailyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
+    dailyNotes?: {
+      enabled?: unknown
+      directory?: unknown
+      templateId?: unknown
+      pathFormat?: unknown
+      locale?: unknown
+    } | null
     weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
     folderIcons?: Record<string, unknown> | null
   }
@@ -751,7 +774,9 @@ function normalizeVaultSettings(
           ? candidate.dailyNotes.enabled
           : DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
       directory: normalizeDailyNotesDirectory(candidate.dailyNotes?.directory),
-      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId)
+      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId),
+      pathFormat: normalizeDailyPathFormat(candidate.dailyNotes?.pathFormat),
+      locale: normalizeDailyLocale(candidate.dailyNotes?.locale)
     },
     weeklyNotes: {
       enabled:

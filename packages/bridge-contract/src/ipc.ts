@@ -250,6 +250,20 @@ export interface DailyNotesSettings {
   directory: string
   /** Template applied to new daily notes. Empty/undefined = blank note. */
   templateId?: string
+  /**
+   * Optional moment-style pattern, relative to `directory`, used to build and
+   * recognize the daily note's subfolders + filename. May contain `/` for
+   * nested folders and ends with the filename (no extension). Empty/undefined =
+   * legacy flat ISO `YYYY-MM-DD` directly inside `directory`.
+   * Tokens: `YYYY YY MMMM MMM MM M DD D` (see `formatDate`). Example:
+   * `YYYY/MM-MMMM/DD-MM-YYYY` -> `2026/05-mayo/22-05-2026`.
+   */
+  pathFormat?: string
+  /**
+   * BCP-47 locale used for name tokens (`MMMM`/`MMM`) in `pathFormat`, both when
+   * generating and when matching existing notes. Undefined = system locale.
+   */
+  locale?: string
 }
 
 export interface WeeklyNotesSettings {

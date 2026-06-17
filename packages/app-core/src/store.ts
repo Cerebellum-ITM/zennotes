@@ -71,15 +71,14 @@ import {
   workspaceRestorePrefetchContentPaths
 } from './lib/workspace-tabs'
 import {
+  dailyNoteRelPathForDate,
   duplicateFolderIcons,
   folderForVaultRelativePath,
   isPrimaryNotesAtRoot,
-  normalizeDailyNotesDirectory,
   normalizeWeeklyNotesDirectory,
   removeFolderIcons,
   normalizeVaultSettings,
   noteFolderSubpath,
-  noteTitleForDate,
   weeklyNoteTitle,
   rewriteFolderIconsForRename
 } from './lib/vault-layout'
@@ -4347,8 +4346,7 @@ export const useStore = create<Store>((set, get) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.dailyNotes.enabled) return
-    const title = noteTitleForDate(date)
-    const subpath = normalizeDailyNotesDirectory(settings.dailyNotes.directory)
+    const { subpath, title } = dailyNoteRelPathForDate(date, settings)
     const existing = state.notes.find(
       (note) =>
         note.folder === 'inbox' &&

@@ -44,6 +44,7 @@ import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
 import {
   assetFolderSubpath,
+  classifyDateNote,
   folderIconKey,
   isPrimaryNotesAtRoot,
   folderForVaultRelativePath,
@@ -1004,26 +1005,27 @@ export function Sidebar(): JSX.Element {
     const weekly: { year: number; notes: NoteMeta[] }[] = [];
 
     if (s.dailyNotes.enabled) {
-      const byYear = new Map<number, Map<number, NoteMeta[]>>();
+      const byYear = new Map<number, Map<number, { note: NoteMeta; date: Date }[]>>();
       for (const n of notes) {
-        if (n.folder !== "inbox") continue;
-        if (noteFolderSubpath(n, vaultSettings) !== dailyDir) continue;
-        const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(n.title);
-        if (!m) continue;
-        const year = Number(m[1]);
-        const month = Number(m[2]) - 1;
+        const info = classifyDateNote(n, vaultSettings);
+        if (info?.kind !== "daily") continue;
+        const year = info.date.getFullYear();
+        const month = info.date.getMonth();
         let months = byYear.get(year);
         if (!months) byYear.set(year, (months = new Map()));
-        (months.get(month) ?? months.set(month, []).get(month)!).push(n);
+        (months.get(month) ?? months.set(month, []).get(month)!).push({
+          note: n,
+          date: info.date,
+        });
       }
       for (const [year, months] of [...byYear.entries()].sort((a, b) => b[0] - a[0])) {
         let total = 0;
         const mlist = [...months.entries()]
           .sort((a, b) => b[0] - a[0])
-          .map(([month, ns]) => {
-            ns.sort((a, b) => b.title.localeCompare(a.title));
-            total += ns.length;
-            return { month, notes: ns };
+          .map(([month, entries]) => {
+            entries.sort((a, b) => b.date.getTime() - a.date.getTime());
+            total += entries.length;
+            return { month, notes: entries.map((e) => e.note) };
           });
         daily.push({ year, total, months: mlist });
       }

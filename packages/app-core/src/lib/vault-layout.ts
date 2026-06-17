@@ -8,7 +8,7 @@ import {
   type NoteMeta,
   type VaultSettings
 } from '@shared/ipc'
-import { getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
+import { formatDate, getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
 
 const SYSTEM_FOLDERS = new Set<NoteFolder>(['inbox', 'quick', 'archive', 'trash'])
 const RESERVED_ROOT_NAMES = new Set<string>([
@@ -75,6 +75,26 @@ function normalizeTemplateId(value: string | null | undefined): string | undefin
   return trimmed || undefined
 }
 
+/**
+ * Normalize a daily-note path pattern: trim, strip leading/trailing slashes and
+ * a trailing `.md`. Empty -> undefined (= legacy flat ISO behavior).
+ */
+export function normalizeDailyPathFormat(
+  value: string | null | undefined
+): string | undefined {
+  const trimmed = (value ?? '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.md$/i, '')
+  return trimmed || undefined
+}
+
+/** Normalize a BCP-47 locale string. Empty -> undefined (= system locale). */
+export function normalizeLocale(value: string | null | undefined): string | undefined {
+  const trimmed = (value ?? '').trim()
+  return trimmed || undefined
+}
+
 export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
@@ -94,7 +114,9 @@ export function normalizeVaultSettings(
     dailyNotes: {
       enabled: !!settings?.dailyNotes?.enabled,
       directory: normalizeDailyNotesDirectory(settings?.dailyNotes?.directory),
-      templateId: normalizeTemplateId(settings?.dailyNotes?.templateId)
+      templateId: normalizeTemplateId(settings?.dailyNotes?.templateId),
+      pathFormat: normalizeDailyPathFormat(settings?.dailyNotes?.pathFormat),
+      locale: normalizeLocale(settings?.dailyNotes?.locale)
     },
     weeklyNotes: {
       enabled: !!settings?.weeklyNotes?.enabled,
@@ -209,6 +231,164 @@ export function noteTitleForDate(date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+/**
+ * Build the subfolder path (relative to the vault primary area) and filename
+ * title for a daily note on `date`. When `dailyNotes.pathFormat` is set, the
+ * pattern is rendered (locale-aware) and split on `/` into nested folders + the
+ * final filename; otherwise the legacy flat ISO scheme is used.
+ */
+export function dailyNoteRelPathForDate(
+  date: Date,
+  settings: VaultSettings | null | undefined
+): { subpath: string; title: string } {
+  const normalized = normalizeVaultSettings(settings)
+  const dir = normalized.dailyNotes.directory
+  const fmt = normalized.dailyNotes.pathFormat
+  if (!fmt) return { subpath: dir, title: noteTitleForDate(date) }
+  const rendered = formatDate(date, fmt, normalized.dailyNotes.locale)
+  const segs = rendered
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const title = segs.pop() || noteTitleForDate(date)
+  const subpath = [dir, ...segs].join('/')
+  return { subpath, title }
+}
+
+// --- daily path-pattern parsing (reverse of dailyNoteRelPathForDate) --------
+
+const DAILY_PATTERN_TOKEN_RE = /\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D/g
+
+interface CompiledDailyPattern {
+  regex: RegExp
+  tokens: string[]
+  longMonths: Map<string, number>
+  shortMonths: Map<string, number>
+}
+
+const dailyPatternCache = new Map<string, CompiledDailyPattern>()
+
+function escapeRegexLiteral(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function monthNameIndex(locale: string | undefined, width: 'long' | 'short'): Map<string, number> {
+  const map = new Map<string, number>()
+  for (let i = 0; i < 12; i++) {
+    const name = new Date(2021, i, 1).toLocaleDateString(locale || undefined, { month: width })
+    map.set(name.toLowerCase(), i)
+  }
+  return map
+}
+
+function compileDailyPattern(format: string, locale: string | undefined): CompiledDailyPattern {
+  const key = `${locale ?? ''} ${format}`
+  const cached = dailyPatternCache.get(key)
+  if (cached) return cached
+
+  const tokens: string[] = []
+  let source = '^'
+  let last = 0
+  for (const m of format.matchAll(DAILY_PATTERN_TOKEN_RE)) {
+    const idx = m.index ?? 0
+    if (idx > last) source += escapeRegexLiteral(format.slice(last, idx))
+    last = idx + m[0].length
+    if (m[1] !== undefined) {
+      source += escapeRegexLiteral(m[1])
+      continue
+    }
+    const tok = m[0]
+    tokens.push(tok)
+    switch (tok) {
+      case 'YYYY':
+        source += '(\\d{4})'
+        break
+      case 'YY':
+      case 'MM':
+      case 'DD':
+        source += '(\\d{2})'
+        break
+      case 'M':
+      case 'D':
+        source += '(\\d{1,2})'
+        break
+      case 'MMMM':
+      case 'MMM':
+        source += '(\\p{L}+)'
+        break
+    }
+  }
+  if (last < format.length) source += escapeRegexLiteral(format.slice(last))
+  source += '$'
+
+  const compiled: CompiledDailyPattern = {
+    regex: new RegExp(source, 'u'),
+    tokens,
+    longMonths: monthNameIndex(locale, 'long'),
+    shortMonths: monthNameIndex(locale, 'short')
+  }
+  dailyPatternCache.set(key, compiled)
+  return compiled
+}
+
+/**
+ * Parse a date out of a daily-note candidate string (subfolders + filename,
+ * relative to the daily directory) using `format`. Returns null when it does
+ * not match. Numeric month tokens take precedence over localized name tokens.
+ */
+export function parseDailyPattern(
+  candidate: string,
+  format: string,
+  locale: string | undefined
+): Date | null {
+  const compiled = compileDailyPattern(format, locale)
+  const match = compiled.regex.exec(candidate)
+  if (!match) return null
+  let year: number | null = null
+  let month: number | null = null
+  let day: number | null = null
+  compiled.tokens.forEach((tok, i) => {
+    const raw = match[i + 1]
+    if (raw == null) return
+    switch (tok) {
+      case 'YYYY':
+        year = Number(raw)
+        break
+      case 'YY':
+        year = 2000 + Number(raw)
+        break
+      case 'MM':
+      case 'M':
+        month = Number(raw) - 1
+        break
+      case 'MMMM':
+        if (month == null) {
+          const idx = compiled.longMonths.get(raw.toLowerCase())
+          if (idx != null) month = idx
+        }
+        break
+      case 'MMM':
+        if (month == null) {
+          const idx = compiled.shortMonths.get(raw.toLowerCase())
+          if (idx != null) month = idx
+        }
+        break
+      case 'DD':
+      case 'D':
+        day = Number(raw)
+        break
+    }
+  })
+  if (year == null || month == null || day == null) return null
+  if (month < 0 || month > 11 || day < 1 || day > 31) return null
+  const date = new Date(year, month, day)
+  // Reject impossible dates that JS would roll over (e.g. 31-02).
+  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
+    return null
+  }
+  return date
+}
+
 export function weeklyNoteTitle(date = new Date()): string {
   return `${getISOWeekYear(date)}-W${pad(getISOWeek(date))}`
 }
@@ -235,11 +415,24 @@ export function classifyDateNote(
   const normalized = normalizeVaultSettings(settings)
   const subpath = noteFolderSubpath(note, settings)
 
-  if (normalized.dailyNotes.enabled && subpath === normalized.dailyNotes.directory) {
-    const m = DAILY_TITLE_RE.exec(note.title)
-    if (m) {
-      const [, y, mo, d] = m
-      return { kind: 'daily', date: new Date(Number(y), Number(mo) - 1, Number(d)) }
+  if (normalized.dailyNotes.enabled) {
+    const dir = normalized.dailyNotes.directory
+    const fmt = normalized.dailyNotes.pathFormat
+    if (!fmt) {
+      // Legacy: flat ISO title directly inside the daily directory.
+      if (subpath === dir) {
+        const m = DAILY_TITLE_RE.exec(note.title)
+        if (m) {
+          const [, y, mo, d] = m
+          return { kind: 'daily', date: new Date(Number(y), Number(mo) - 1, Number(d)) }
+        }
+      }
+    } else if (subpath === dir || subpath.startsWith(`${dir}/`)) {
+      // Configured pattern: match nested folders + filename against the format.
+      const within = subpath === dir ? '' : subpath.slice(dir.length + 1)
+      const candidate = within ? `${within}/${note.title}` : note.title
+      const date = parseDailyPattern(candidate, fmt, normalized.dailyNotes.locale)
+      if (date) return { kind: 'daily', date }
     }
   }
 

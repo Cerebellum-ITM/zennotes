@@ -142,17 +142,18 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.path])
 
-  // title -> NoteMeta for the daily/weekly notes that exist on disk.
+  // ISO date (YYYY-MM-DD) -> NoteMeta for the daily notes that exist on disk.
+  // Keyed by the note's resolved date so it works regardless of the configured
+  // filename format (e.g. DD-MM-YYYY) or nested folders.
   const dailyByTitle = useMemo(() => {
     const m = new Map<string, NoteMeta>()
     if (!dailyEnabled) return m
     for (const n of notes) {
-      if (n.folder !== 'inbox') continue
-      if (noteFolderSubpath(n, settings) !== dailySubpath) continue
-      if (DAILY_RE.test(n.title)) m.set(n.title, n)
+      const info = classifyDateNote(n, vaultSettings)
+      if (info?.kind === 'daily') m.set(isoDateStr(info.date), n)
     }
     return m
-  }, [notes, settings, dailyEnabled, dailySubpath])
+  }, [notes, vaultSettings, dailyEnabled])
 
   const weeklyByTitle = useMemo(() => {
     const m = new Map<string, NoteMeta>()
