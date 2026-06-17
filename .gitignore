@@ -22,3 +22,6 @@ data/
 # Local spec-driven-dev methodology (personal fork tooling — not for upstream)
 /CLAUDE.md
 /context/
+
+# Local commitcraft config (personal tooling — not for upstream)
+/.commitcraft.toml
