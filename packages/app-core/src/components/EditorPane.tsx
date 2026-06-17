@@ -71,7 +71,7 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { DynamicIcon } from './DynamicIcon'
-import { resolveNoteIcon } from '../lib/icon-resolve'
+import { resolveNoteIconRef } from '../lib/icon-resolve'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
@@ -548,13 +548,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const activeCommentId = useStore((s) => s.activeCommentId)
   const notes = useStore((s) => s.notes)
   const customIcons = useStore((s) => s.customIcons)
+  const iconRulesSettings = useStore((s) => s.vaultSettings)
+  const iconRules = iconRulesSettings.iconRules
   const customByName = useMemo(
     () => new Map(customIcons.map((icon) => [icon.name, icon])),
     [customIcons]
   )
-  const headerNoteIcon = useMemo(
-    () => (content ? resolveNoteIcon(content, customByName) : null),
-    [content, customByName]
+  const headerNoteIconRef = useMemo(
+    () =>
+      content
+        ? resolveNoteIconRef(content, iconRulesSettings, customByName, iconRules)
+        : null,
+    [content, iconRulesSettings, customByName, iconRules]
   )
   const notesByPath = useMemo(() => {
     const map = new Map<string, NoteMeta>()
@@ -2537,11 +2542,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               {!isVirtual &&
                 (() => {
                   const tabNote = notesByPath.get(tab.path)
-                  if (!tabNote || !resolveNoteIcon(tabNote, customByName)) return null
+                  if (!tabNote) return null
+                  const tabIconRef = resolveNoteIconRef(
+                    tabNote,
+                    iconRulesSettings,
+                    customByName,
+                    iconRules
+                  )
+                  if (!tabIconRef) return null
                   return (
                     <span className="flex shrink-0 items-center">
                       <DynamicIcon
-                        iconRef={tabNote.icon as string}
+                        iconRef={tabIconRef}
                         customIcons={customIcons}
                         size={14}
                       />
@@ -2574,6 +2586,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       closeTabInPane,
       customByName,
       customIcons,
+      iconRules,
+      iconRulesSettings,
       focusTabInPane,
       focusedPanel,
       getTabDropInfo,
@@ -2950,9 +2964,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 <PanelLeftIcon />
               </IconBtn>
             )}
-            {headerNoteIcon && content.icon && (
+            {headerNoteIconRef && (
               <span className="flex shrink-0 items-center text-ink-700">
-                <DynamicIcon iconRef={content.icon} customIcons={customIcons} size={18} />
+                <DynamicIcon iconRef={headerNoteIconRef} customIcons={customIcons} size={18} />
               </span>
             )}
             <Breadcrumb

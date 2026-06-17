@@ -66,7 +66,11 @@ import {
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
 import { DynamicIcon } from "./DynamicIcon";
-import { resolveIcon, resolveNoteIcon } from "../lib/icon-resolve";
+import {
+  resolveIcon,
+  resolveNoteIconRef,
+  resolveFolderIconRefByRules,
+} from "../lib/icon-resolve";
 import {
   getSidebarEdgePrefetchPaths,
   getSidebarEntryLimitIncludingIndex,
@@ -3753,6 +3757,19 @@ function SubTree({
     storedIconRef && resolveIcon(storedIconRef, customByName)?.kind === "custom"
       ? storedIconRef
       : null;
+  // No explicit folderIcons entry: fall back to a matching icon rule (U06)
+  // before the built-in default. DynamicIcon renders both builtin & custom refs.
+  const ruleIconRef = useMemo(
+    () =>
+      storedIconRef
+        ? null
+        : resolveFolderIconRefByRules(
+            { subpath: node.subpath, name: node.name },
+            customByName,
+            vaultSettings.iconRules,
+          ),
+    [storedIconRef, node.subpath, node.name, customByName, vaultSettings.iconRules],
+  );
   const iconOption = resolveFolderIconOption(
     folder,
     node.subpath,
@@ -3808,6 +3825,8 @@ function SubTree({
         icon={
           resolvedCustom ? (
             <DynamicIcon iconRef={resolvedCustom} customIcons={customIcons} />
+          ) : ruleIconRef ? (
+            <DynamicIcon iconRef={ruleIconRef} customIcons={customIcons} />
           ) : iconOption.id === "folder" ? (
             <FolderGlyphIcon open={!isCollapsed && hasChildren} />
           ) : (
@@ -3985,13 +4004,15 @@ const NoteLeaf = memo(function NoteLeaf({
   // memoized row cheap without threading another prop through the tree.
   const openNotePermanent = useStore((s) => s.selectNote);
   const customIcons = useStore((s) => s.customIcons);
+  const vaultSettings = useStore((s) => s.vaultSettings);
   const customByName = useMemo(
     () => new Map(customIcons.map((icon) => [icon.name, icon])),
     [customIcons],
   );
-  const resolvedNoteIcon = useMemo(
-    () => resolveNoteIcon(note, customByName),
-    [note, customByName],
+  const iconRules = vaultSettings.iconRules;
+  const noteIconRef = useMemo(
+    () => resolveNoteIconRef(note, vaultSettings, customByName, iconRules),
+    [note, vaultSettings, customByName, iconRules],
   );
   const handleSelect = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -4049,8 +4070,8 @@ const NoteLeaf = memo(function NoteLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={strongActive} rowActive={active || selected}>
-        {resolvedNoteIcon && note.icon ? (
-          <DynamicIcon iconRef={note.icon} customIcons={customIcons} size={14} />
+        {noteIconRef ? (
+          <DynamicIcon iconRef={noteIconRef} customIcons={customIcons} size={14} />
         ) : (
           <svg
             width="14"

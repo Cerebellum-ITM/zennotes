@@ -4,6 +4,7 @@ import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@
 import type {
   AppUpdateState,
   CliInstallStatus,
+  IconRule,
   RaycastExtensionStatus,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
@@ -56,6 +57,9 @@ import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
+import { FolderIconPickerModal } from './FolderIconPickerModal'
+import { DynamicIcon } from './DynamicIcon'
+import { normalizeIconRules } from '../lib/vault-layout'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -1467,6 +1471,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Trash label',
           description: 'Display name for deleted-note recovery.',
           keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'icon-rules',
+          title: 'Icon rules',
+          description: 'Auto-assign icons to notes and folders by path, name, or frontmatter.',
+          keywords: ['icon rules', 'icons', 'auto icon', 'glob', 'regex', 'frontmatter', 'daily presets']
         }
       ],
       content: (
@@ -1910,6 +1920,8 @@ export function SettingsModal(): JSX.Element {
               Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
             </InlineNote>
           </Section>
+
+          <IconRulesSection settingId="icon-rules" />
         </div>
       )
     },
@@ -2809,6 +2821,340 @@ function Section({
 
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+}
+
+// --- Icon rules (U06) --------------------------------------------------------
+
+function newIconRuleId(): string {
+  return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function summarizeIconRule(rule: IconRule): string {
+  const parts: string[] = []
+  if (rule.pathGlob) parts.push(`path: ${rule.pathGlob}`)
+  if (rule.nameRegex) parts.push(`name: /${rule.nameRegex}/`)
+  if (rule.frontmatter?.key) {
+    const fm = rule.frontmatter
+    if (fm.equals !== undefined) parts.push(`${fm.key} = ${fm.equals}`)
+    else if (fm.exists === true) parts.push(`has ${fm.key}`)
+    else if (fm.exists === false) parts.push(`no ${fm.key}`)
+    else parts.push(fm.key)
+  }
+  return parts.length ? parts.join(' · ') : 'no conditions'
+}
+
+const ICON_RULE_INPUT_CLASS =
+  'rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45'
+
+function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
+  const vaultSettings = useStore((s) => s.vaultSettings)
+  const persistVaultSettings = useStore((s) => s.setVaultSettings)
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const rules = vaultSettings.iconRules ?? []
+
+  // The rule whose icon is being chosen via the picker (by id).
+  const [iconPickerRuleId, setIconPickerRuleId] = useState<string | null>(null)
+  // The rule currently expanded for editing (by id).
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  const commit = useCallback(
+    (next: IconRule[]) => {
+      void persistVaultSettings({ ...vaultSettings, iconRules: next })
+    },
+    [persistVaultSettings, vaultSettings]
+  )
+
+  const updateRule = useCallback(
+    (id: string, patch: Partial<IconRule>) => {
+      commit(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+    },
+    [commit, rules]
+  )
+
+  const addRule = useCallback(() => {
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'note',
+      nameRegex: '',
+      icon: 'document'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
+  const deleteRule = useCallback(
+    (id: string) => {
+      commit(rules.filter((r) => r.id !== id))
+      if (editingId === id) setEditingId(null)
+    },
+    [commit, editingId, rules]
+  )
+
+  const move = useCallback(
+    (id: string, dir: -1 | 1) => {
+      const idx = rules.findIndex((r) => r.id === id)
+      const next = idx + dir
+      if (idx < 0 || next < 0 || next >= rules.length) return
+      const copy = rules.slice()
+      const [item] = copy.splice(idx, 1)
+      copy.splice(next, 0, item)
+      commit(copy)
+    },
+    [commit, rules]
+  )
+
+  const addDailyPresets = useCallback(() => {
+    const dir = vaultSettings.dailyNotes.directory || DEFAULT_DAILY_NOTES_DIRECTORY
+    const presets: IconRule[] = [
+      { id: newIconRuleId(), target: 'folder', pathGlob: `${dir}/*`, icon: 'calendar' },
+      { id: newIconRuleId(), target: 'folder', pathGlob: `${dir}/*/*`, icon: 'calendar' },
+      {
+        id: newIconRuleId(),
+        target: 'note',
+        nameRegex: '^\\d{4}-\\d{2}-\\d{2}$',
+        icon: 'document'
+      }
+    ]
+    // Normalize so any malformed preset is dropped consistently with persistence.
+    commit(normalizeIconRules([...rules, ...presets]))
+  }, [commit, rules, vaultSettings.dailyNotes.directory])
+
+  const pickerRule = rules.find((r) => r.id === iconPickerRuleId) ?? null
+
+  return (
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
+          Icon rules
+        </div>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
+          Automatically assign an icon to notes and folders by path glob, name regex, or
+          frontmatter. Rules are tried top to bottom; the first match wins. An explicit icon
+          (a note&apos;s `icon:` frontmatter or a folder&apos;s chosen icon) always overrides a
+          rule.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="text-sm font-medium text-ink-900">
+            {rules.length === 0
+              ? 'No icon rules yet.'
+              : `${rules.length} rule${rules.length === 1 ? '' : 's'}`}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={addDailyPresets}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+              title="Append example rules aligned to your daily notes scheme"
+            >
+              Add daily presets
+            </button>
+            <button
+              type="button"
+              onClick={addRule}
+              className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+            >
+              Add rule
+            </button>
+          </div>
+        </div>
+
+        {rules.length > 0 && (
+          <div className="divide-y divide-paper-300/45 border-t border-paper-300/45">
+            {rules.map((rule, index) => {
+              const editing = editingId === rule.id
+              return (
+                <div key={rule.id} className="px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-paper-300/70 bg-paper-100/70 text-ink-700">
+                      <DynamicIcon iconRef={rule.icon} customIcons={customIcons} size={16} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-ink-900">
+                        {rule.target === 'note' ? 'Note' : 'Folder'}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-ink-500">
+                        {summarizeIconRule(rule)}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label="Move up"
+                        disabled={index === 0}
+                        onClick={() => move(rule.id, -1)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs text-ink-700 transition-colors hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Move down"
+                        disabled={index === rules.length - 1}
+                        onClick={() => move(rule.id, 1)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs text-ink-700 transition-colors hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(editing ? null : rule.id)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        {editing ? 'Done' : 'Edit'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteRule(rule.id)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  {editing && (
+                    <div className="mt-4 grid gap-3 rounded-2xl border border-paper-300/60 bg-paper-100/50 p-4">
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                        Target
+                        <select
+                          value={rule.target}
+                          onChange={(e) =>
+                            updateRule(rule.id, {
+                              target: e.target.value as IconRule['target'],
+                              // Folder rules can't use frontmatter; drop it.
+                              ...(e.target.value === 'folder' ? { frontmatter: undefined } : {})
+                            })
+                          }
+                          className={ICON_RULE_INPUT_CLASS}
+                        >
+                          <option value="note">Note</option>
+                          <option value="folder">Folder</option>
+                        </select>
+                      </label>
+
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                        Path glob
+                        <input
+                          value={rule.pathGlob ?? ''}
+                          placeholder="Daily Notes/*"
+                          onChange={(e) => updateRule(rule.id, { pathGlob: e.target.value })}
+                          className={ICON_RULE_INPUT_CLASS}
+                        />
+                      </label>
+
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                        Name regex
+                        <input
+                          value={rule.nameRegex ?? ''}
+                          placeholder="^\\d{4}-\\d{2}-\\d{2}$"
+                          onChange={(e) => updateRule(rule.id, { nameRegex: e.target.value })}
+                          className={ICON_RULE_INPUT_CLASS}
+                        />
+                      </label>
+
+                      {rule.target === 'note' && (
+                        <div className="grid gap-2">
+                          <div className="text-xs font-medium text-ink-600">Frontmatter</div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <input
+                              value={rule.frontmatter?.key ?? ''}
+                              placeholder="status"
+                              onChange={(e) =>
+                                updateRule(rule.id, {
+                                  frontmatter: {
+                                    key: e.target.value,
+                                    equals: rule.frontmatter?.equals,
+                                    exists: rule.frontmatter?.exists
+                                  }
+                                })
+                              }
+                              className={ICON_RULE_INPUT_CLASS}
+                            />
+                            <select
+                              value={rule.frontmatter?.exists === true ? 'exists' : 'equals'}
+                              onChange={(e) =>
+                                updateRule(rule.id, {
+                                  frontmatter: {
+                                    key: rule.frontmatter?.key ?? '',
+                                    ...(e.target.value === 'exists'
+                                      ? { exists: true }
+                                      : { equals: rule.frontmatter?.equals ?? '' })
+                                  }
+                                })
+                              }
+                              className={ICON_RULE_INPUT_CLASS}
+                            >
+                              <option value="equals">equals</option>
+                              <option value="exists">exists</option>
+                            </select>
+                            {rule.frontmatter?.exists === true ? (
+                              <div className="flex items-center px-1 text-xs text-ink-400">
+                                key must be present
+                              </div>
+                            ) : (
+                              <input
+                                value={rule.frontmatter?.equals ?? ''}
+                                placeholder="done"
+                                onChange={(e) =>
+                                  updateRule(rule.id, {
+                                    frontmatter: {
+                                      key: rule.frontmatter?.key ?? '',
+                                      equals: e.target.value
+                                    }
+                                  })
+                                }
+                                className={ICON_RULE_INPUT_CLASS}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3 pt-1">
+                        <div className="text-xs font-medium text-ink-600">Icon</div>
+                        <button
+                          type="button"
+                          onClick={() => setIconPickerRuleId(rule.id)}
+                          className="flex items-center gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                        >
+                          <span className="flex h-5 w-5 items-center justify-center text-ink-700">
+                            <DynamicIcon iconRef={rule.icon} customIcons={customIcons} size={16} />
+                          </span>
+                          Change icon
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {pickerRule && (
+        <FolderIconPickerModal
+          targetLabel={pickerRule.target === 'note' ? 'this note rule' : 'this folder rule'}
+          currentIconRef={pickerRule.icon}
+          customIcons={customIcons}
+          onSelect={(iconRef) => {
+            updateRule(pickerRule.id, { icon: iconRef })
+            setIconPickerRuleId(null)
+          }}
+          onImport={async ({ name, svg }) => {
+            const icon = await importCustomIcon({ name, svg })
+            updateRule(pickerRule.id, { icon: `custom:${icon.name}` })
+            setIconPickerRuleId(null)
+          }}
+          onCancel={() => setIconPickerRuleId(null)}
+        />
+      )}
+    </section>
+  )
 }
 
 const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'

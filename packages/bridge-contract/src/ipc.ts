@@ -302,12 +302,39 @@ export interface WeeklyNotesSettings {
   templateId?: string
 }
 
+/**
+ * A pattern rule that assigns an icon to notes or folders that match its
+ * conditions. The first rule (in array order) whose present matchers ALL match
+ * wins. Explicit icons (a note's frontmatter `icon:` / a folder's
+ * `folderIcons` entry) always take precedence over any rule.
+ */
+export interface IconRule {
+  /** Stable id, used as a React key and for reorder/delete. */
+  id: string
+  /** What the rule applies to. */
+  target: 'note' | 'folder'
+  /**
+   * Glob over the subpath relative to the primary area (the same value used by
+   * `noteFolderSubpath` / folder `subpath`). `*` matches any run of characters
+   * except `/`; `**` matches across `/`.
+   */
+  pathGlob?: string
+  /** Regex (source string) tested against the note title / folder name. */
+  nameRegex?: string
+  /** Frontmatter condition. Notes only — folder rules ignore it. */
+  frontmatter?: { key: string; equals?: string; exists?: boolean }
+  /** Icon to apply when the rule matches. An {@link IconRef}. */
+  icon: IconRef
+}
+
 export interface VaultSettings {
   primaryNotesLocation: PrimaryNotesLocation
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings
   /** Map of folder key (`<folder>:<subpath>`) to an {@link IconRef}. */
   folderIcons: Record<string, IconRef>
+  /** Ordered icon-assignment rules. Array order = match priority. */
+  iconRules?: IconRule[]
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'

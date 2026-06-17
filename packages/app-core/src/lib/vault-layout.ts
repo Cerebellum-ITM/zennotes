@@ -4,6 +4,7 @@ import {
   DEFAULT_VAULT_SETTINGS,
   type AssetMeta,
   type FolderIconId,
+  type IconRule,
   type NoteFolder,
   type NoteMeta,
   type VaultSettings
@@ -113,6 +114,78 @@ export function normalizeLocale(value: string | null | undefined): string | unde
   return trimmed || undefined
 }
 
+function isValidRegexSource(source: string): boolean {
+  try {
+    new RegExp(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validate and normalize the `iconRules` list: drop rules without a valid
+ * `target`, an empty/invalid `icon` IconRef, or any matcher; drop rules whose
+ * `nameRegex` fails to compile or whose `pathGlob` is empty/whitespace.
+ */
+export function normalizeIconRules(value: unknown): IconRule[] {
+  if (!Array.isArray(value)) return []
+  const rules: IconRule[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Partial<IconRule>
+    const target = candidate.target
+    if (target !== 'note' && target !== 'folder') continue
+    if (!isIconRef(candidate.icon)) continue
+
+    const pathGlob =
+      typeof candidate.pathGlob === 'string' ? candidate.pathGlob.trim() : ''
+    const nameRegex =
+      typeof candidate.nameRegex === 'string' ? candidate.nameRegex.trim() : ''
+    if (nameRegex && !isValidRegexSource(nameRegex)) continue
+
+    let frontmatter: IconRule['frontmatter']
+    if (
+      target === 'note' &&
+      candidate.frontmatter &&
+      typeof candidate.frontmatter === 'object' &&
+      typeof candidate.frontmatter.key === 'string' &&
+      candidate.frontmatter.key.trim()
+    ) {
+      const key = candidate.frontmatter.key.trim()
+      const equals =
+        typeof candidate.frontmatter.equals === 'string'
+          ? candidate.frontmatter.equals
+          : undefined
+      const exists =
+        typeof candidate.frontmatter.exists === 'boolean'
+          ? candidate.frontmatter.exists
+          : undefined
+      if (equals !== undefined || exists !== undefined) {
+        frontmatter = { key, ...(equals !== undefined ? { equals } : {}), ...(exists !== undefined ? { exists } : {}) }
+      }
+    }
+
+    const hasMatcher = !!pathGlob || !!nameRegex || !!frontmatter
+    if (!hasMatcher) continue
+
+    const id =
+      typeof candidate.id === 'string' && candidate.id
+        ? candidate.id
+        : `rule-${rules.length}-${Math.random().toString(36).slice(2, 9)}`
+
+    rules.push({
+      id,
+      target,
+      ...(pathGlob ? { pathGlob } : {}),
+      ...(nameRegex ? { nameRegex } : {}),
+      ...(frontmatter ? { frontmatter } : {}),
+      icon: candidate.icon as string
+    })
+  }
+  return rules
+}
+
 export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
@@ -141,7 +214,8 @@ export function normalizeVaultSettings(
       directory: normalizeWeeklyNotesDirectory(settings?.weeklyNotes?.directory),
       templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
     },
-    folderIcons: normalizedFolderIcons
+    folderIcons: normalizedFolderIcons,
+    iconRules: normalizeIconRules(settings?.iconRules)
   }
 }
 

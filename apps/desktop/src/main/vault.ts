@@ -18,6 +18,7 @@ import {
   type CustomIcon,
   DeletedAsset,
   type FolderIconId,
+  type IconRule,
   type ImportCustomIconInput,
   type PrimaryNotesLocation,
   type VaultSettings,
@@ -155,6 +156,76 @@ function isIconRef(value: unknown): value is string {
   return isFolderIconId(value)
 }
 
+function isValidRegexSource(source: string): boolean {
+  try {
+    new RegExp(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validate and normalize `iconRules`: drop rules missing a valid target, a
+ * valid `icon` IconRef, or any matcher, plus rules whose `nameRegex` fails to
+ * compile or whose `pathGlob` is empty. Mirrors app-core's `normalizeIconRules`.
+ */
+function normalizeIconRules(value: unknown): IconRule[] {
+  if (!Array.isArray(value)) return []
+  const rules: IconRule[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Partial<IconRule>
+    const target = candidate.target
+    if (target !== 'note' && target !== 'folder') continue
+    if (!isIconRef(candidate.icon)) continue
+
+    const pathGlob = typeof candidate.pathGlob === 'string' ? candidate.pathGlob.trim() : ''
+    const nameRegex = typeof candidate.nameRegex === 'string' ? candidate.nameRegex.trim() : ''
+    if (nameRegex && !isValidRegexSource(nameRegex)) continue
+
+    let frontmatter: IconRule['frontmatter']
+    if (
+      target === 'note' &&
+      candidate.frontmatter &&
+      typeof candidate.frontmatter === 'object' &&
+      typeof candidate.frontmatter.key === 'string' &&
+      candidate.frontmatter.key.trim()
+    ) {
+      const key = candidate.frontmatter.key.trim()
+      const equals =
+        typeof candidate.frontmatter.equals === 'string' ? candidate.frontmatter.equals : undefined
+      const exists =
+        typeof candidate.frontmatter.exists === 'boolean' ? candidate.frontmatter.exists : undefined
+      if (equals !== undefined || exists !== undefined) {
+        frontmatter = {
+          key,
+          ...(equals !== undefined ? { equals } : {}),
+          ...(exists !== undefined ? { exists } : {})
+        }
+      }
+    }
+
+    const hasMatcher = !!pathGlob || !!nameRegex || !!frontmatter
+    if (!hasMatcher) continue
+
+    const id =
+      typeof candidate.id === 'string' && candidate.id
+        ? candidate.id
+        : `rule-${rules.length}-${Math.random().toString(36).slice(2, 9)}`
+
+    rules.push({
+      id,
+      target,
+      ...(pathGlob ? { pathGlob } : {}),
+      ...(nameRegex ? { nameRegex } : {}),
+      ...(frontmatter ? { frontmatter } : {}),
+      icon: candidate.icon as string
+    })
+  }
+  return rules
+}
+
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
@@ -165,7 +236,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     enabled: false,
     directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
   },
-  folderIcons: {}
+  folderIcons: {},
+  iconRules: []
 }
 
 interface VaultTextSearchCandidate {
@@ -708,7 +780,11 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       directory: settings.weeklyNotes.directory,
       templateId: settings.weeklyNotes.templateId
     },
-    folderIcons: { ...settings.folderIcons }
+    folderIcons: { ...settings.folderIcons },
+    iconRules: (settings.iconRules ?? []).map((rule) => ({
+      ...rule,
+      ...(rule.frontmatter ? { frontmatter: { ...rule.frontmatter } } : {})
+    }))
   }
 }
 
@@ -764,7 +840,8 @@ function normalizeVaultSettings(
         enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
         directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
       },
-      folderIcons: {}
+      folderIcons: {},
+      iconRules: []
     }
   }
   const candidate = value as {
@@ -778,6 +855,7 @@ function normalizeVaultSettings(
     } | null
     weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
     folderIcons?: Record<string, unknown> | null
+    iconRules?: unknown
   }
   const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -808,7 +886,8 @@ function normalizeVaultSettings(
       directory: normalizeWeeklyNotesDirectory(candidate.weeklyNotes?.directory),
       templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
     },
-    folderIcons
+    folderIcons,
+    iconRules: normalizeIconRules(candidate.iconRules)
   }
 }
 
