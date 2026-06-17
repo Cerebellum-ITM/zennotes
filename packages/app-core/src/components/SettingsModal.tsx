@@ -36,7 +36,12 @@ import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
-import { normalizeDailyNotesDirectory, normalizeWeeklyNotesDirectory } from '../lib/vault-layout'
+import {
+  normalizeDailyNotesDirectory,
+  normalizeDailyPathFormat,
+  normalizeLocale,
+  normalizeWeeklyNotesDirectory
+} from '../lib/vault-layout'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
 import { TemplateEditorModal } from './TemplateEditorModal'
@@ -1663,6 +1668,68 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+            <TextInputRow
+              label="Daily note path format"
+              description="Optional. Pattern relative to the directory; use / for subfolders. Empty = YYYY-MM-DD. Tokens: YYYY YY MMMM MMM MM M DD D."
+              value={vaultSettings.dailyNotes.pathFormat ?? ''}
+              placeholder="YYYY/MM-MMMM/DD-MM-YYYY"
+              settingId="daily-notes-path-format"
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    pathFormat: normalizeDailyPathFormat(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Date locale"
+              description="Optional BCP-47 locale for month names (MMMM/MMM), e.g. `es`. Empty uses the system locale."
+              value={vaultSettings.dailyNotes.locale ?? ''}
+              placeholder="es"
+              settingId="daily-notes-locale"
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    locale: normalizeLocale(next)
+                  }
+                })
+              }
+            />
+            <div
+              className="flex items-center justify-between gap-4 px-5 py-4"
+              {...settingsSearchTargetProps('daily-notes-obsidian-preset')}
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-900">Use Obsidian scheme</div>
+                <div className="mt-1 text-xs leading-5 text-ink-500">
+                  Sets directory “Daily notes”, format `YYYY/MM-MMMM/DD-MM-YYYY` and locale
+                  `es` (e.g. `Daily notes/2026/05-mayo/22-05-2026`).
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  void persistVaultSettings({
+                    ...vaultSettings,
+                    dailyNotes: {
+                      ...vaultSettings.dailyNotes,
+                      enabled: true,
+                      directory: 'Daily notes',
+                      pathFormat: 'YYYY/MM-MMMM/DD-MM-YYYY',
+                      locale: 'es'
+                    }
+                  })
+                }
+                className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+              >
+                Apply
+              </button>
+            </div>
             <TemplateSelectRow
               label="Daily note template"
               description="Applied when a daily note is created. None creates a blank note."
@@ -1683,7 +1750,8 @@ export function SettingsModal(): JSX.Element {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">Open today's daily note</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Opens today's note if it exists, otherwise creates it with a YYYY-MM-DD title.
+                  Opens today's note if it exists, otherwise creates it using the configured
+                  path format.
                 </div>
               </div>
               <button

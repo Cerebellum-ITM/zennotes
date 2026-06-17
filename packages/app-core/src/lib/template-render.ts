@@ -40,9 +40,10 @@ const TOKEN_RE = /\{\{\s*([^}]+?)\s*\}\}/g
 function localeName(
   date: Date,
   field: 'month' | 'weekday',
-  width: 'long' | 'short'
+  width: 'long' | 'short',
+  locale?: string
 ): string {
-  return date.toLocaleDateString(undefined, { [field]: width })
+  return date.toLocaleDateString(locale || undefined, { [field]: width })
 }
 
 function pad2(n: number): string {
@@ -67,7 +68,7 @@ const DATE_FORMAT_RE = /\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|mm|s
  * YYYY YY MMMM MMM MM M DD D dddd ddd HH mm ss. Wrap literal text in
  * `[brackets]` to protect letters that would otherwise be read as tokens.
  */
-export function formatDate(date: Date, format: string): string {
+export function formatDate(date: Date, format: string, locale?: string): string {
   const year = date.getFullYear()
   const month = date.getMonth()
   const day = date.getDate()
@@ -82,9 +83,9 @@ export function formatDate(date: Date, format: string): string {
       case 'YY':
         return pad2(year % 100)
       case 'MMMM':
-        return localeName(date, 'month', 'long')
+        return localeName(date, 'month', 'long', locale)
       case 'MMM':
-        return localeName(date, 'month', 'short')
+        return localeName(date, 'month', 'short', locale)
       case 'MM':
         return pad2(month + 1)
       case 'M':
@@ -94,9 +95,9 @@ export function formatDate(date: Date, format: string): string {
       case 'D':
         return String(day)
       case 'dddd':
-        return localeName(date, 'weekday', 'long')
+        return localeName(date, 'weekday', 'long', locale)
       case 'ddd':
-        return localeName(date, 'weekday', 'short')
+        return localeName(date, 'weekday', 'short', locale)
       case 'HH':
         return pad2(hours)
       case 'mm':
