@@ -56,6 +56,31 @@ export function extractNoteFrontmatter(raw: string): NoteFrontmatterMeta {
   return { frontmatter: data, icon }
 }
 
+/**
+ * Insert `key: value` into a note body's leading frontmatter, without ever
+ * overwriting an existing key. If the body opens with a `---…---` block, the
+ * key is appended only when absent; otherwise a fresh frontmatter block is
+ * prepended. Pure and tolerant — never throws. Value is YAML-scalar quoted to
+ * match {@link composeTemplateFile}.
+ */
+export function upsertFrontmatterKey(body: string, key: string, value: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  const scalar = yamlScalar(value)
+  if (!match) {
+    // No frontmatter: prepend a fresh block. One newline after the closing
+    // fence so the body isn't glued onto `---`.
+    return `---\n${key}: ${scalar}\n---\n${body}`
+  }
+  // Existing block: leave it untouched if the key is already present.
+  const { data } = parseFrontmatter(body)
+  if (Object.prototype.hasOwnProperty.call(data, key)) return body
+  // Append the new line just before the closing `---`. match[1] is the inner
+  // YAML; rebuild the fence so we keep the original body verbatim afterwards.
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  return `---\n${inner}\n${key}: ${scalar}\n---\n${rest}`
+}
+
 function normalizeCategory(value: string | undefined): TemplateCategory {
   if (value === 'Engineering' || value === 'Personal' || value === 'Custom') return value
   return 'Custom'
@@ -97,6 +122,7 @@ export function parseCustomTemplate(raw: string, sourcePath: string): NoteTempla
     titleTemplate: data.titleTemplate?.trim() || undefined,
     targetFolder: normalizeTargetFolder(data.targetFolder),
     targetSubpath: data.targetSubpath?.trim() || undefined,
+    icon: data.icon?.trim() || undefined,
     builtin: false,
     sourcePath,
     builtinId: data.builtinId?.trim() || undefined
@@ -139,6 +165,8 @@ export interface ComposeTemplateInput {
   titleTemplate?: string
   targetFolder?: NoteFolder
   targetSubpath?: string
+  /** IconRef for notes created from this template (injected as `icon:`). */
+  icon?: string
   /** Set when this file is an edited copy of a built-in template. */
   builtinId?: string
   body: string
@@ -161,6 +189,7 @@ export function composeTemplateFile(input: ComposeTemplateInput): string {
   if (input.titleTemplate) lines.push(`titleTemplate: ${yamlScalar(input.titleTemplate)}`)
   if (input.targetFolder) lines.push(`targetFolder: ${input.targetFolder}`)
   if (input.targetSubpath) lines.push(`targetSubpath: ${yamlScalar(input.targetSubpath)}`)
+  if (input.icon) lines.push(`icon: ${yamlScalar(input.icon)}`)
   if (input.builtinId) lines.push(`builtinId: ${input.builtinId}`)
   lines.push('---')
   // One newline after the closing fence so the parser (which consumes a single

@@ -5,7 +5,8 @@ import {
   mergeTemplates,
   parseCustomTemplate,
   parseFrontmatter,
-  slugifyTemplateName
+  slugifyTemplateName,
+  upsertFrontmatterKey
 } from '@shared/template-files'
 import type { NoteTemplate } from '@bridge-contract/templates'
 
@@ -98,6 +99,50 @@ describe('composeTemplateFile + round trip', () => {
     expect(t.description).toBe('Daily standup')
     expect(t.category).toBe('Engineering')
     expect(t.body.trimEnd()).toBe('# {{title}}\n\n{{cursor}}')
+  })
+})
+
+describe('upsertFrontmatterKey', () => {
+  it('appends the key to an existing frontmatter block, preserving the body', () => {
+    const out = upsertFrontmatterKey('---\nfoo: bar\n---\n# Body\n', 'icon', 'calendar')
+    expect(out).toBe('---\nfoo: bar\nicon: calendar\n---\n# Body\n')
+    expect(extractNoteFrontmatter(out).icon).toBe('calendar')
+  })
+
+  it('prepends a fresh frontmatter block when none exists', () => {
+    const out = upsertFrontmatterKey('# Just a body\n', 'icon', 'calendar')
+    expect(out).toBe('---\nicon: calendar\n---\n# Just a body\n')
+    expect(extractNoteFrontmatter(out).icon).toBe('calendar')
+  })
+
+  it('does NOT overwrite an existing key (body frontmatter wins)', () => {
+    const raw = '---\nicon: heart\n---\n# Body\n'
+    expect(upsertFrontmatterKey(raw, 'icon', 'calendar')).toBe(raw)
+    expect(extractNoteFrontmatter(raw).icon).toBe('heart')
+  })
+
+  it('quotes values that could be misread as YAML', () => {
+    const out = upsertFrontmatterKey('# body', 'icon', 'custom:my icon')
+    expect(out).toBe('---\nicon: "custom:my icon"\n---\n# body')
+    expect(extractNoteFrontmatter(out).icon).toBe('custom:my icon')
+  })
+})
+
+describe('template icon round trip', () => {
+  it('composes and parses back a template icon', () => {
+    const raw = composeTemplateFile({
+      name: 'Daily',
+      category: 'Personal',
+      icon: 'custom:sun',
+      body: '# {{title}}\n'
+    })
+    expect(parseCustomTemplate(raw, '.zennotes/templates/daily.md').icon).toBe('custom:sun')
+  })
+
+  it('omits the icon line when no icon is set', () => {
+    const raw = composeTemplateFile({ name: 'Plain', category: 'Custom', body: '# x\n' })
+    expect(raw).not.toContain('icon:')
+    expect(parseCustomTemplate(raw, '.zennotes/templates/plain.md').icon).toBeUndefined()
   })
 })
 

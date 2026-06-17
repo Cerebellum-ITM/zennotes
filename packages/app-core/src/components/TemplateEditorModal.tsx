@@ -6,6 +6,8 @@
  * normal-mode key — so in-progress work is never lost; use Cancel or Save.
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { FolderIconPickerModal } from './FolderIconPickerModal'
+import { DynamicIcon } from './DynamicIcon'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
@@ -35,6 +37,26 @@ category: Custom
 
 {{cursor}}
 `
+
+/**
+ * Set (or clear) the `icon:` key in the raw template's leading frontmatter,
+ * preserving the rest. Unlike `upsertFrontmatterKey`, this OVERWRITES — the user
+ * is explicitly choosing in the editor. When there is no frontmatter block, one
+ * is prepended. An empty value removes the key. Pure; never throws.
+ */
+export function setRawFrontmatterIcon(raw: string, iconRef: string): string {
+  const fence = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
+  const scalar = /[:#"'\n]/.test(iconRef) || iconRef.trim() !== iconRef ? JSON.stringify(iconRef) : iconRef
+  if (!fence) {
+    return iconRef ? `---\nicon: ${scalar}\n---\n${raw}` : raw
+  }
+  const rest = raw.slice(fence[0].length)
+  const lines = fence[1]
+    .split(/\r?\n/)
+    .filter((line) => line.slice(0, line.indexOf(':') === -1 ? 0 : line.indexOf(':')).trim() !== 'icon')
+  if (iconRef) lines.push(`icon: ${scalar}`)
+  return `---\n${lines.join('\n')}\n---\n${rest}`
+}
 
 const editorTheme = EditorView.theme({
   '&': { height: '60vh', fontSize: '13px', backgroundColor: 'transparent' },
@@ -85,17 +107,38 @@ export function TemplateEditorModal({
 }): JSX.Element {
   const saveCustomTemplate = useStore((s) => s.saveCustomTemplate)
   const vimMode = useStore((s) => s.vimMode)
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
   const [raw, setRaw] = useState(initialRaw ?? SKELETON)
   const [saving, setSaving] = useState(false)
+  const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const viewRef = useRef<EditorView | null>(null)
   // vimMode is read once at mount; keep it in a ref so the mount callback isn't
   // re-created (which would tear down the editor) when unrelated state changes.
   const vimModeRef = useRef(vimMode)
 
-  const { name, preview } = useMemo(() => {
+  const { name, preview, iconRef } = useMemo(() => {
     const { data, body } = parseFrontmatter(raw)
     const nm = (data.name ?? '').trim()
-    return { name: nm, preview: renderTemplate(body, { title: nm || 'Sample Note' }).body }
+    return {
+      name: nm,
+      preview: renderTemplate(body, { title: nm || 'Sample Note' }).body,
+      iconRef: (data.icon ?? '').trim()
+    }
+  }, [raw])
+
+  // Rewrite the raw doc's frontmatter icon and push it through the CodeMirror
+  // view (the source of truth); the updateListener then mirrors it into `raw`.
+  const applyIcon = useCallback((nextIconRef: string): void => {
+    const view = viewRef.current
+    const current = view ? view.state.doc.toString() : raw
+    const next = setRawFrontmatterIcon(current, nextIconRef)
+    if (next === current) return
+    if (view) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } })
+    } else {
+      setRaw(next)
+    }
   }, [raw])
 
   const setEditorContainer = useCallback((el: HTMLDivElement | null) => {
@@ -176,8 +219,9 @@ export function TemplateEditorModal({
   }
 
   return (
-    // Esc is the Vim normal-mode key, and backdrop clicks must not discard
-    // in-progress work — so this modal closes only via Cancel/Save.
+    <>
+    {/* Esc is the Vim normal-mode key, and backdrop clicks must not discard
+        in-progress work — so this modal closes only via Cancel/Save. */}
     <Modal
       size="xl"
       layer="popover"
@@ -203,6 +247,34 @@ export function TemplateEditorModal({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-paper-300/50 bg-paper-50 px-5 py-2.5">
+        <span className="form-label">Icon</span>
+        <button
+          type="button"
+          onClick={() => setIconPickerOpen(true)}
+          title="Notes created from this template start with this icon"
+          className="flex items-center gap-2 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-xs text-ink-700 hover:bg-paper-200 hover:text-ink-900"
+        >
+          {iconRef ? (
+            <>
+              <span className="text-ink-500">
+                <DynamicIcon iconRef={iconRef} customIcons={customIcons} />
+              </span>
+              <span className="font-mono">{iconRef}</span>
+            </>
+          ) : (
+            <span className="text-ink-500">Choose…</span>
+          )}
+        </button>
+        {iconRef && (
+          <button
+            type="button"
+            onClick={() => applyIcon('')}
+            className="rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+          >
+            Clear
+          </button>
+        )}
+        <span className="mx-1 h-3 w-px bg-paper-300/70" />
         <span className="form-label">Variables</span>
         {TEMPLATE_VARIABLES.map((variable) => (
           <button
@@ -226,5 +298,23 @@ export function TemplateEditorModal({
         </Button>
       </Modal.Footer>
     </Modal>
+    {iconPickerOpen && (
+      <FolderIconPickerModal
+        targetLabel={name || 'this template'}
+        currentIconRef={iconRef}
+        customIcons={customIcons}
+        onSelect={(ref) => {
+          applyIcon(ref)
+          setIconPickerOpen(false)
+        }}
+        onImport={async ({ name: iconName, svg }) => {
+          const icon = await importCustomIcon({ name: iconName, svg })
+          applyIcon(`custom:${icon.name}`)
+          setIconPickerOpen(false)
+        }}
+        onCancel={() => setIconPickerOpen(false)}
+      />
+    )}
+    </>
   )
 }

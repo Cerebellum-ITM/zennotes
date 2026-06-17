@@ -90,7 +90,8 @@ import {
   composeTemplateFile,
   mergeTemplates,
   parseCustomTemplate,
-  slugifyTemplateName
+  slugifyTemplateName,
+  upsertFrontmatterKey
 } from '@shared/template-files'
 import {
   INITIAL_VISIBLE_NOTE_PREFETCH_BATCH_SIZE,
@@ -4534,14 +4535,22 @@ export const useStore = create<Store>((set, get) => {
       }
       if (!title) title = template.name
       const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
+      // If the template defines an icon, seed the new note's frontmatter with it
+      // — but a body that already declares its own `icon:` wins (no overwrite).
+      const finalBody = template.icon
+        ? upsertFrontmatterKey(body, 'icon', template.icon)
+        : body
+      // Prepending a frontmatter block shifts every body offset; keep the cursor
+      // aligned by adding the length injected before the original body start.
+      const cursorShift = finalBody.length - body.length
       const meta = await window.zen.createNote(folder, title, subpath)
       // Write the rendered body before opening so the editor never flashes the
       // default `# Title` scaffold (mirrors importDroppedMarkdownFiles).
-      await window.zen.writeNote(meta.path, body)
+      await window.zen.writeNote(meta.path, finalBody)
       await get().refreshNotes()
       set({ view: { kind: 'folder', folder, subpath } })
       if (cursorOffset != null) {
-        await get().openNoteAtOffset(meta.path, cursorOffset)
+        await get().openNoteAtOffset(meta.path, cursorOffset + cursorShift)
       } else {
         await get().selectNote(meta.path)
       }
