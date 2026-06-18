@@ -30,32 +30,39 @@ function selectionTouchesRange(
   return false
 }
 
-class LangIconWidget extends WidgetType {
+/**
+ * Renders the whole inline-code content as a single chip — `[icon] rest` — so
+ * the icon sits INSIDE the inline-code background (matching the rendered
+ * preview), instead of a bare icon floating before a separate code chip.
+ */
+class LangCodeChipWidget extends WidgetType {
   constructor(
     readonly iconRef: string,
-    readonly customByName: Map<string, CustomIcon>
+    readonly customByName: Map<string, CustomIcon>,
+    readonly rest: string
   ) {
     super()
   }
 
-  eq(other: LangIconWidget): boolean {
-    return other.iconRef === this.iconRef
+  eq(other: LangCodeChipWidget): boolean {
+    return other.iconRef === this.iconRef && other.rest === this.rest
   }
 
   toDOM(): HTMLElement {
-    const el = renderIconToDOM(this.iconRef, this.customByName, 14)
-    if (!el) {
-      const empty = document.createElement('span')
-      empty.className = 'cm-code-lang-icon'
-      return empty
-    }
-    el.classList.add('cm-code-lang-icon')
-    el.style.marginRight = '0.1em'
-    return el
+    // Mirror the preview's <code> chip exactly: an inline span styled by
+    // `tok-monospace` (bg + padding + radius) holding [icon][rest], with the
+    // icon centered via its own vertical-align. No flex, so it matches the
+    // rendered preview 1:1.
+    const chip = document.createElement('span')
+    chip.className = 'cm-code-lang-chip tok-monospace'
+    const icon = renderIconToDOM(this.iconRef, this.customByName, 14)
+    if (icon) chip.appendChild(icon)
+    if (this.rest) chip.appendChild(document.createTextNode(this.rest))
+    return chip
   }
 
   ignoreEvent(): boolean {
-    return true
+    return false
   }
 }
 
@@ -77,18 +84,23 @@ function computeDecorations(view: EditorView): DecorationSet {
         // Keep the raw markdown editable while the cursor is in the span.
         if (selectionTouchesRange(state, node.from, node.to)) return
         const raw = state.doc.sliceString(node.from, node.to)
-        const ticks = /^`+/.exec(raw)?.[0].length ?? 0
-        const content = raw.slice(ticks)
+        const lead = /^`+/.exec(raw)?.[0].length ?? 0
+        const trail = /`+$/.exec(raw)?.[0].length ?? 0
+        const content = raw.slice(lead, raw.length - trail)
         const parsed = parseLangIconDirective(content)
         if (!parsed) return
         const ref = resolveLangIconRef(parsed.lang, customByName, rules)
         if (!ref) return
-        const dirFrom = node.from + ticks
-        const dirTo = dirFrom + parsed.directiveLength
+        // Replace the whole content (between the backticks, which live-preview
+        // hides) with one chip so the icon sits inside the code background.
+        const contentFrom = node.from + lead
+        const contentTo = node.to - trail
         pending.push({
-          from: dirFrom,
-          to: dirTo,
-          deco: Decoration.replace({ widget: new LangIconWidget(ref, customByName) })
+          from: contentFrom,
+          to: contentTo,
+          deco: Decoration.replace({
+            widget: new LangCodeChipWidget(ref, customByName, parsed.rest)
+          })
         })
       }
     })

@@ -15,9 +15,15 @@ export interface ParsedLangIcon {
   rest: string
 }
 
-/** Parse a leading `{lang icon}` directive, or `null` when absent. */
+/** Parse a leading `{lang icon}` directive, or `null` when absent. The single
+ *  separator space after the directive (`{lua icon} foo`) is dropped from
+ *  `rest` so the icon's own gap doesn't stack with it. */
 export function parseLangIconDirective(text: string): ParsedLangIcon | null {
   const match = CODE_LANG_ICON_RE.exec(text)
   if (!match) return null
-  return { lang: match[1], directiveLength: match[0].length, rest: text.slice(match[0].length) }
+  return {
+    lang: match[1],
+    directiveLength: match[0].length,
+    rest: text.slice(match[0].length).replace(/^[ \t]/, '')
+  }
 }

@@ -36,6 +36,9 @@ export function renderIconToDOM(
   span.style.position = 'relative'
   span.style.top = '-0.06em'
   span.style.flex = '0 0 auto'
+  // A small trailing gap separates the glyph from the following text (link
+  // label / code), consistent across editor widgets and the preview.
+  span.style.marginRight = '0.25em'
 
   const markup =
     resolved.kind === 'custom'

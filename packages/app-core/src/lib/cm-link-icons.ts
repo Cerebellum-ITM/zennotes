@@ -79,7 +79,6 @@ class NoteLinkIconWidget extends WidgetType {
       return empty
     }
     el.classList.add('cm-note-link-icon')
-    el.style.marginRight = '0.15em'
     return el
   }
 
