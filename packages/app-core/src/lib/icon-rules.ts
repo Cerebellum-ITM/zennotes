@@ -75,7 +75,7 @@ function compileRegex(source: string): RegExp | null {
 function ruleMatches(
   rule: IconRule,
   ctx: IconRuleContext,
-  target: 'note' | 'folder'
+  target: 'note' | 'folder' | 'file'
 ): boolean {
   let hasMatcher = false
 
@@ -115,7 +115,7 @@ function ruleMatches(
  * rule matches.
  */
 export function resolveByRules(
-  target: 'note' | 'folder',
+  target: 'note' | 'folder' | 'file',
   ctx: IconRuleContext,
   rules: IconRule[] | undefined | null
 ): string | null {

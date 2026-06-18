@@ -20,8 +20,11 @@ export function sanitizeIconSvg(svg: string): string {
 /** Parse a CSS/SVG length to a finite number, or null when it isn't numeric. */
 function parseSvgLength(value: string | null): number | null {
   if (!value) return null
-  // Accept plain numbers and `px` (the only unit that maps 1:1 to user units).
-  const match = value.trim().match(/^([0-9]*\.?[0-9]+)(px)?$/i)
+  // Accept a plain number or any absolute/relative length unit (px, pt, pc, mm,
+  // cm, in, em, ex, …). For the synthesized viewBox only the width:height ratio
+  // matters, so the unit can be ignored. Percentages are excluded — they don't
+  // describe an intrinsic size we can turn into a viewBox.
+  const match = value.trim().match(/^([0-9]*\.?[0-9]+)\s*([a-z]+)?$/i)
   if (!match) return null
   const n = Number.parseFloat(match[1])
   return Number.isFinite(n) && n > 0 ? n : null

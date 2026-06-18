@@ -330,8 +330,9 @@ export interface WeeklyNotesSettings {
 export interface IconRule {
   /** Stable id, used as a React key and for reorder/delete. */
   id: string
-  /** What the rule applies to. */
-  target: 'note' | 'folder'
+  /** What the rule applies to. `file` matches asset/file leaves in the sidebar
+   *  (matchers: pathGlob / nameRegex; frontmatter is ignored). */
+  target: 'note' | 'folder' | 'file'
   /**
    * Glob over the subpath relative to the primary area (the same value used by
    * `noteFolderSubpath` / folder `subpath`). `*` matches any run of characters

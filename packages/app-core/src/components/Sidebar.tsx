@@ -71,6 +71,7 @@ import {
   resolveIcon,
   resolveNoteIconRef,
   resolveFolderIconRefByRules,
+  resolveFileIconRefByRules,
 } from "../lib/icon-resolve";
 import {
   getSidebarEdgePrefetchPaths,
@@ -360,6 +361,7 @@ export function Sidebar(): JSX.Element {
   const customIcons = useStore((s) => s.customIcons);
   const importCustomIcon = useStore((s) => s.importCustomIcon);
   const refreshCustomIcons = useStore((s) => s.refreshCustomIcons);
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter);
   const setNoteIcon = useStore((s) => s.setNoteIcon);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
@@ -3120,6 +3122,7 @@ export function Sidebar(): JSX.Element {
             )
           }
           customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
           onSelect={(iconRef) =>
             void saveFolderIcon(
               folderIconPicker.folder,
@@ -3127,8 +3130,8 @@ export function Sidebar(): JSX.Element {
               iconRef,
             )
           }
-          onImport={async ({ name, svg }) => {
-            const icon = await importCustomIcon({ name, svg });
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, section });
             await saveFolderIcon(
               folderIconPicker.folder,
               folderIconPicker.subpath,
@@ -3143,12 +3146,13 @@ export function Sidebar(): JSX.Element {
           targetLabel={noteIconPicker.label}
           currentIconRef={noteIconPicker.currentIconRef}
           customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
           onSelect={(iconRef) => {
             void setNoteIcon(noteIconPicker.path, iconRef);
             setNoteIconPicker(null);
           }}
-          onImport={async ({ name, svg }) => {
-            const icon = await importCustomIcon({ name, svg });
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, section });
             await setNoteIcon(noteIconPicker.path, `custom:${icon.id}`);
             setNoteIconPicker(null);
           }}
@@ -4255,6 +4259,24 @@ function AssetLeaf({
   const extension = asset.name.includes(".")
     ? asset.name.split(".").pop()?.toUpperCase() ?? ""
     : "";
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  const customIcons = useStore((s) => s.customIcons);
+  const customByName = useMemo(
+    () => buildCustomIconIndex(customIcons),
+    [customIcons],
+  );
+  // Pattern rules (`target: 'file'`) can override the default file glyph by the
+  // asset's vault-relative subpath / file name. DynamicIcon renders both
+  // builtin and custom refs; null falls back to the default file icon below.
+  const ruleIconRef = useMemo(
+    () =>
+      resolveFileIconRefByRules(
+        { subpath: assetFolderSubpath(asset, vaultSettings), name: asset.name },
+        customByName,
+        vaultSettings.iconRules,
+      ),
+    [asset, vaultSettings, customByName],
+  );
   const handleDragStart = useCallback(
     (event: React.DragEvent<HTMLButtonElement>) => {
       setDragPayload(event, { kind: "asset", path: asset.path });
@@ -4285,19 +4307,23 @@ function AssetLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={false} rowActive={false}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+        {ruleIconRef ? (
+          <DynamicIcon iconRef={ruleIconRef} customIcons={customIcons} size={14} />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
       <span className="flex-1 truncate text-ink-700">{asset.name}</span>
       {extension && (

@@ -110,6 +110,7 @@ export function TemplateEditorModal({
   const customIcons = useStore((s) => s.customIcons)
   const importCustomIcon = useStore((s) => s.importCustomIcon)
   const refreshCustomIcons = useStore((s) => s.refreshCustomIcons)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
   const [raw, setRaw] = useState(initialRaw ?? SKELETON)
   const [saving, setSaving] = useState(false)
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
@@ -307,12 +308,13 @@ export function TemplateEditorModal({
         targetLabel={name || 'this template'}
         currentIconRef={iconRef}
         customIcons={customIcons}
+        perSectionFilter={iconPickerPerSectionFilter}
         onSelect={(ref) => {
           applyIcon(ref)
           setIconPickerOpen(false)
         }}
-        onImport={async ({ name: iconName, svg }) => {
-          const icon = await importCustomIcon({ name: iconName, svg })
+        onImport={async ({ name: iconName, svg, section }) => {
+          const icon = await importCustomIcon({ name: iconName, svg, section })
           applyIcon(`custom:${icon.id}`)
           setIconPickerOpen(false)
         }}

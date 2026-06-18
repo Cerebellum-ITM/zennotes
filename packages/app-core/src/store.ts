@@ -314,6 +314,8 @@ interface Prefs {
   unifiedSidebar: boolean
   /** Tint the sidebar surface a step darker than the main canvas. */
   darkSidebar: boolean
+  /** Icon picker: filter per custom section instead of one general search. */
+  iconPickerPerSectionFilter: boolean
   /** Show disclosure arrows for collapsible sidebar folders and sections. */
   showSidebarChevrons: boolean
   /** Keys of collapsed folders in the sidebar tree. */
@@ -449,6 +451,7 @@ const DEFAULT_PREFS: Prefs = {
   autoReveal: false,
   unifiedSidebar: true,
   darkSidebar: true,
+  iconPickerPerSectionFilter: false,
   showSidebarChevrons: true,
   collapsedFolders: [],
   pinnedRefPath: null,
@@ -588,6 +591,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.darkSidebar === 'boolean'
         ? p.darkSidebar
         : DEFAULT_PREFS.darkSidebar,
+    iconPickerPerSectionFilter:
+      typeof p.iconPickerPerSectionFilter === 'boolean'
+        ? p.iconPickerPerSectionFilter
+        : DEFAULT_PREFS.iconPickerPerSectionFilter,
     showSidebarChevrons:
       typeof p.showSidebarChevrons === 'boolean'
         ? p.showSidebarChevrons
@@ -1094,6 +1101,7 @@ function collectPrefs(s: {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  iconPickerPerSectionFilter: boolean
   showSidebarChevrons: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
@@ -1151,6 +1159,7 @@ function collectPrefs(s: {
     autoReveal: s.autoReveal,
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
+    iconPickerPerSectionFilter: s.iconPickerPerSectionFilter,
     showSidebarChevrons: s.showSidebarChevrons,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
@@ -1504,6 +1513,8 @@ interface Store {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  /** Icon picker: filter per custom section instead of one general search. */
+  iconPickerPerSectionFilter: boolean
   showSidebarChevrons: boolean
   /** Sidebar tree collapsed-folder keys. Kept in the store so the
    *  state survives Sidebar unmount/mount (e.g. toggling the sidebar). */
@@ -1781,6 +1792,7 @@ interface Store {
   setAutoReveal: (on: boolean) => void
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
+  setIconPickerPerSectionFilter: (on: boolean) => void
   setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
@@ -2743,6 +2755,7 @@ export const useStore = create<Store>((set, get) => {
   autoReveal: loadPrefs().autoReveal,
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
+  iconPickerPerSectionFilter: loadPrefs().iconPickerPerSectionFilter,
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
@@ -4212,6 +4225,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setDarkSidebar: (on) => {
     set({ darkSidebar: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setIconPickerPerSectionFilter: (on) => {
+    set({ iconPickerPerSectionFilter: on })
     savePrefs(collectPrefs(get()))
   },
   setShowSidebarChevrons: (on) => {

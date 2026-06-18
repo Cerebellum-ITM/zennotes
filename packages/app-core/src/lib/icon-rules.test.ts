@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { CustomIcon, IconRule, NoteMeta } from '@shared/ipc'
 import { resolveByRules } from './icon-rules'
 import { resolveNoteIconRef } from './icon-resolve'
+import { normalizeIconRules } from './vault-layout'
 
 function rule(partial: Partial<IconRule> & Pick<IconRule, 'target' | 'icon'>): IconRule {
   return { id: partial.id ?? Math.random().toString(36).slice(2), ...partial }
@@ -110,6 +111,56 @@ describe('resolveByRules — multiple matchers (AND)', () => {
     expect(
       resolveByRules('note', { subpath: 'Other', name: 'n', frontmatter: { status: 'done' } }, rules)
     ).toBeNull()
+  })
+})
+
+describe('resolveByRules — file target', () => {
+  it('matches a file by nameRegex (e.g. image extensions)', () => {
+    const rules = [
+      rule({ target: 'file', nameRegex: '\\.(png|jpe?g)$', icon: 'image' })
+    ]
+    expect(resolveByRules('file', { subpath: '', name: 'photo.png' }, rules)).toBe('image')
+    expect(resolveByRules('file', { subpath: '', name: 'scan.jpeg' }, rules)).toBe('image')
+    expect(resolveByRules('file', { subpath: '', name: 'notes.md' }, rules)).toBeNull()
+  })
+
+  it('does not apply file rules to notes/folders (target isolation)', () => {
+    const rules = [
+      rule({ target: 'file', nameRegex: '\\.(png|jpe?g)$', icon: 'image' })
+    ]
+    expect(resolveByRules('note', { subpath: '', name: 'photo.png' }, rules)).toBeNull()
+    expect(resolveByRules('folder', { subpath: '', name: 'photo.png' }, rules)).toBeNull()
+  })
+
+  it('matches a file by pathGlob', () => {
+    const rules = [rule({ target: 'file', pathGlob: 'assets/**', icon: 'image' })]
+    expect(
+      resolveByRules('file', { subpath: 'assets/sub', name: 'a.png' }, rules)
+    ).toBe('image')
+  })
+})
+
+describe('normalizeIconRules — file target', () => {
+  it("keeps a target:'file' rule with a matcher", () => {
+    const out = normalizeIconRules([
+      { id: 'f', target: 'file', nameRegex: '\\.(png|jpe?g)$', icon: 'image' }
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ target: 'file', nameRegex: '\\.(png|jpe?g)$', icon: 'image' })
+  })
+
+  it("drops frontmatter from a target:'file' rule (files have no frontmatter)", () => {
+    const out = normalizeIconRules([
+      {
+        id: 'f',
+        target: 'file',
+        pathGlob: 'assets/**',
+        frontmatter: { key: 'status', equals: 'done' },
+        icon: 'image'
+      }
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].frontmatter).toBeUndefined()
   })
 })
 

@@ -363,6 +363,8 @@ export function SettingsModal(): JSX.Element {
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
+  const setIconPickerPerSectionFilter = useStore((s) => s.setIconPickerPerSectionFilter)
   const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -1944,12 +1946,30 @@ export function SettingsModal(): JSX.Element {
           title: 'Icon rules',
           description: 'Assign icons automatically by path glob, name regex, or frontmatter.',
           keywords: ['rule', 'rules', 'glob', 'regex', 'frontmatter', 'auto', 'assign']
+        },
+        {
+          id: 'icon-picker-filter',
+          title: 'Icon picker filter',
+          description: 'Search all icons at once, or filter each custom section separately.',
+          keywords: ['icon', 'picker', 'filter', 'search', 'section', 'general']
         }
       ],
       content: (
         <div className="space-y-6">
           <CustomIconsSection settingId="custom-icons" />
           <IconRulesSection settingId="icon-rules" />
+          <Section
+            title="Icon picker"
+            description="How the icon picker's search behaves when choosing icons."
+          >
+            <ToggleRow
+              label="Filter icons per section"
+              description="On: each custom section gets its own filter box. Off: one general search box filters built-in and custom icons at once."
+              value={iconPickerPerSectionFilter}
+              settingId="icon-picker-filter"
+              onChange={setIconPickerPerSectionFilter}
+            />
+          </Section>
         </div>
       )
     },
@@ -3095,12 +3115,15 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
   const customIcons = useStore((s) => s.customIcons)
   const importCustomIcon = useStore((s) => s.importCustomIcon)
   const refreshCustomIcons = useStore((s) => s.refreshCustomIcons)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
   const rules = vaultSettings.iconRules ?? []
 
   // The rule whose icon is being chosen via the picker (by id).
   const [iconPickerRuleId, setIconPickerRuleId] = useState<string | null>(null)
   // The rule currently expanded for editing (by id).
   const [editingId, setEditingId] = useState<string | null>(null)
+  // The collapsible "How rules work" help block.
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const commit = useCallback(
     (next: IconRule[]) => {
@@ -3179,6 +3202,18 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
     commit([...rules, ...presets])
   }, [commit, rules, vaultSettings.dailyNotes.directory])
 
+  // One-click example from the help block: give every image asset an icon.
+  const addImageExample = useCallback(() => {
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'file',
+      nameRegex: '\\.(png|jpe?g|gif|webp)$',
+      icon: 'image'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
   const pickerRule = rules.find((r) => r.id === iconPickerRuleId) ?? null
 
   return (
@@ -3188,11 +3223,85 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
           Icon rules
         </div>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
-          Automatically assign an icon to notes and folders by path glob, name regex, or
+          Automatically assign an icon to notes, folders, and files by path glob, name regex, or
           frontmatter. Rules are tried top to bottom; the first match wins. An explicit icon
           (a note&apos;s `icon:` frontmatter or a folder&apos;s chosen icon) always overrides a
           rule.
         </p>
+
+        <div className="mt-2 overflow-hidden rounded-xl border border-paper-300/60 bg-paper-50/45">
+          <button
+            type="button"
+            onClick={() => setHelpOpen((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-ink-700 transition-colors hover:text-ink-900"
+            aria-expanded={helpOpen}
+          >
+            <span
+              className={[
+                'inline-block text-ink-400 transition-transform',
+                helpOpen ? 'rotate-90' : ''
+              ].join(' ')}
+              aria-hidden
+            >
+              ▶
+            </span>
+            How icon rules work
+          </button>
+          {helpOpen && (
+            <div className="space-y-3 border-t border-paper-300/45 px-4 py-3 text-sm leading-6 text-ink-600">
+              <div>
+                <span className="font-medium text-ink-800">Target</span> — what the rule
+                applies to:
+                <ul className="ml-4 mt-1 list-disc space-y-0.5">
+                  <li>
+                    <span className="font-medium">Note</span> — markdown notes (can also match
+                    on frontmatter).
+                  </li>
+                  <li>
+                    <span className="font-medium">Folder</span> — folders in the sidebar tree.
+                  </li>
+                  <li>
+                    <span className="font-medium">File</span> — non-note assets/files (images,
+                    PDFs, …).
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Path glob</span> — matched against the
+                subpath relative to your primary notes area.{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">*</code> matches any
+                run of characters except <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">/</code>;{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">**</code> matches
+                across <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">/</code>.
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Name regex</span> — a regular
+                expression tested against the note title / folder name / file name.
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Frontmatter</span> — notes only:
+                require a key to exist or to equal a value.
+              </div>
+              <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-ink-700">
+                <span className="font-medium text-ink-800">Example —</span> give every image its
+                own icon: target <span className="font-medium">File</span>, name regex{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">
+                  \.(png|jpe?g|gif|webp)$
+                </code>
+                , and pick the icon you want.
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={addImageExample}
+                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+                  >
+                    Add image example
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
@@ -3233,7 +3342,11 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
-                        {rule.target === 'note' ? 'Note' : 'Folder'}
+                        {rule.target === 'note'
+                          ? 'Note'
+                          : rule.target === 'file'
+                            ? 'File'
+                            : 'Folder'}
                         {!iconRuleHasMatcher(rule) && (
                           <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
                             Incomplete
@@ -3289,14 +3402,16 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                           onChange={(e) =>
                             updateRule(rule.id, {
                               target: e.target.value as IconRule['target'],
-                              // Folder rules can't use frontmatter; drop it.
-                              ...(e.target.value === 'folder' ? { frontmatter: undefined } : {})
+                              // Only note rules can use frontmatter; drop it for
+                              // folder and file targets.
+                              ...(e.target.value !== 'note' ? { frontmatter: undefined } : {})
                             })
                           }
                           className={ICON_RULE_INPUT_CLASS}
                         >
                           <option value="note">Note</option>
                           <option value="folder">Folder</option>
+                          <option value="file">File</option>
                         </select>
                       </label>
 
@@ -3405,9 +3520,16 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
 
       {pickerRule && (
         <FolderIconPickerModal
-          targetLabel={pickerRule.target === 'note' ? 'this note rule' : 'this folder rule'}
+          targetLabel={
+            pickerRule.target === 'note'
+              ? 'this note rule'
+              : pickerRule.target === 'file'
+                ? 'this file rule'
+                : 'this folder rule'
+          }
           currentIconRef={pickerRule.icon}
           customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
           onSelect={(iconRef) => {
             updateRule(pickerRule.id, { icon: iconRef })
             setIconPickerRuleId(null)

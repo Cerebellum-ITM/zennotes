@@ -182,3 +182,20 @@ export function resolveFolderIconRefByRules(
   if (ruleRef && resolveIcon(ruleRef, customByName)) return ruleRef
   return null
 }
+
+/**
+ * Resolve the {@link import('@shared/ipc').IconRef} to render for a file/asset
+ * leaf via pattern rules (`target: 'file'`). Matchers are `pathGlob`/`nameRegex`
+ * only — files have no frontmatter. Returns `null` when no rule matches or the
+ * matched ref can't be resolved, so the caller falls back to the default file
+ * glyph.
+ */
+export function resolveFileIconRefByRules(
+  ctx: { subpath: string; name: string },
+  customByName: Map<string, CustomIcon>,
+  iconRules: IconRule[] | undefined | null
+): string | null {
+  const ruleRef = resolveByRules('file', ctx, iconRules)
+  if (ruleRef && resolveIcon(ruleRef, customByName)) return ruleRef
+  return null
+}

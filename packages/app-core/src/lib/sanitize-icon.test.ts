@@ -33,6 +33,27 @@ describe('normalizeIconSvg', () => {
     expect(root.getAttribute('width')).toBe('100%')
   })
 
+  it('synthesizes a viewBox from pt dimensions (unit ignored, ratio kept)', () => {
+    const out = normalizeIconSvg(
+      '<svg width="83.371017pt" height="101.00108pt"><path d="M0 0"/></svg>'
+    )
+    const root = new DOMParser().parseFromString(out, 'image/svg+xml').documentElement
+    expect(root.getAttribute('viewBox')).toBe('0 0 83.371017 101.00108')
+    expect(root.getAttribute('width')).toBe('100%')
+  })
+
+  it('synthesizes a viewBox from another unit (mm)', () => {
+    const out = normalizeIconSvg('<svg width="10mm" height="20mm"><rect/></svg>')
+    const root = new DOMParser().parseFromString(out, 'image/svg+xml').documentElement
+    expect(root.getAttribute('viewBox')).toBe('0 0 10 20')
+  })
+
+  it('does not synthesize a viewBox from percentage dimensions', () => {
+    const out = normalizeIconSvg('<svg width="100%" height="100%"><g/></svg>')
+    const root = new DOMParser().parseFromString(out, 'image/svg+xml').documentElement
+    expect(root.getAttribute('viewBox')).toBeNull()
+  })
+
   it('returns an empty string for empty input', () => {
     expect(normalizeIconSvg('')).toBe('')
     expect(normalizeIconSvg('   ')).toBe('')
