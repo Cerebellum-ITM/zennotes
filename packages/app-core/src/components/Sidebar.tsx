@@ -948,6 +948,25 @@ export function Sidebar(): JSX.Element {
     },
     [customIcons, customIconsByName, vaultSettings.folderIcons],
   );
+  // Icon node for a date-nav group row (daily/weekly root, year, month). Honors
+  // an explicit stored icon, then a matching folder rule, then a fallback glyph —
+  // so icon rules visibly drive the pinned daily/weekly navigator too (U10).
+  const dateFolderIcon = useCallback(
+    (subpath: string, name: string, fallback: JSX.Element): JSX.Element => {
+      const stored = vaultSettings.folderIcons[folderIconKey("inbox", subpath)];
+      const ref =
+        stored && resolveIcon(stored, customIconsByName)
+          ? stored
+          : resolveFolderIconRefByRules(
+              { subpath, name },
+              customIconsByName,
+              vaultSettings.iconRules,
+            );
+      if (ref) return <DynamicIcon iconRef={ref} customIcons={customIcons} />;
+      return fallback;
+    },
+    [customIcons, customIconsByName, vaultSettings.folderIcons, vaultSettings.iconRules],
+  );
   const [noteMenu, setNoteMenu] = useState<{
     x: number;
     y: number;
@@ -1046,8 +1065,22 @@ export function Sidebar(): JSX.Element {
     const s = normalizeVaultSettings(vaultSettings);
     const dailyDir = s.dailyNotes.directory;
     const weeklyDir = s.weeklyNotes.directory;
-    const daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[] =
-      [];
+    // The real folder one level above a month folder, relative to dailyDir
+    // (e.g. "Daily notes/2024/01-Enero" → "Daily notes/2024"). Used so folder
+    // icon rules can target the year folder of nested daily-note layouts.
+    const yearFolderOf = (monthSubpath: string): string => {
+      if (monthSubpath === dailyDir || !monthSubpath.startsWith(`${dailyDir}/`)) {
+        return monthSubpath;
+      }
+      const rest = monthSubpath.slice(dailyDir.length + 1).split("/");
+      return rest.length >= 2 ? `${dailyDir}/${rest[0]}` : monthSubpath;
+    };
+    const daily: {
+      year: number;
+      total: number;
+      yearSubpath: string;
+      months: { month: number; notes: NoteMeta[]; monthSubpath: string }[];
+    }[] = [];
     const weekly: { year: number; notes: NoteMeta[] }[] = [];
 
     if (s.dailyNotes.enabled) {
@@ -1071,9 +1104,14 @@ export function Sidebar(): JSX.Element {
           .map(([month, entries]) => {
             entries.sort((a, b) => b.date.getTime() - a.date.getTime());
             total += entries.length;
-            return { month, notes: entries.map((e) => e.note) };
+            const notes = entries.map((e) => e.note);
+            const monthSubpath = noteFolderSubpath(notes[0], vaultSettings);
+            return { month, notes, monthSubpath };
           });
-        daily.push({ year, total, months: mlist });
+        const yearSubpath = mlist.length
+          ? yearFolderOf(mlist[0].monthSubpath)
+          : `${dailyDir}/${year}`;
+        daily.push({ year, total, yearSubpath, months: mlist });
       }
     }
 
@@ -2808,6 +2846,7 @@ export function Sidebar(): JSX.Element {
             onToggle={toggleDateNav}
             dailyIcon={<CalendarIcon />}
             weeklyIcon={<CalendarIcon />}
+            folderIcon={dateFolderIcon}
             isFolderActive={isFolderActive}
             selectedPath={selectedPath}
             selectedKeys={selectedSidebarKeys}
@@ -4948,7 +4987,12 @@ interface DateNavData {
   weeklyDir: string;
   dailyLabel: string;
   weeklyLabel: string;
-  daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[];
+  daily: {
+    year: number;
+    total: number;
+    yearSubpath: string;
+    months: { month: number; notes: NoteMeta[]; monthSubpath: string }[];
+  }[];
   weekly: { year: number; notes: NoteMeta[] }[];
   dailyTotal: number;
   weeklyTotal: number;
@@ -4966,6 +5010,7 @@ function DateNotesNav({
   onToggle,
   dailyIcon,
   weeklyIcon,
+  folderIcon,
   isFolderActive,
   selectedPath,
   selectedKeys,
@@ -4982,6 +5027,8 @@ function DateNotesNav({
   onToggle: (key: string) => void;
   dailyIcon: JSX.Element;
   weeklyIcon: JSX.Element;
+  /** Resolve a group row's icon from stored icons + folder rules (U10). */
+  folderIcon: (subpath: string, name: string, fallback: JSX.Element) => JSX.Element;
   isFolderActive: (folder: NoteFolder, subpath: string) => boolean;
   selectedPath: string | null;
   selectedKeys: Set<string>;
@@ -5051,7 +5098,7 @@ function DateNotesNav({
         dateNav.dailyTotal,
         0,
         () => onToggle("d"),
-        dailyIcon,
+        folderIcon(dateNav.dailyDir, dateNav.dailyLabel, dailyIcon),
         isFolderActive("inbox", dateNav.dailyDir),
         false,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.dailyDir) : undefined,
@@ -5067,7 +5114,11 @@ function DateNotesNav({
             yg.total,
             1,
             () => onToggle(yKey),
-            <FolderGlyphIcon open={expanded.has(yKey)} />,
+            folderIcon(
+              yg.yearSubpath,
+              yg.yearSubpath.split("/").pop() ?? String(yg.year),
+              <FolderGlyphIcon open={expanded.has(yKey)} />,
+            ),
             false,
             showSidebarChevrons,
           ),
@@ -5082,7 +5133,11 @@ function DateNotesNav({
                 mg.notes.length,
                 2,
                 () => onToggle(mKey),
-                <FolderGlyphIcon open={expanded.has(mKey)} />,
+                folderIcon(
+                  mg.monthSubpath,
+                  mg.monthSubpath.split("/").pop() ?? "",
+                  <FolderGlyphIcon open={expanded.has(mKey)} />,
+                ),
                 false,
                 showSidebarChevrons,
               ),
@@ -5102,7 +5157,7 @@ function DateNotesNav({
         dateNav.weeklyTotal,
         0,
         () => onToggle("w"),
-        weeklyIcon,
+        folderIcon(dateNav.weeklyDir, dateNav.weeklyLabel, weeklyIcon),
         isFolderActive("inbox", dateNav.weeklyDir),
         false,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.weeklyDir) : undefined,

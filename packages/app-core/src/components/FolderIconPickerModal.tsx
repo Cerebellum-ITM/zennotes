@@ -63,6 +63,8 @@ export function FolderIconPickerModal({
   const [sectionQueries, setSectionQueries] = useState<Record<string, string>>({})
   // Collapsed custom sections, keyed by section id ('' = root). Default expanded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // The built-in section folds independently of the custom ones.
+  const [builtinCollapsed, setBuiltinCollapsed] = useState(false)
 
   const previewRef = hoverRef ?? currentIconRef
   const general = generalQuery.trim().toLowerCase()
@@ -125,6 +127,19 @@ export function FolderIconPickerModal({
         option.id.toLowerCase().includes(general)
     )
   }, [perSectionFilter, general])
+
+  // A general search forces matching sections open so a hit in a collapsed
+  // section isn't hidden; fold/unfold-all is meaningless while filtering.
+  const filtering = !perSectionFilter && general.length > 0
+
+  const collapseAll = (): void => {
+    setBuiltinCollapsed(true)
+    setCollapsed(Object.fromEntries(sections.map(([section]) => [section, true])))
+  }
+  const expandAll = (): void => {
+    setBuiltinCollapsed(false)
+    setCollapsed({})
+  }
 
   // The whole row sits on the app surface; the glyph lives in a chip whose
   // background follows the preview-bg toggle so users can judge contrast.
@@ -228,35 +243,75 @@ export function FolderIconPickerModal({
           </div>
         </div>
 
-        {/* Built-in glyphs. */}
-        <div className="space-y-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-            Built-in
-          </span>
-          {visibleBuiltins.length === 0 ? (
-            <p className="text-xs text-ink-400">No matching built-in icons.</p>
-          ) : (
-            <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
-              {visibleBuiltins.map((option) => {
-                const active =
-                  option.id === currentIconRef || `builtin:${option.id}` === currentIconRef
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => onSelect(option.id)}
-                    onMouseEnter={() => setHoverRef(option.id)}
-                    onMouseLeave={() => setHoverRef(null)}
-                    className={tileClass(active)}
-                  >
-                    <span className={chipClass}>{option.icon}</span>
-                    <span className="truncate text-sm font-medium">{option.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+        {/* Fold / unfold every section (built-in + custom) at once. */}
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={expandAll}
+            disabled={filtering}
+            className="rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-paper-400 hover:bg-paper-200/70 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={collapseAll}
+            disabled={filtering}
+            className="rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-paper-400 hover:bg-paper-200/70 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Collapse all
+          </button>
         </div>
+
+        {/* Built-in glyphs (collapsible). Hidden when a general filter has no
+            built-in matches; force-expanded while filtering so hits show. */}
+        {filtering && visibleBuiltins.length === 0 ? null : (() => {
+          const open = filtering || !builtinCollapsed
+          const count = filtering ? visibleBuiltins.length : FOLDER_ICON_OPTIONS.length
+          return (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setBuiltinCollapsed((v) => !v)}
+                className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
+                aria-expanded={open}
+              >
+                <span
+                  className={[
+                    'inline-block text-ink-400 transition-transform',
+                    open ? 'rotate-90' : ''
+                  ].join(' ')}
+                  aria-hidden
+                >
+                  ▶
+                </span>
+                <span>Built-in</span>
+                <span className="text-ink-400">({count})</span>
+              </button>
+              {open && (
+                <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+                  {visibleBuiltins.map((option) => {
+                    const active =
+                      option.id === currentIconRef || `builtin:${option.id}` === currentIconRef
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => onSelect(option.id)}
+                        onMouseEnter={() => setHoverRef(option.id)}
+                        onMouseLeave={() => setHoverRef(null)}
+                        className={tileClass(active)}
+                      >
+                        <span className={chipClass}>{option.icon}</span>
+                        <span className="truncate text-sm font-medium">{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Custom icons, grouped by collapsible section. */}
         <div className="space-y-3">
@@ -294,7 +349,6 @@ export function FolderIconPickerModal({
             // section also being independently collapsible.
             <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
               {sections.map(([section, icons]) => {
-                const isCollapsed = collapsed[section] ?? false
                 // Per-section mode uses the section's own search box; general
                 // mode applies the single general query to every section.
                 const query = perSectionFilter
@@ -306,31 +360,36 @@ export function FolderIconPickerModal({
                 // In general mode, hide whole sections that have no match so the
                 // single query reads like one flat result list.
                 if (!perSectionFilter && general && filtered.length === 0) return null
+                // An active query force-expands the section (so the match shows)
+                // and the badge counts results instead of the section total.
+                const queryActive = query.length > 0
+                const isOpen = queryActive || !(collapsed[section] ?? false)
+                const count = queryActive ? filtered.length : icons.length
                 return (
                   <div key={section || '__root__'} className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() =>
-                          setCollapsed((prev) => ({ ...prev, [section]: !isCollapsed }))
+                          setCollapsed((prev) => ({ ...prev, [section]: isOpen }))
                         }
                         className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink-600 transition-colors hover:text-ink-900"
-                        aria-expanded={!isCollapsed}
+                        aria-expanded={isOpen}
                       >
                         <span
                           className={[
                             'inline-block text-ink-400 transition-transform',
-                            isCollapsed ? '' : 'rotate-90'
+                            isOpen ? 'rotate-90' : ''
                           ].join(' ')}
                           aria-hidden
                         >
                           ▶
                         </span>
                         <span className="truncate">{section || ROOT_SECTION_LABEL}</span>
-                        <span className="text-ink-400">({icons.length})</span>
+                        <span className="text-ink-400">({count})</span>
                       </button>
                       <div className="flex items-center gap-2">
-                        {perSectionFilter && !isCollapsed && (
+                        {perSectionFilter && isOpen && (
                           <input
                             type="search"
                             value={sectionQueries[section] ?? ''}
@@ -356,7 +415,7 @@ export function FolderIconPickerModal({
                         )}
                       </div>
                     </div>
-                    {!isCollapsed &&
+                    {isOpen &&
                       (filtered.length === 0 ? (
                         <p className="text-xs text-ink-400">No matching icons.</p>
                       ) : (
