@@ -9,8 +9,9 @@ import {
   WidgetType
 } from '@codemirror/view'
 import type { CustomIcon } from '@shared/ipc'
+import hljs from 'highlight.js/lib/common'
 import { useStore } from '../store'
-import { parseLangIconDirective } from './code-lang-icon'
+import { parseLangIconDirective, parseInlineLangDirective } from './code-lang-icon'
 import { buildCustomIconIndex, resolveLangIconRef } from './icon-resolve'
 import { renderIconToDOM } from './render-icon-dom'
 
@@ -30,34 +31,89 @@ function selectionTouchesRange(
   return false
 }
 
+// hljs token class → editor Lezer token class, so highlighted inline code reuses
+// the editor's `.tok-*` colors (app theme via index.css + named theme via
+// editorCodeThemeCss). Unmapped scopes fall back to the chip's base color.
+const HLJS_TO_TOK: Record<string, string> = {
+  'hljs-keyword': 'tok-keyword',
+  'hljs-built_in': 'tok-keyword',
+  'hljs-literal': 'tok-keyword',
+  'hljs-string': 'tok-string',
+  'hljs-regexp': 'tok-string',
+  'hljs-comment': 'tok-comment',
+  'hljs-quote': 'tok-comment',
+  'hljs-number': 'tok-number',
+  'hljs-symbol': 'tok-number',
+  'hljs-title': 'tok-function',
+  'hljs-type': 'tok-type',
+  'hljs-tag': 'tok-tag',
+  'hljs-name': 'tok-tag',
+  'hljs-selector-tag': 'tok-tag',
+  'hljs-attr': 'tok-attr',
+  'hljs-attribute': 'tok-attr',
+  'hljs-variable': 'tok-variable-def',
+  'hljs-property': 'tok-property',
+  'hljs-params': 'tok-variable-def',
+  'hljs-operator': 'tok-operator',
+  'hljs-punctuation': 'tok-punct',
+  'hljs-meta': 'tok-meta'
+}
+
+function remapHljsClass(classes: string): string {
+  const list = classes.split(/\s+/)
+  if (list.includes('class_')) return 'tok-type'
+  const hljsClass = list.find((c) => c.startsWith('hljs-'))
+  return (hljsClass && HLJS_TO_TOK[hljsClass]) || ''
+}
+
+/** Highlight `code` as `lang` and rewrite hljs classes to the editor's `.tok-*`
+ *  classes. Returns `null` when the language is unknown (leave code plain). */
+function highlightedTokHtml(code: string, lang: string): string | null {
+  if (!hljs.getLanguage(lang)) return null
+  const html = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+  return html.replace(/class="([^"]*)"/g, (_m, classes: string) => {
+    const tok = remapHljsClass(classes)
+    return tok ? `class="${tok}"` : ''
+  })
+}
+
 /**
- * Renders the whole inline-code content as a single chip — `[icon] rest` — so
- * the icon sits INSIDE the inline-code background (matching the rendered
- * preview), instead of a bare icon floating before a separate code chip.
+ * Renders the whole inline-code content as a single chip — `[icon] code` — with
+ * the optional icon inside the inline-code background and the code optionally
+ * syntax-highlighted (hljs → `.tok-*`), matching the rendered preview.
  */
-class LangCodeChipWidget extends WidgetType {
+class InlineCodeChipWidget extends WidgetType {
   constructor(
-    readonly iconRef: string,
-    readonly customByName: Map<string, CustomIcon>,
-    readonly rest: string
+    readonly text: string,
+    readonly tokHtml: string | null,
+    readonly iconRef: string | null,
+    readonly customByName: Map<string, CustomIcon>
   ) {
     super()
   }
 
-  eq(other: LangCodeChipWidget): boolean {
-    return other.iconRef === this.iconRef && other.rest === this.rest
+  eq(other: InlineCodeChipWidget): boolean {
+    return (
+      other.text === this.text &&
+      other.tokHtml === this.tokHtml &&
+      other.iconRef === this.iconRef
+    )
   }
 
   toDOM(): HTMLElement {
-    // Mirror the preview's <code> chip exactly: an inline span styled by
-    // `tok-monospace` (bg + padding + radius) holding [icon][rest], with the
-    // icon centered via its own vertical-align. No flex, so it matches the
-    // rendered preview 1:1.
     const chip = document.createElement('span')
-    chip.className = 'cm-code-lang-chip tok-monospace'
-    const icon = renderIconToDOM(this.iconRef, this.customByName, 14)
-    if (icon) chip.appendChild(icon)
-    if (this.rest) chip.appendChild(document.createTextNode(this.rest))
+    chip.className = 'cm-code-lang-chip cm-inline-hl tok-monospace'
+    if (this.iconRef) {
+      const icon = renderIconToDOM(this.iconRef, this.customByName, 14)
+      if (icon) chip.appendChild(icon)
+    }
+    if (this.tokHtml != null) {
+      const codeSpan = document.createElement('span')
+      codeSpan.innerHTML = this.tokHtml
+      chip.appendChild(codeSpan)
+    } else if (this.text) {
+      chip.appendChild(document.createTextNode(this.text))
+    }
     return chip
   }
 
@@ -70,7 +126,7 @@ function computeDecorations(view: EditorView): DecorationSet {
   const state = view.state
   const store = useStore.getState()
   const rules = store.vaultSettings?.iconRules
-  if (!rules || rules.length === 0) return Decoration.none
+  const hasRules = !!rules && rules.length > 0
   const customByName = buildCustomIconIndex(store.customIcons)
 
   const pending: { from: number; to: number; deco: Decoration }[] = []
@@ -87,21 +143,51 @@ function computeDecorations(view: EditorView): DecorationSet {
         const lead = /^`+/.exec(raw)?.[0].length ?? 0
         const trail = /`+$/.exec(raw)?.[0].length ?? 0
         const content = raw.slice(lead, raw.length - trail)
-        const parsed = parseLangIconDirective(content)
-        if (!parsed) return
-        const ref = resolveLangIconRef(parsed.lang, customByName, rules)
-        if (!ref) return
-        // Replace the whole content (between the backticks, which live-preview
-        // hides) with one chip so the icon sits inside the code background.
         const contentFrom = node.from + lead
         const contentTo = node.to - trail
-        pending.push({
-          from: contentFrom,
-          to: contentTo,
-          deco: Decoration.replace({
-            widget: new LangCodeChipWidget(ref, customByName, parsed.rest)
-          })
-        })
+
+        // 1) `{lang icon}…` → chip with the icon and (when the token is a known
+        // language) the rest syntax-highlighted, matching the preview.
+        const iconParsed = parseLangIconDirective(content)
+        if (iconParsed && hasRules) {
+          const ref = resolveLangIconRef(iconParsed.lang, customByName, rules)
+          if (ref) {
+            pending.push({
+              from: contentFrom,
+              to: contentTo,
+              deco: Decoration.replace({
+                widget: new InlineCodeChipWidget(
+                  iconParsed.rest,
+                  highlightedTokHtml(iconParsed.rest, iconParsed.lang),
+                  ref,
+                  customByName
+                )
+              })
+            })
+            return
+          }
+        }
+
+        // 2) `{lang}…` → replace with a syntax-highlighted chip (known languages
+        // only), so the editor matches the preview's inline highlighting.
+        const langParsed = parseInlineLangDirective(content)
+        if (langParsed) {
+          const tokHtml = highlightedTokHtml(langParsed.rest, langParsed.lang)
+          if (tokHtml != null) {
+            pending.push({
+              from: contentFrom,
+              to: contentTo,
+              deco: Decoration.replace({
+                widget: new InlineCodeChipWidget(
+                  langParsed.rest,
+                  tokHtml,
+                  null,
+                  customByName
+                )
+              })
+            })
+          }
+        }
       }
     })
   }
@@ -116,9 +202,12 @@ function computeDecorations(view: EditorView): DecorationSet {
 const refreshLangIconsEffect = StateEffect.define<null>()
 
 /**
- * Editor live-preview plugin for the `{lang icon}` inline-code directive: it
- * replaces the directive with the language's icon (resolved via `target: 'lang'`
- * rules), leaving the rest of the code visible. Hides while editing the span.
+ * Editor live-preview plugin for inline-code directives:
+ *  - `{lang icon}…` → replaced with the language's icon (resolved via
+ *    `target: 'lang'` rules), leaving the rest of the code visible.
+ *  - `{lang}…` → the directive prefix is hidden (known languages only), matching
+ *    the preview where `{lang}` is consumed before highlighting.
+ * Both reveal the raw markdown while the cursor is inside the span.
  */
 export const langIconsPlugin = ViewPlugin.fromClass(
   class {

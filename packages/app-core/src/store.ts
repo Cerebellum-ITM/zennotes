@@ -50,6 +50,14 @@ import {
   type TaskPriority as TaskLinePriority
 } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
+import {
+  CODE_PALETTE_VALUES,
+  CODE_BACKGROUND_VALUES,
+  DEFAULT_CODE_BACKGROUND_COLOR,
+  type CodePalette,
+  type CodeBackground
+} from './lib/code-palette'
+export type { CodePalette, CodeBackground }
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
@@ -160,6 +168,8 @@ const VALID_SORTS: NoteSortOrder[] = [
   'name-desc'
 ]
 const VALID_LINE_NUMBER_MODES: LineNumberMode[] = ['off', 'absolute', 'relative']
+const VALID_CODE_PALETTES: CodePalette[] = CODE_PALETTE_VALUES
+const VALID_CODE_BACKGROUNDS: CodeBackground[] = CODE_BACKGROUND_VALUES
 const VALID_WHICH_KEY_HINT_MODES: WhichKeyHintMode[] = ['timed', 'sticky']
 const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
   'auto',
@@ -295,6 +305,20 @@ interface Prefs {
   editorLineHeight: number  // unitless multiplier
   previewMaxWidth: number   // px — max reading width for preview surfaces
   lineNumberMode: LineNumberMode
+  /** Show the language label in the preview code-block header. */
+  codeShowLanguageLabel: boolean
+  /** Show the copy / fold toolbar on preview code blocks. */
+  codeShowToolbar: boolean
+  /** Number lines inside preview code blocks. */
+  codeLineNumbers: boolean
+  /** Wrap long lines inside preview code blocks instead of scrolling. */
+  codeWrapLines: boolean
+  /** Token color palette for preview code: theme tokens or structural-only. */
+  codePalette: CodePalette
+  /** Background surface for fenced code blocks (independent of palette). */
+  codeBackground: CodeBackground
+  /** Custom code-block background color (used when codeBackground === 'custom'). */
+  codeBackgroundColor: string
   /** Font used by the whole app chrome (sidebar, menus, title bar). */
   interfaceFont: string | null
   /** Font used inside the editor + preview content. */
@@ -437,6 +461,13 @@ const DEFAULT_PREFS: Prefs = {
   editorLineHeight: 1.7,
   previewMaxWidth: 920,
   lineNumberMode: 'off',
+  codeShowLanguageLabel: true,
+  codeShowToolbar: true,
+  codeLineNumbers: false,
+  codeWrapLines: false,
+  codePalette: 'theme',
+  codeBackground: 'theme',
+  codeBackgroundColor: DEFAULT_CODE_BACKGROUND_COLOR,
   // Leave all font slots on the built-in "Default" path. That lets the
   // shipped CSS fallbacks choose sensible system fonts on each machine
   // instead of forcing a specific family that may not exist.
@@ -553,6 +584,34 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.lineNumberMode && VALID_LINE_NUMBER_MODES.includes(p.lineNumberMode)
         ? p.lineNumberMode
         : DEFAULT_PREFS.lineNumberMode,
+    codeShowLanguageLabel:
+      typeof p.codeShowLanguageLabel === 'boolean'
+        ? p.codeShowLanguageLabel
+        : DEFAULT_PREFS.codeShowLanguageLabel,
+    codeShowToolbar:
+      typeof p.codeShowToolbar === 'boolean'
+        ? p.codeShowToolbar
+        : DEFAULT_PREFS.codeShowToolbar,
+    codeLineNumbers:
+      typeof p.codeLineNumbers === 'boolean'
+        ? p.codeLineNumbers
+        : DEFAULT_PREFS.codeLineNumbers,
+    codeWrapLines:
+      typeof p.codeWrapLines === 'boolean'
+        ? p.codeWrapLines
+        : DEFAULT_PREFS.codeWrapLines,
+    codePalette:
+      p.codePalette && VALID_CODE_PALETTES.includes(p.codePalette)
+        ? p.codePalette
+        : DEFAULT_PREFS.codePalette,
+    codeBackground:
+      p.codeBackground && VALID_CODE_BACKGROUNDS.includes(p.codeBackground)
+        ? p.codeBackground
+        : DEFAULT_PREFS.codeBackground,
+    codeBackgroundColor:
+      typeof p.codeBackgroundColor === 'string'
+        ? p.codeBackgroundColor
+        : DEFAULT_PREFS.codeBackgroundColor,
     interfaceFont:
       typeof p.interfaceFont === 'string' || p.interfaceFont === null
         ? (p.interfaceFont as string | null)
@@ -1126,6 +1185,13 @@ function collectPrefs(s: {
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
   hasCompletedOnboarding: boolean
+  codeShowLanguageLabel: boolean
+  codeShowToolbar: boolean
+  codeLineNumbers: boolean
+  codeWrapLines: boolean
+  codePalette: CodePalette
+  codeBackground: CodeBackground
+  codeBackgroundColor: string
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -1183,7 +1249,14 @@ function collectPrefs(s: {
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
-    hasCompletedOnboarding: s.hasCompletedOnboarding
+    hasCompletedOnboarding: s.hasCompletedOnboarding,
+    codeShowLanguageLabel: s.codeShowLanguageLabel,
+    codeShowToolbar: s.codeShowToolbar,
+    codeLineNumbers: s.codeLineNumbers,
+    codeWrapLines: s.codeWrapLines,
+    codePalette: s.codePalette,
+    codeBackground: s.codeBackground,
+    codeBackgroundColor: s.codeBackgroundColor
   }
 }
 
@@ -1502,6 +1575,13 @@ interface Store {
   editorLineHeight: number
   previewMaxWidth: number
   lineNumberMode: LineNumberMode
+  codeShowLanguageLabel: boolean
+  codeShowToolbar: boolean
+  codeLineNumbers: boolean
+  codeWrapLines: boolean
+  codePalette: CodePalette
+  codeBackground: CodeBackground
+  codeBackgroundColor: string
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -1781,6 +1861,13 @@ interface Store {
   setEditorLineHeight: (mult: number) => void
   setPreviewMaxWidth: (px: number) => void
   setLineNumberMode: (mode: LineNumberMode) => void
+  setCodeShowLanguageLabel: (on: boolean) => void
+  setCodeShowToolbar: (on: boolean) => void
+  setCodeLineNumbers: (on: boolean) => void
+  setCodeWrapLines: (on: boolean) => void
+  setCodePalette: (palette: CodePalette) => void
+  setCodeBackground: (background: CodeBackground) => void
+  setCodeBackgroundColor: (color: string) => void
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
   setMonoFont: (family: string | null) => void
@@ -2744,6 +2831,13 @@ export const useStore = create<Store>((set, get) => {
   editorLineHeight: loadPrefs().editorLineHeight,
   previewMaxWidth: loadPrefs().previewMaxWidth,
   lineNumberMode: loadPrefs().lineNumberMode,
+  codeShowLanguageLabel: loadPrefs().codeShowLanguageLabel,
+  codeShowToolbar: loadPrefs().codeShowToolbar,
+  codeLineNumbers: loadPrefs().codeLineNumbers,
+  codeWrapLines: loadPrefs().codeWrapLines,
+  codePalette: loadPrefs().codePalette,
+  codeBackground: loadPrefs().codeBackground,
+  codeBackgroundColor: loadPrefs().codeBackgroundColor,
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
   monoFont: loadPrefs().monoFont,
@@ -4172,6 +4266,34 @@ export const useStore = create<Store>((set, get) => {
   },
   setLineNumberMode: (mode) => {
     set({ lineNumberMode: mode })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeShowLanguageLabel: (on) => {
+    set({ codeShowLanguageLabel: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeShowToolbar: (on) => {
+    set({ codeShowToolbar: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeLineNumbers: (on) => {
+    set({ codeLineNumbers: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeWrapLines: (on) => {
+    set({ codeWrapLines: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodePalette: (palette) => {
+    set({ codePalette: palette })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeBackground: (background) => {
+    set({ codeBackground: background })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeBackgroundColor: (color) => {
+    set({ codeBackgroundColor: color })
     savePrefs(collectPrefs(get()))
   },
   setInterfaceFont: (family) => {

@@ -44,10 +44,10 @@ describe('editor and preview typography rhythm', () => {
       /\.prose-zen pre code\s*\{[^}]*line-height:\s*var\(--z-editor-line-height,\s*1\.7\);/s
     )
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block\s*\{[^}]*--z-code-toolbar-line:\s*max\(var\(--z-prose-line-gap\),\s*28px\);/s
+      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*var\(--z-prose-line-gap\)\s*16px;/s
     )
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*var\(--z-code-toolbar-line\)\s*16px\s*var\(--z-prose-line-gap\);/s
+      /\.prose-zen \.zen-code-block-header\s*\{[^}]*border-bottom:\s*1px solid theme\("colors\.paper\.400"\);/s
     )
   })
 

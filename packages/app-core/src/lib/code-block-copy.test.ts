@@ -104,4 +104,36 @@ describe('code block controls enhancement', () => {
       'false'
     )
   })
+
+  it('wraps source lines for numbering while preserving copied text', () => {
+    const root = document.createElement('article')
+    // Includes a highlight.js span that straddles a newline (multi-line token).
+    root.innerHTML =
+      '<pre><code class="language-ts">const a = 1;\n' +
+      '<span class="hljs-comment">/* multi\nline */</span>\n</code></pre>'
+
+    enhanceCodeBlockCopy(root)
+
+    const code = root.querySelector<HTMLElement>('.zen-code-block pre > code')!
+    const lines = code.querySelectorAll('.zen-code-line')
+    // 3 source lines (`const`, `/* multi`, `line */`); the trailing newline does
+    // not produce an extra numbered line.
+    expect(lines).toHaveLength(3)
+    // The multi-line comment span is re-opened on the continuation line.
+    expect(code.querySelectorAll('.hljs-comment').length).toBe(2)
+    // Copied text is byte-for-byte identical to the original, trailing \n included.
+    expect(code.textContent).toBe('const a = 1;\n/* multi\nline */\n')
+  })
+
+  it('shows the language label in the header and is idempotent', () => {
+    const root = document.createElement('article')
+    root.innerHTML = '<pre><code class="language-python">print(1)\n</code></pre>'
+
+    enhanceCodeBlockCopy(root)
+    enhanceCodeBlockCopy(root)
+
+    const labels = root.querySelectorAll<HTMLElement>('.zen-code-lang-label')
+    expect(labels).toHaveLength(1)
+    expect(labels[0]?.textContent).toBe('PYTHON')
+  })
 })

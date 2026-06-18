@@ -62,12 +62,14 @@ import { Button } from './ui/Button'
 import { FolderIconPickerModal } from './FolderIconPickerModal'
 import { DynamicIcon } from './DynamicIcon'
 import { normalizeIconRules } from '../lib/vault-layout'
+import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palette'
 
 type SettingsCategoryId =
   | 'appearance'
   | 'editor'
   | 'keymaps'
   | 'typography'
+  | 'code'
   | 'vault'
   | 'icons'
   | 'templates'
@@ -351,6 +353,20 @@ export function SettingsModal(): JSX.Element {
   const setPreviewMaxWidth = useStore((s) => s.setPreviewMaxWidth)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const setLineNumberMode = useStore((s) => s.setLineNumberMode)
+  const codeShowLanguageLabel = useStore((s) => s.codeShowLanguageLabel)
+  const setCodeShowLanguageLabel = useStore((s) => s.setCodeShowLanguageLabel)
+  const codeShowToolbar = useStore((s) => s.codeShowToolbar)
+  const setCodeShowToolbar = useStore((s) => s.setCodeShowToolbar)
+  const codeLineNumbers = useStore((s) => s.codeLineNumbers)
+  const setCodeLineNumbers = useStore((s) => s.setCodeLineNumbers)
+  const codeWrapLines = useStore((s) => s.codeWrapLines)
+  const setCodeWrapLines = useStore((s) => s.setCodeWrapLines)
+  const codePalette = useStore((s) => s.codePalette)
+  const setCodePalette = useStore((s) => s.setCodePalette)
+  const codeBackground = useStore((s) => s.codeBackground)
+  const setCodeBackground = useStore((s) => s.setCodeBackground)
+  const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
+  const setCodeBackgroundColor = useStore((s) => s.setCodeBackgroundColor)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const setInterfaceFont = useStore((s) => s.setInterfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -1357,6 +1373,129 @@ export function SettingsModal(): JSX.Element {
                 { value: 'relative', label: 'Relative' }
               ]}
               onChange={(next) => setLineNumberMode(next)}
+            />
+          </Section>
+        </div>
+      )
+    },
+    {
+      id: 'code',
+      title: 'Code',
+      description: 'Syntax highlighting and how fenced code blocks render in preview.',
+      keywords: ['code', 'syntax', 'highlight', 'fence', 'line numbers', 'palette', 'wrap', 'toolbar'],
+      searchItems: [
+        {
+          id: 'code-language-label',
+          title: 'Language label',
+          description: 'Show the language name in the code-block header.',
+          keywords: ['code', 'language', 'label', 'header']
+        },
+        {
+          id: 'code-toolbar',
+          title: 'Copy / fold toolbar',
+          description: 'Show the Copy and Fold buttons on code blocks.',
+          keywords: ['code', 'toolbar', 'copy', 'fold']
+        },
+        {
+          id: 'code-line-numbers',
+          title: 'Code line numbers',
+          description: 'Number the lines inside rendered code blocks.',
+          keywords: ['code', 'line numbers', 'gutter']
+        },
+        {
+          id: 'code-wrap-lines',
+          title: 'Wrap long lines',
+          description: 'Wrap long code lines instead of scrolling horizontally.',
+          keywords: ['code', 'wrap', 'overflow', 'scroll']
+        },
+        {
+          id: 'code-palette',
+          title: 'Color palette',
+          description: 'Theme-matched token colors or a monochrome treatment.',
+          keywords: ['code', 'palette', 'colors', 'theme', 'mono']
+        },
+        {
+          id: 'code-background',
+          title: 'Block background',
+          description: 'Keep each palette’s surface or override it for all blocks.',
+          keywords: ['code', 'background', 'surface', 'color', 'theme']
+        }
+      ],
+      content: (
+        <div className="space-y-6">
+          <Section
+            title="Highlighting"
+            description="Preview code uses the same token palette as the editor, derived from the active theme."
+          >
+            <SelectRow
+              label="Color palette"
+              description="“Match app theme” derives colors from the active theme (editor parity). “Monochrome” drops token colors. The rest are built-in highlight.js themes."
+              value={codePalette}
+              settingId="code-palette"
+              options={CODE_PALETTE_OPTIONS}
+              onChange={(next) => setCodePalette(next)}
+            />
+            <SelectRow
+              label="Block background"
+              description="“Theme default” keeps each palette's own surface. “App surface” and “Custom” override the block background for every palette (including named themes)."
+              value={codeBackground}
+              settingId="code-background"
+              options={CODE_BACKGROUND_OPTIONS}
+              onChange={(next) => setCodeBackground(next)}
+            />
+            {codeBackground === 'custom' && (
+              <div
+                className="flex items-center justify-between gap-5 px-5 py-4"
+                {...settingsSearchTargetProps('code-background-color')}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink-900">Custom background color</div>
+                  <div className="mt-1 text-xs leading-5 text-ink-500">
+                    Applied to every code block when “Custom” is selected.
+                  </div>
+                </div>
+                <input
+                  type="color"
+                  value={codeBackgroundColor}
+                  onChange={(e) => setCodeBackgroundColor(e.target.value)}
+                  className="h-8 w-12 shrink-0 cursor-pointer rounded-lg border border-paper-300/70 bg-transparent"
+                  aria-label="Custom code block background color"
+                />
+              </div>
+            )}
+          </Section>
+
+          <Section
+            title="Code block"
+            description="Chrome and layout for fenced code blocks in the rendered preview."
+          >
+            <ToggleRow
+              label="Language label"
+              description="Show the language name in the code-block header."
+              value={codeShowLanguageLabel}
+              settingId="code-language-label"
+              onChange={setCodeShowLanguageLabel}
+            />
+            <ToggleRow
+              label="Copy / fold toolbar"
+              description="Show the Copy and Fold buttons in the code-block header."
+              value={codeShowToolbar}
+              settingId="code-toolbar"
+              onChange={setCodeShowToolbar}
+            />
+            <ToggleRow
+              label="Line numbers"
+              description="Number the lines inside rendered code blocks."
+              value={codeLineNumbers}
+              settingId="code-line-numbers"
+              onChange={setCodeLineNumbers}
+            />
+            <ToggleRow
+              label="Wrap long lines"
+              description="Wrap long lines instead of scrolling the block horizontally."
+              value={codeWrapLines}
+              settingId="code-wrap-lines"
+              onChange={setCodeWrapLines}
             />
           </Section>
         </div>
@@ -4293,6 +4432,45 @@ function SegmentedRow<T extends string>({
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+function SelectRow<T extends string>({
+  label,
+  description,
+  value,
+  options,
+  settingId,
+  onChange
+}: {
+  label: string
+  description?: string
+  value: T
+  options: { value: T; label: string }[]
+  settingId?: string
+  onChange: (next: T) => void
+}): JSX.Element {
+  return (
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">{label}</div>
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="shrink-0 rounded-lg border border-paper-300/70 bg-paper-100/75 px-3 py-1.5 text-xs text-ink-900 outline-none focus-visible:border-accent/60"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

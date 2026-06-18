@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useStore } from './store'
 import { resolveAuto } from './lib/themes'
+import { scopedCodeThemeCss, editorCodeThemeCss } from './lib/code-theme'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TitleBar } from './components/TitleBar'
@@ -269,6 +270,13 @@ function App(): JSX.Element {
   const previewMaxWidth = useStore((s) => s.previewMaxWidth)
   const editorMaxWidth = useStore((s) => s.editorMaxWidth)
   const contentAlign = useStore((s) => s.contentAlign)
+  const codeShowLanguageLabel = useStore((s) => s.codeShowLanguageLabel)
+  const codeShowToolbar = useStore((s) => s.codeShowToolbar)
+  const codeLineNumbers = useStore((s) => s.codeLineNumbers)
+  const codeWrapLines = useStore((s) => s.codeWrapLines)
+  const codePalette = useStore((s) => s.codePalette)
+  const codeBackground = useStore((s) => s.codeBackground)
+  const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
@@ -457,6 +465,47 @@ function App(): JSX.Element {
     if (darkSidebar) html.setAttribute('data-dark-sidebar', '')
     else html.removeAttribute('data-dark-sidebar')
   }, [darkSidebar])
+
+  // Preview code-block options projected as data-* so the prose CSS reacts
+  // without re-rendering rendered markdown.
+  useEffect(() => {
+    const html = document.documentElement
+    html.dataset.codeShowLanguage = String(codeShowLanguageLabel)
+    html.dataset.codeShowToolbar = String(codeShowToolbar)
+    html.dataset.codeLineNumbers = String(codeLineNumbers)
+    html.dataset.codeWrap = String(codeWrapLines)
+    html.dataset.codePalette = codePalette
+    html.dataset.codeBg = codeBackground
+    html.style.setProperty('--z-code-bg-custom', codeBackgroundColor)
+  }, [
+    codeShowLanguageLabel,
+    codeShowToolbar,
+    codeLineNumbers,
+    codeWrapLines,
+    codePalette,
+    codeBackground,
+    codeBackgroundColor
+  ])
+
+  // Named highlight.js palettes inject their (scoped, color-only) stylesheet on
+  // demand; the built-in `theme`/`mono` modes use the rules already in index.css.
+  useEffect(() => {
+    const STYLE_ID = 'zen-code-theme'
+    const css = [scopedCodeThemeCss(codePalette), editorCodeThemeCss(codePalette)]
+      .filter(Boolean)
+      .join('\n')
+    let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null
+    if (!css) {
+      style?.remove()
+      return
+    }
+    if (!style) {
+      style = document.createElement('style')
+      style.id = STYLE_ID
+      document.head.appendChild(style)
+    }
+    style.textContent = css
+  }, [codePalette])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {

@@ -1,6 +1,9 @@
 const CODE_BLOCK_CLASS = 'zen-code-block'
+const CODE_BLOCK_HEADER_CLASS = 'zen-code-block-header'
+const CODE_BLOCK_LANG_LABEL_CLASS = 'zen-code-lang-label'
 const CODE_BLOCK_TOOLBAR_CLASS = 'zen-code-block-toolbar'
 const CODE_BLOCK_SUMMARY_CLASS = 'zen-code-block-summary'
+const CODE_LINE_CLASS = 'zen-code-line'
 const CODE_BLOCK_FOLDED_ATTR = 'data-code-folded'
 const CODE_BLOCK_STORAGE_KEY_ATTR = 'data-code-fold-storage-key'
 const CODE_BLOCK_INDEX_ATTR = 'data-code-block-index'
@@ -36,7 +39,8 @@ export function enhanceCodeBlockCopy(
     if (storageKey) wrapper.setAttribute(CODE_BLOCK_STORAGE_KEY_ATTR, storageKey)
     else wrapper.removeAttribute(CODE_BLOCK_STORAGE_KEY_ATTR)
 
-    ensureCodeBlockToolbar(wrapper, pre)
+    ensureCodeBlockHeader(wrapper, pre, code)
+    wrapCodeBlockLines(code)
     ensureCodeBlockSummary(wrapper, code)
 
     const persisted = storageKey ? readPersistedFoldState(storageKey, index) : null
@@ -80,29 +84,109 @@ function ensureCodeBlockWrapper(pre: HTMLPreElement): HTMLElement {
   return wrapper
 }
 
-function ensureCodeBlockToolbar(wrapper: HTMLElement, pre: HTMLPreElement): void {
-  if (wrapper.querySelector(`.${CODE_BLOCK_TOOLBAR_CLASS}`)) return
+function ensureCodeBlockHeader(
+  wrapper: HTMLElement,
+  pre: HTMLPreElement,
+  code: HTMLElement
+): void {
+  let header = wrapper.querySelector<HTMLElement>(`.${CODE_BLOCK_HEADER_CLASS}`)
+  if (!header) {
+    header = pre.ownerDocument.createElement('div')
+    header.className = CODE_BLOCK_HEADER_CLASS
 
-  const toolbar = pre.ownerDocument.createElement('div')
-  toolbar.className = CODE_BLOCK_TOOLBAR_CLASS
+    const label = pre.ownerDocument.createElement('span')
+    label.className = CODE_BLOCK_LANG_LABEL_CLASS
 
-  const foldButton = pre.ownerDocument.createElement('button')
-  foldButton.type = 'button'
-  foldButton.className = CODE_FOLD_BUTTON_SELECTOR.slice(1)
-  foldButton.setAttribute('aria-label', 'Collapse code block')
-  foldButton.setAttribute('aria-expanded', 'true')
-  foldButton.title = 'Collapse code block'
-  foldButton.textContent = 'Fold'
+    const toolbar = pre.ownerDocument.createElement('div')
+    toolbar.className = CODE_BLOCK_TOOLBAR_CLASS
 
-  const copyButton = pre.ownerDocument.createElement('button')
-  copyButton.type = 'button'
-  copyButton.className = CODE_COPY_BUTTON_SELECTOR.slice(1)
-  copyButton.setAttribute('aria-label', 'Copy code block')
-  copyButton.title = 'Copy code block'
-  copyButton.textContent = 'Copy'
+    const foldButton = pre.ownerDocument.createElement('button')
+    foldButton.type = 'button'
+    foldButton.className = CODE_FOLD_BUTTON_SELECTOR.slice(1)
+    foldButton.setAttribute('aria-label', 'Collapse code block')
+    foldButton.setAttribute('aria-expanded', 'true')
+    foldButton.title = 'Collapse code block'
+    foldButton.textContent = 'Fold'
 
-  toolbar.append(foldButton, copyButton)
-  wrapper.insertBefore(toolbar, pre)
+    const copyButton = pre.ownerDocument.createElement('button')
+    copyButton.type = 'button'
+    copyButton.className = CODE_COPY_BUTTON_SELECTOR.slice(1)
+    copyButton.setAttribute('aria-label', 'Copy code block')
+    copyButton.title = 'Copy code block'
+    copyButton.textContent = 'Copy'
+
+    toolbar.append(foldButton, copyButton)
+    header.append(label, toolbar)
+    wrapper.insertBefore(header, pre)
+  }
+
+  const label = header.querySelector<HTMLElement>(`.${CODE_BLOCK_LANG_LABEL_CLASS}`)
+  if (label) label.textContent = codeLanguageName(code)
+}
+
+/** Bare language token (e.g. `JS`) for the header label, `''` when unknown. */
+function codeLanguageName(code: HTMLElement): string {
+  const language = Array.from(code.classList)
+    .find((className) => className.startsWith('language-'))
+    ?.slice('language-'.length)
+    .trim()
+  return language ? language.toUpperCase() : ''
+}
+
+/** Wrap each source line in a `.zen-code-line` span so line numbers can be
+ *  rendered (CSS counters) without changing the copied text. The exact
+ *  `textContent` — including any single trailing newline — is preserved. */
+function wrapCodeBlockLines(code: HTMLElement): void {
+  if (code.querySelector(`.${CODE_LINE_CLASS}`)) return
+
+  const html = code.innerHTML
+  if (!html) return
+
+  // Preserve a single trailing newline as a literal text node so it stays in
+  // textContent (copy) without rendering an extra numbered blank line.
+  const hasTrailingNewline = html.endsWith('\n')
+  const body = hasTrailingNewline ? html.slice(0, -1) : html
+
+  const lines = splitHighlightedLines(body)
+  const wrapped = lines
+    .map((line) => `<span class="${CODE_LINE_CLASS}">${line}</span>`)
+    .join('\n')
+  code.innerHTML = wrapped + (hasTrailingNewline ? '\n' : '')
+}
+
+/** Split highlight.js output into per-line HTML, re-opening any spans that a
+ *  multi-line token (string/comment) leaves open across the newline. */
+function splitHighlightedLines(html: string): string[] {
+  const lines: string[] = []
+  const openTags: string[] = []
+  let current = ''
+  let i = 0
+
+  while (i < html.length) {
+    const ch = html[i]
+    if (ch === '<') {
+      const end = html.indexOf('>', i)
+      if (end === -1) {
+        current += html.slice(i)
+        break
+      }
+      const tag = html.slice(i, end + 1)
+      current += tag
+      if (tag.startsWith('</')) openTags.pop()
+      else if (!tag.endsWith('/>')) openTags.push(tag)
+      i = end + 1
+    } else if (ch === '\n') {
+      current += '</span>'.repeat(openTags.length)
+      lines.push(current)
+      current = openTags.join('')
+      i += 1
+    } else {
+      current += ch
+      i += 1
+    }
+  }
+  lines.push(current)
+  return lines
 }
 
 function ensureCodeBlockSummary(wrapper: HTMLElement, code: HTMLElement): void {
