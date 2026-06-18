@@ -9,6 +9,8 @@ const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
+const CUSTOM_ICONS_DIR_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/icons`
+const CUSTOM_ICONS_PREFIX = `${CUSTOM_ICONS_DIR_RELATIVE_PATH}/`
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -36,6 +38,12 @@ function commentsNotePath(root: string, abs: string): string | null {
   return rel.slice(NOTE_COMMENTS_PREFIX.length, -NOTE_COMMENTS_SUFFIX.length)
 }
 
+/** Whether `abs` is the custom-icons dir itself or anything beneath it. */
+function isCustomIconsPath(root: string, abs: string): boolean {
+  const rel = relativeVaultPath(root, abs)
+  return rel === CUSTOM_ICONS_DIR_RELATIVE_PATH || rel.startsWith(CUSTOM_ICONS_PREFIX)
+}
+
 export class VaultWatcher {
   private watcher: FSWatcher | null = null
   private root: string | null = null
@@ -49,6 +57,8 @@ export class VaultWatcher {
       ignored: (p: string) => {
         if (this.root && isVaultSettingsPath(this.root, p)) return false
         if (this.root && relativeVaultPath(this.root, p) === INTERNAL_VAULT_DIR) return false
+        // Watch the custom-icons subtree so dropped/edited SVGs refresh live.
+        if (this.root && isCustomIconsPath(this.root, p)) return false
         const base = path.basename(p)
         return base.startsWith('.') || base === 'node_modules'
       },
@@ -67,6 +77,18 @@ export class VaultWatcher {
           path: VAULT_SETTINGS_RELATIVE_PATH,
           folder: 'inbox',
           scope: 'vault-settings'
+        })
+        return
+      }
+      if (isCustomIconsPath(this.root, absPath)) {
+        // A custom SVG was added/changed/removed under `.zennotes/icons/`.
+        // The renderer reloads the whole registry, so the specific path only
+        // needs to be a stable, in-vault identifier.
+        onEvent({
+          kind,
+          path: relativeVaultPath(this.root, absPath),
+          folder: 'inbox',
+          scope: 'custom-icons'
         })
         return
       }
@@ -107,6 +129,17 @@ export class VaultWatcher {
     // (e.g. the web app) wouldn't see the folder until a manual refresh.
     const dirHandler = (kind: VaultChangeKind) => (absPath: string) => {
       if (!this.root) return
+      // A custom-icons section folder appeared/disappeared — refresh the
+      // registry so the picker's sections stay in sync.
+      if (isCustomIconsPath(this.root, absPath)) {
+        onEvent({
+          kind,
+          path: relativeVaultPath(this.root, absPath),
+          folder: 'inbox',
+          scope: 'custom-icons'
+        })
+        return
+      }
       if (path.basename(absPath).startsWith('.')) return
       const rel = toPosix(path.relative(this.root, absPath))
       const folder = folderForRelativePath(rel)

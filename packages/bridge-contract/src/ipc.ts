@@ -29,6 +29,9 @@ export const IPC = {
   VAULT_READ_TEMPLATE: 'vault:read-template',
   VAULT_WRITE_TEMPLATE: 'vault:write-template',
   VAULT_DELETE_TEMPLATE: 'vault:delete-template',
+  VAULT_LIST_CUSTOM_ICONS: 'vault:list-custom-icons',
+  VAULT_IMPORT_CUSTOM_ICON: 'vault:import-custom-icon',
+  VAULT_DELETE_CUSTOM_ICON: 'vault:delete-custom-icon',
   VAULT_TEXT_SEARCH_CAPABILITIES: 'vault:text-search-capabilities',
   VAULT_SEARCH_TEXT: 'vault:search-text',
   VAULT_READ_NOTE: 'vault:read-note',
@@ -245,6 +248,51 @@ export type FolderIconId =
   | 'chart'
   | 'home'
 
+/**
+ * Reference to a folder icon. One of:
+ * - `builtin:<FolderIconId>` — an explicitly-namespaced built-in glyph.
+ * - `<FolderIconId>` — a bare built-in id (back-compat with older settings).
+ * - `custom:<name>` — a user SVG stored at `.zennotes/icons/<name>.svg`.
+ */
+export type IconRef = string
+
+/** A user-supplied SVG icon stored under `.zennotes/icons/`. */
+export interface CustomIcon {
+  /**
+   * Unique key: the POSIX path relative to `.zennotes/icons/` without the
+   * `.svg` extension (e.g. `star` at the root, `work/star` in a subfolder).
+   * The custom IconRef is `custom:<id>`. For a root icon this equals its old
+   * `name`, preserving back-compat with `custom:<name>` refs.
+   */
+  id: string
+  /** Display name: the file's stem without the `.svg` extension. */
+  name: string
+  /**
+   * The parent directory relative to `.zennotes/icons/` (`''` = root). Used to
+   * group icons into sections in the picker.
+   */
+  section: string
+  /** Raw (unsanitized) SVG text as read from disk. */
+  svg: string
+  /** File modification time in epoch milliseconds. */
+  updatedAt: number
+}
+
+/** Payload for importing/creating a custom icon. */
+export interface ImportCustomIconInput {
+  /** Target file name without extension (`^[A-Za-z0-9._-]+$`). */
+  name: string
+  /** Raw SVG markup to persist. */
+  svg: string
+  /**
+   * Optional target section (subfolder under `.zennotes/icons/`). Each `/`
+   * segment must match `^[A-Za-z0-9._-]+$`. When set, the icon is written to
+   * `<section>/<name>.svg` and its `id` becomes `<section>/<name>`. Empty/
+   * undefined imports at the icons-dir root (id == name).
+   */
+  section?: string
+}
+
 export interface DailyNotesSettings {
   enabled: boolean
   directory: string
@@ -273,11 +321,42 @@ export interface WeeklyNotesSettings {
   templateId?: string
 }
 
+/**
+ * A pattern rule that assigns an icon to notes or folders that match its
+ * conditions. The first rule (in array order) whose present matchers ALL match
+ * wins. Explicit icons (a note's frontmatter `icon:` / a folder's
+ * `folderIcons` entry) always take precedence over any rule.
+ */
+export interface IconRule {
+  /** Stable id, used as a React key and for reorder/delete. */
+  id: string
+  /** What the rule applies to. `file` matches asset/file leaves in the sidebar
+   *  (matchers: pathGlob / nameRegex; frontmatter is ignored). `lang` matches the
+   *  language token of an inline `{lang icon}` code directive (matcher: nameRegex
+   *  against the language, e.g. `^lua$`; pathGlob/frontmatter are ignored). */
+  target: 'note' | 'folder' | 'file' | 'lang'
+  /**
+   * Glob over the subpath relative to the primary area (the same value used by
+   * `noteFolderSubpath` / folder `subpath`). `*` matches any run of characters
+   * except `/`; `**` matches across `/`.
+   */
+  pathGlob?: string
+  /** Regex (source string) tested against the note title / folder name. */
+  nameRegex?: string
+  /** Frontmatter condition. Notes only — folder rules ignore it. */
+  frontmatter?: { key: string; equals?: string; exists?: boolean }
+  /** Icon to apply when the rule matches. An {@link IconRef}. */
+  icon: IconRef
+}
+
 export interface VaultSettings {
   primaryNotesLocation: PrimaryNotesLocation
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings
-  folderIcons: Record<string, FolderIconId>
+  /** Map of folder key (`<folder>:<subpath>`) to an {@link IconRef}. */
+  folderIcons: Record<string, IconRef>
+  /** Ordered icon-assignment rules. Array order = match priority. */
+  iconRules?: IconRule[]
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -321,6 +400,13 @@ export interface NoteMeta {
    *  is linked into the vault). Notes that merely live inside a symlinked
    *  folder are not flagged — the folder carries the marker instead. */
   isSymlink?: boolean
+  /** Raw value of the frontmatter `icon:` key, if present. Resolved against
+   *  the custom icon registry first, then built-ins (see `resolveNoteIcon`). */
+  icon?: string
+  /** Flat scalar key/value pairs parsed from the note's leading frontmatter
+   *  block. Only first-level scalars; nested YAML is ignored. Base for the
+   *  pattern rules that arrive in U06. */
+  frontmatter?: Record<string, string>
 }
 
 export interface ListNotesPageRequest {
@@ -542,7 +628,13 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
-export type VaultChangeScope = 'content' | 'vault-settings' | 'comments' | 'database' | 'folder'
+export type VaultChangeScope =
+  | 'content'
+  | 'vault-settings'
+  | 'comments'
+  | 'database'
+  | 'folder'
+  | 'custom-icons'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind

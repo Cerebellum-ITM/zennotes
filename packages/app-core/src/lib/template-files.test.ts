@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   composeTemplateFile,
+  extractNoteFrontmatter,
   mergeTemplates,
   parseCustomTemplate,
   parseFrontmatter,
-  slugifyTemplateName
+  removeFrontmatterKey,
+  setFrontmatterKey,
+  slugifyTemplateName,
+  upsertFrontmatterKey
 } from '@shared/template-files'
 import type { NoteTemplate } from '@bridge-contract/templates'
 
@@ -29,6 +33,30 @@ describe('parseFrontmatter', () => {
   it('treats a malformed (unterminated) fence as all body', () => {
     const raw = '---\nname: Broken\n# no closing fence\n'
     expect(parseFrontmatter(raw).body).toBe(raw)
+  })
+})
+
+describe('extractNoteFrontmatter', () => {
+  it('pulls the icon scalar and flat frontmatter from a note body', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('---\nicon: calendar\nfoo: bar\n---\n# Body\n')
+    expect(icon).toBe('calendar')
+    expect(frontmatter).toEqual({ icon: 'calendar', foo: 'bar' })
+  })
+
+  it('returns undefined icon when the key is absent', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('---\nfoo: bar\n---\nbody')
+    expect(icon).toBeUndefined()
+    expect(frontmatter).toEqual({ foo: 'bar' })
+  })
+
+  it('returns undefined icon and empty frontmatter for a note without frontmatter', () => {
+    const { frontmatter, icon } = extractNoteFrontmatter('# Just a body\n')
+    expect(icon).toBeUndefined()
+    expect(frontmatter).toEqual({})
+  })
+
+  it('treats an empty icon value as undefined', () => {
+    expect(extractNoteFrontmatter('---\nicon:\n---\nx').icon).toBeUndefined()
   })
 })
 
@@ -73,6 +101,50 @@ describe('composeTemplateFile + round trip', () => {
     expect(t.description).toBe('Daily standup')
     expect(t.category).toBe('Engineering')
     expect(t.body.trimEnd()).toBe('# {{title}}\n\n{{cursor}}')
+  })
+})
+
+describe('upsertFrontmatterKey', () => {
+  it('appends the key to an existing frontmatter block, preserving the body', () => {
+    const out = upsertFrontmatterKey('---\nfoo: bar\n---\n# Body\n', 'icon', 'calendar')
+    expect(out).toBe('---\nfoo: bar\nicon: calendar\n---\n# Body\n')
+    expect(extractNoteFrontmatter(out).icon).toBe('calendar')
+  })
+
+  it('prepends a fresh frontmatter block when none exists', () => {
+    const out = upsertFrontmatterKey('# Just a body\n', 'icon', 'calendar')
+    expect(out).toBe('---\nicon: calendar\n---\n# Just a body\n')
+    expect(extractNoteFrontmatter(out).icon).toBe('calendar')
+  })
+
+  it('does NOT overwrite an existing key (body frontmatter wins)', () => {
+    const raw = '---\nicon: heart\n---\n# Body\n'
+    expect(upsertFrontmatterKey(raw, 'icon', 'calendar')).toBe(raw)
+    expect(extractNoteFrontmatter(raw).icon).toBe('heart')
+  })
+
+  it('quotes values that could be misread as YAML', () => {
+    const out = upsertFrontmatterKey('# body', 'icon', 'custom:my icon')
+    expect(out).toBe('---\nicon: "custom:my icon"\n---\n# body')
+    expect(extractNoteFrontmatter(out).icon).toBe('custom:my icon')
+  })
+})
+
+describe('template icon round trip', () => {
+  it('composes and parses back a template icon', () => {
+    const raw = composeTemplateFile({
+      name: 'Daily',
+      category: 'Personal',
+      icon: 'custom:sun',
+      body: '# {{title}}\n'
+    })
+    expect(parseCustomTemplate(raw, '.zennotes/templates/daily.md').icon).toBe('custom:sun')
+  })
+
+  it('omits the icon line when no icon is set', () => {
+    const raw = composeTemplateFile({ name: 'Plain', category: 'Custom', body: '# x\n' })
+    expect(raw).not.toContain('icon:')
+    expect(parseCustomTemplate(raw, '.zennotes/templates/plain.md').icon).toBeUndefined()
   })
 })
 
@@ -138,5 +210,49 @@ describe('composeTemplateFile builtinId round trip', () => {
       body: '# {{title}}\n'
     })
     expect(parseCustomTemplate(raw, '.zennotes/templates/adr.md').builtinId).toBe('builtin.adr')
+  })
+})
+
+describe('setFrontmatterKey', () => {
+  it('overwrites an existing key in place', () => {
+    const out = setFrontmatterKey('---\nicon: old\ntitle: Hi\n---\n# Body\n', 'icon', 'new')
+    expect(out).toBe('---\nicon: new\ntitle: Hi\n---\n# Body\n')
+  })
+
+  it('inserts the key when absent from an existing block', () => {
+    const out = setFrontmatterKey('---\ntitle: Hi\n---\n# Body\n', 'icon', 'star')
+    expect(out).toBe('---\ntitle: Hi\nicon: star\n---\n# Body\n')
+  })
+
+  it('prepends a fresh block when there is no frontmatter', () => {
+    const out = setFrontmatterKey('# Body\n', 'icon', 'star')
+    expect(out).toBe('---\nicon: star\n---\n# Body\n')
+  })
+
+  it('quotes a sectioned custom ref containing a slash safely', () => {
+    const out = setFrontmatterKey('# Body\n', 'icon', 'custom:work/star')
+    const { data } = parseFrontmatter(out)
+    expect(data.icon).toBe('custom:work/star')
+  })
+})
+
+describe('removeFrontmatterKey', () => {
+  it('removes the key, keeping the rest of the block', () => {
+    const out = removeFrontmatterKey('---\nicon: star\ntitle: Hi\n---\n# Body\n', 'icon')
+    expect(out).toBe('---\ntitle: Hi\n---\n# Body\n')
+  })
+
+  it('drops the whole fence when the block becomes empty', () => {
+    const out = removeFrontmatterKey('---\nicon: star\n---\n# Body\n', 'icon')
+    expect(out).toBe('# Body\n')
+  })
+
+  it('returns the body unchanged when the key is absent', () => {
+    const body = '---\ntitle: Hi\n---\n# Body\n'
+    expect(removeFrontmatterKey(body, 'icon')).toBe(body)
+  })
+
+  it('returns the body unchanged when there is no frontmatter', () => {
+    expect(removeFrontmatterKey('# Body\n', 'icon')).toBe('# Body\n')
   })
 })

@@ -26,6 +26,13 @@ export interface NoteTemplate {
   targetFolder?: NoteFolder
   /** Default subpath within the target folder. */
   targetSubpath?: string
+  /**
+   * Optional icon for notes created from this template (an IconRef: a bare
+   * built-in id, `builtin:<id>`, or `custom:<name>`). On creation it is injected
+   * into the new note's frontmatter as `icon:`, unless the template body already
+   * declares its own `icon:` (that wins).
+   */
+  icon?: string
   builtin: boolean
   /** Custom templates only: vault-relative path to the source `.md`. */
   sourcePath?: string

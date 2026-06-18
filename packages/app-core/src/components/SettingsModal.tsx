@@ -4,6 +4,8 @@ import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@
 import type {
   AppUpdateState,
   CliInstallStatus,
+  CustomIcon,
+  IconRule,
   RaycastExtensionStatus,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
@@ -54,8 +56,12 @@ import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
+import { promptApp } from '../lib/prompt-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
+import { FolderIconPickerModal } from './FolderIconPickerModal'
+import { DynamicIcon } from './DynamicIcon'
+import { normalizeIconRules } from '../lib/vault-layout'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -63,6 +69,7 @@ type SettingsCategoryId =
   | 'keymaps'
   | 'typography'
   | 'vault'
+  | 'icons'
   | 'templates'
   | 'mcp'
   | 'cli'
@@ -356,6 +363,8 @@ export function SettingsModal(): JSX.Element {
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
+  const setIconPickerPerSectionFilter = useStore((s) => s.setIconPickerPerSectionFilter)
   const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -1467,6 +1476,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Trash label',
           description: 'Display name for deleted-note recovery.',
           keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'icon-rules',
+          title: 'Icon rules',
+          description: 'Auto-assign icons to notes and folders by path, name, or frontmatter.',
+          keywords: ['icon rules', 'icons', 'auto icon', 'glob', 'regex', 'frontmatter', 'daily presets']
         }
       ],
       content: (
@@ -1909,6 +1924,51 @@ export function SettingsModal(): JSX.Element {
             <InlineNote>
               Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
             </InlineNote>
+          </Section>
+
+        </div>
+      )
+    },
+    {
+      id: 'icons',
+      title: 'Icons',
+      description: 'Custom SVG icons and pattern-based icon rules for notes and folders.',
+      keywords: ['icon', 'icons', 'svg', 'custom icon', 'glyph', 'rule', 'rules', 'sidebar icon'],
+      searchItems: [
+        {
+          id: 'custom-icons',
+          title: 'Custom icons',
+          description: 'Import and manage SVG icons stored under .zennotes/icons/.',
+          keywords: ['custom', 'icon', 'svg', 'import', 'folder', 'section']
+        },
+        {
+          id: 'icon-rules',
+          title: 'Icon rules',
+          description: 'Assign icons automatically by path glob, name regex, or frontmatter.',
+          keywords: ['rule', 'rules', 'glob', 'regex', 'frontmatter', 'auto', 'assign']
+        },
+        {
+          id: 'icon-picker-filter',
+          title: 'Icon picker filter',
+          description: 'Search all icons at once, or filter each custom section separately.',
+          keywords: ['icon', 'picker', 'filter', 'search', 'section', 'general']
+        }
+      ],
+      content: (
+        <div className="space-y-6">
+          <CustomIconsSection settingId="custom-icons" />
+          <IconRulesSection settingId="icon-rules" />
+          <Section
+            title="Icon picker"
+            description="How the icon picker's search behaves when choosing icons."
+          >
+            <ToggleRow
+              label="Filter icons per section"
+              description="On: each custom section gets its own filter box. Off: one general search box filters built-in and custom icons at once."
+              value={iconPickerPerSectionFilter}
+              settingId="icon-picker-filter"
+              onChange={setIconPickerPerSectionFilter}
+            />
           </Section>
         </div>
       )
@@ -2809,6 +2869,743 @@ function Section({
 
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+}
+
+// --- Icon rules (U06) --------------------------------------------------------
+
+function newIconRuleId(): string {
+  return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function summarizeIconRule(rule: IconRule): string {
+  const parts: string[] = []
+  if (rule.pathGlob) parts.push(`path: ${rule.pathGlob}`)
+  if (rule.nameRegex) parts.push(`name: /${rule.nameRegex}/`)
+  if (rule.frontmatter?.key) {
+    const fm = rule.frontmatter
+    if (fm.equals !== undefined) parts.push(`${fm.key} = ${fm.equals}`)
+    else if (fm.exists === true) parts.push(`has ${fm.key}`)
+    else if (fm.exists === false) parts.push(`no ${fm.key}`)
+    else parts.push(fm.key)
+  }
+  return parts.length ? parts.join(' · ') : 'no conditions'
+}
+
+/** A rule with no matcher would be dropped on persist; flag it in the editor. */
+function iconRuleHasMatcher(rule: IconRule): boolean {
+  return Boolean(rule.pathGlob?.trim() || rule.nameRegex?.trim() || rule.frontmatter?.key?.trim())
+}
+
+const ICON_RULE_INPUT_CLASS =
+  'rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45'
+
+/** Label for root-level custom icons (mirrors the picker). */
+const CUSTOM_ICONS_ROOT_LABEL = 'General'
+/** Each `/`-segment of a section folder name must be a safe stem. */
+const CUSTOM_ICON_SECTION_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Manage custom SVG icons stored under `.zennotes/icons/`: list them grouped by
+ * section, import (root, per-section, or into a brand-new folder), and delete.
+ */
+function CustomIconsSection({ settingId }: { settingId?: string }): JSX.Element {
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const deleteCustomIcon = useStore((s) => s.deleteCustomIcon)
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // The section the next file-chooser result should import into (null = root).
+  const pendingSectionRef = useRef<string | null>(null)
+  // Collapsed sections, keyed by section id ('' = root). Default expanded.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  // Group custom icons by section, preserving the backend's sort order.
+  const sections = useMemo(() => {
+    const bySection = new Map<string, CustomIcon[]>()
+    for (const icon of customIcons) {
+      const list = bySection.get(icon.section)
+      if (list) list.push(icon)
+      else bySection.set(icon.section, [icon])
+    }
+    return [...bySection.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [customIcons])
+
+  const handleFile = useCallback(
+    async (file: File | null | undefined): Promise<void> => {
+      const section = pendingSectionRef.current
+      pendingSectionRef.current = null
+      if (!file) return
+      const svg = await file.text()
+      const base = file.name.replace(/\.svg$/i, '')
+      const name = base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'icon'
+      await importCustomIcon({ name, svg, ...(section ? { section } : {}) })
+    },
+    [importCustomIcon]
+  )
+
+  // Open the OS file chooser; the chosen file imports into `section` ('' = root).
+  const pickFileFor = useCallback((section: string): void => {
+    pendingSectionRef.current = section || null
+    fileInputRef.current?.click()
+  }, [])
+
+  // Prompt for a new folder name, then import the chosen SVG into it.
+  const importIntoNewFolder = useCallback(async (): Promise<void> => {
+    const entered = await promptApp({
+      title: 'New icon folder',
+      description: 'Subfolder under .zennotes/icons/. Letters, numbers, ., _ and - only.',
+      placeholder: 'work',
+      okLabel: 'Choose SVG…',
+      validate: (value) => {
+        const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
+        if (!trimmed) return 'Enter a folder name.'
+        if (!trimmed.split('/').every((seg) => CUSTOM_ICON_SECTION_RE.test(seg))) {
+          return 'Use only letters, numbers, ., _ and - (slashes allowed between folders).'
+        }
+        return null
+      }
+    })
+    if (entered == null) return
+    const section = entered.trim().replace(/^\/+|\/+$/g, '')
+    if (!section) return
+    pickFileFor(section)
+  }, [pickFileFor])
+
+  const handleDelete = useCallback(
+    async (icon: CustomIcon): Promise<void> => {
+      const ok = await confirmApp({
+        title: 'Delete custom icon',
+        description: `Remove “${icon.name}”? Notes or folders using it will fall back to a default icon.`,
+        confirmLabel: 'Delete',
+        danger: true
+      })
+      if (!ok) return
+      await deleteCustomIcon(icon.id)
+    },
+    [deleteCustomIcon]
+  )
+
+  return (
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
+          Custom icons
+        </div>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
+          Import SVG icons stored under{' '}
+          <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">.zennotes/icons/</code>.
+          Subfolders become sections. Imported icons are available in the icon picker.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="text-sm font-medium text-ink-900">
+            {customIcons.length === 0
+              ? 'No custom icons yet.'
+              : `${customIcons.length} icon${customIcons.length === 1 ? '' : 's'}`}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => pickFileFor('')}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:border-accent/45 hover:bg-paper-200/70"
+            >
+              Import SVG…
+            </button>
+            <button
+              type="button"
+              onClick={() => void importIntoNewFolder()}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:border-accent/45 hover:bg-paper-200/70"
+            >
+              New folder…
+            </button>
+          </div>
+        </div>
+
+        {customIcons.length > 0 && (
+          <div className="max-h-80 space-y-3 overflow-y-auto border-t border-paper-300/40 px-5 py-4">
+            {sections.map(([section, icons]) => {
+              const isCollapsed = collapsed[section] ?? false
+              return (
+                <div key={section || '__root__'} className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsed((prev) => ({ ...prev, [section]: !isCollapsed }))
+                      }
+                      className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink-600 transition-colors hover:text-ink-900"
+                      aria-expanded={!isCollapsed}
+                    >
+                      <span
+                        className={[
+                          'inline-block text-ink-400 transition-transform',
+                          isCollapsed ? '' : 'rotate-90'
+                        ].join(' ')}
+                        aria-hidden
+                      >
+                        ▶
+                      </span>
+                      <span className="truncate">{section || CUSTOM_ICONS_ROOT_LABEL}</span>
+                      <span className="text-ink-400">({icons.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => pickFileFor(section)}
+                      className="shrink-0 rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-paper-400 hover:bg-paper-200/70"
+                      title={`Import an SVG into ${section || CUSTOM_ICONS_ROOT_LABEL}`}
+                    >
+                      Import here
+                    </button>
+                  </div>
+                  {!isCollapsed && (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {icons.map((icon) => (
+                        <div
+                          key={icon.id}
+                          className="flex items-center gap-3 rounded-xl border border-paper-300 bg-paper-50 px-3 py-2"
+                        >
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-paper-300 bg-white text-ink-700">
+                            <DynamicIcon
+                              iconRef={`custom:${icon.id}`}
+                              customIcons={customIcons}
+                              size={20}
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
+                            {icon.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(icon)}
+                            className="shrink-0 rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition-colors hover:border-rose-400/60 hover:text-rose-600"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".svg,image/svg+xml"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          void handleFile(file)
+        }}
+      />
+    </section>
+  )
+}
+
+function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
+  const vaultSettings = useStore((s) => s.vaultSettings)
+  const persistVaultSettings = useStore((s) => s.setVaultSettings)
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const refreshCustomIcons = useStore((s) => s.refreshCustomIcons)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
+  const rules = vaultSettings.iconRules ?? []
+
+  // The rule whose icon is being chosen via the picker (by id).
+  const [iconPickerRuleId, setIconPickerRuleId] = useState<string | null>(null)
+  // The rule currently expanded for editing (by id).
+  const [editingId, setEditingId] = useState<string | null>(null)
+  // The collapsible "How rules work" help block.
+  const [helpOpen, setHelpOpen] = useState(false)
+  // An in-progress edit that would currently fail normalization (e.g. an empty
+  // matcher mid-typing, or a target switch that cleared the matcher). Kept local
+  // and NOT persisted so the on-disk normalizer can't delete the row mid-edit.
+  const [draftRule, setDraftRule] = useState<IconRule | null>(null)
+
+  // The persisted rules, with the live draft overlaid for display/editing.
+  const displayRules = useMemo(() => {
+    if (!draftRule) return rules
+    return rules.some((r) => r.id === draftRule.id)
+      ? rules.map((r) => (r.id === draftRule.id ? draftRule : r))
+      : [...rules, draftRule]
+  }, [rules, draftRule])
+
+  const commit = useCallback(
+    (next: IconRule[]) => {
+      // Always normalize before persisting so the committed list matches what
+      // the on-disk normalizer (vault-layout / desktop vault) would keep.
+      void persistVaultSettings({ ...vaultSettings, iconRules: normalizeIconRules(next) })
+    },
+    [persistVaultSettings, vaultSettings]
+  )
+
+  const updateRule = useCallback(
+    (id: string, patch: Partial<IconRule>) => {
+      const base = displayRules.find((r) => r.id === id)
+      if (!base) return
+      const edited = { ...base, ...patch }
+      // A matcher-less rule is dropped by the on-disk normalizer, which would
+      // delete the row mid-edit (closing the editor + icon picker). So only
+      // persist when the rule is valid; otherwise hold the in-progress edit in
+      // local draft state so the UI stays put until the matcher is fixed.
+      if (normalizeIconRules([edited]).length === 1) {
+        setDraftRule(null)
+        commit(displayRules.map((r) => (r.id === id ? edited : r)))
+      } else {
+        setDraftRule(edited)
+      }
+    },
+    [commit, displayRules]
+  )
+
+  const addRule = useCallback(() => {
+    // Seed with a VALID default matcher so the rule survives normalization and
+    // stays editable; the user narrows it from there.
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'folder',
+      pathGlob: '*',
+      icon: 'folder'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
+  const deleteRule = useCallback(
+    (id: string) => {
+      setDraftRule(null)
+      commit(rules.filter((r) => r.id !== id))
+      if (editingId === id) setEditingId(null)
+    },
+    [commit, editingId, rules]
+  )
+
+  const move = useCallback(
+    (id: string, dir: -1 | 1) => {
+      setDraftRule(null)
+      const idx = rules.findIndex((r) => r.id === id)
+      const next = idx + dir
+      if (idx < 0 || next < 0 || next >= rules.length) return
+      const copy = rules.slice()
+      const [item] = copy.splice(idx, 1)
+      copy.splice(next, 0, item)
+      commit(copy)
+    },
+    [commit, rules]
+  )
+
+  const addDailyPresets = useCallback(() => {
+    const dir = vaultSettings.dailyNotes.directory || DEFAULT_DAILY_NOTES_DIRECTORY
+    const presets: IconRule[] = [
+      { id: newIconRuleId(), target: 'folder', pathGlob: `${dir}/*`, icon: 'calendar' },
+      { id: newIconRuleId(), target: 'folder', pathGlob: `${dir}/*/*`, icon: 'calendar' },
+      {
+        id: newIconRuleId(),
+        target: 'note',
+        nameRegex: '^\\d{4}-\\d{2}-\\d{2}$',
+        icon: 'document'
+      }
+    ]
+    // `commit` normalizes, dropping any malformed preset consistently.
+    commit([...rules, ...presets])
+  }, [commit, rules, vaultSettings.dailyNotes.directory])
+
+  // One-click example from the help block: give every image asset an icon.
+  const addImageExample = useCallback(() => {
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'file',
+      nameRegex: '\\.(png|jpe?g|gif|webp)$',
+      icon: 'image'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
+  // One-click example: an inline `{lua icon}…` code directive → the code glyph.
+  const addCodeLangExample = useCallback(() => {
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'lang',
+      nameRegex: '^lua$',
+      icon: 'code'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
+  const pickerRule = displayRules.find((r) => r.id === iconPickerRuleId) ?? null
+
+  return (
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
+          Icon rules
+        </div>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
+          Automatically assign an icon to notes, folders, and files by path glob, name regex, or
+          frontmatter. Rules are tried top to bottom; the first match wins. An explicit icon
+          (a note&apos;s `icon:` frontmatter or a folder&apos;s chosen icon) always overrides a
+          rule.
+        </p>
+
+        <div className="mt-2 overflow-hidden rounded-xl border border-paper-300/60 bg-paper-50/45">
+          <button
+            type="button"
+            onClick={() => setHelpOpen((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-ink-700 transition-colors hover:text-ink-900"
+            aria-expanded={helpOpen}
+          >
+            <span
+              className={[
+                'inline-block text-ink-400 transition-transform',
+                helpOpen ? 'rotate-90' : ''
+              ].join(' ')}
+              aria-hidden
+            >
+              ▶
+            </span>
+            How icon rules work
+          </button>
+          {helpOpen && (
+            <div className="space-y-3 border-t border-paper-300/45 px-4 py-3 text-sm leading-6 text-ink-600">
+              <div>
+                <span className="font-medium text-ink-800">Target</span> — what the rule
+                applies to:
+                <ul className="ml-4 mt-1 list-disc space-y-0.5">
+                  <li>
+                    <span className="font-medium">Note</span> — markdown notes (can also match
+                    on frontmatter).
+                  </li>
+                  <li>
+                    <span className="font-medium">Folder</span> — folders in the sidebar tree.
+                  </li>
+                  <li>
+                    <span className="font-medium">File</span> — non-note assets/files (images,
+                    PDFs, …).
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Path glob</span> — matched against the
+                subpath relative to your primary notes area.{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">*</code> matches any
+                run of characters except <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">/</code>;{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">**</code> matches
+                across <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">/</code>.
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Name regex</span> — a regular
+                expression tested against the note title / folder name / file name.
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Frontmatter</span> — notes only:
+                require a key to exist or to equal a value.
+              </div>
+              <div>
+                <span className="font-medium text-ink-800">Code language</span> — matches the
+                language token of an inline{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">{'{lua icon}'}</code>{' '}
+                directive (matcher: the language regex, e.g.{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">^lua$</code>). In a note,{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">
+                  {'`{lua icon}options.lua`'}
+                </code>{' '}
+                renders the icon followed by <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">options.lua</code>.
+              </div>
+              <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-ink-700">
+                <span className="font-medium text-ink-800">Example —</span> give every image its
+                own icon: target <span className="font-medium">File</span>, name regex{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">
+                  \.(png|jpe?g|gif|webp)$
+                </code>
+                , and pick the icon you want.
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={addImageExample}
+                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+                  >
+                    Add image example
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addCodeLangExample}
+                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+                  >
+                    Add code language example
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="text-sm font-medium text-ink-900">
+            {rules.length === 0
+              ? 'No icon rules yet.'
+              : `${rules.length} rule${rules.length === 1 ? '' : 's'}`}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={addDailyPresets}
+              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+              title="Append example rules aligned to your daily notes scheme"
+            >
+              Add daily presets
+            </button>
+            <button
+              type="button"
+              onClick={addRule}
+              className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+            >
+              Add rule
+            </button>
+          </div>
+        </div>
+
+        {displayRules.length > 0 && (
+          <div className="divide-y divide-paper-300/45 border-t border-paper-300/45">
+            {displayRules.map((rule, index) => {
+              const editing = editingId === rule.id
+              return (
+                <div key={rule.id} className="px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-paper-300/70 bg-paper-100/70 text-ink-700">
+                      <DynamicIcon iconRef={rule.icon} customIcons={customIcons} size={16} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
+                        {rule.target === 'note'
+                          ? 'Note'
+                          : rule.target === 'file'
+                            ? 'File'
+                            : rule.target === 'lang'
+                              ? 'Code language'
+                              : 'Folder'}
+                        {!iconRuleHasMatcher(rule) && (
+                          <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+                            Incomplete
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-ink-500">
+                        {summarizeIconRule(rule)}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label="Move up"
+                        disabled={index === 0}
+                        onClick={() => move(rule.id, -1)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs text-ink-700 transition-colors hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Move down"
+                        disabled={index === displayRules.length - 1}
+                        onClick={() => move(rule.id, 1)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs text-ink-700 transition-colors hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDraftRule(null)
+                          setEditingId(editing ? null : rule.id)
+                        }}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        {editing ? 'Done' : 'Edit'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteRule(rule.id)}
+                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  {editing && (
+                    <div className="mt-4 grid gap-3 rounded-2xl border border-paper-300/60 bg-paper-100/50 p-4">
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                        Target
+                        <select
+                          value={rule.target}
+                          onChange={(e) => {
+                            const target = e.target.value as IconRule['target']
+                            const patch: Partial<IconRule> = { target }
+                            // Only note rules can use frontmatter; drop it for
+                            // folder/file/lang targets.
+                            if (target !== 'note') patch.frontmatter = undefined
+                            if (target === 'lang') {
+                              // `lang` rules have no path; drop a stale glob so the
+                              // matcher is just the language regex. Seed a default
+                              // regex when none exists so the rule keeps a matcher
+                              // and survives normalization (otherwise persisting a
+                              // matcher-less rule deletes it, closing the editor).
+                              patch.pathGlob = undefined
+                              if (!rule.nameRegex?.trim()) patch.nameRegex = '^lua$'
+                            }
+                            updateRule(rule.id, patch)
+                          }}
+                          className={ICON_RULE_INPUT_CLASS}
+                        >
+                          <option value="note">Note</option>
+                          <option value="folder">Folder</option>
+                          <option value="file">File</option>
+                          <option value="lang">Code language</option>
+                        </select>
+                      </label>
+
+                      {rule.target !== 'lang' && (
+                        <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                          Path glob
+                          <input
+                            value={rule.pathGlob ?? ''}
+                            placeholder="Daily Notes/*"
+                            onChange={(e) => updateRule(rule.id, { pathGlob: e.target.value })}
+                            className={ICON_RULE_INPUT_CLASS}
+                          />
+                        </label>
+                      )}
+
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                        {rule.target === 'lang' ? 'Language regex' : 'Name regex'}
+                        <input
+                          value={rule.nameRegex ?? ''}
+                          placeholder={rule.target === 'lang' ? '^lua$' : '^\\d{4}-\\d{2}-\\d{2}$'}
+                          onChange={(e) => updateRule(rule.id, { nameRegex: e.target.value })}
+                          className={ICON_RULE_INPUT_CLASS}
+                        />
+                      </label>
+
+                      {rule.target === 'note' && (
+                        <div className="grid gap-2">
+                          <div className="text-xs font-medium text-ink-600">Frontmatter</div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <input
+                              value={rule.frontmatter?.key ?? ''}
+                              placeholder="status"
+                              onChange={(e) =>
+                                updateRule(rule.id, {
+                                  frontmatter: {
+                                    key: e.target.value,
+                                    equals: rule.frontmatter?.equals,
+                                    exists: rule.frontmatter?.exists
+                                  }
+                                })
+                              }
+                              className={ICON_RULE_INPUT_CLASS}
+                            />
+                            <select
+                              value={rule.frontmatter?.exists === true ? 'exists' : 'equals'}
+                              onChange={(e) =>
+                                updateRule(rule.id, {
+                                  frontmatter: {
+                                    key: rule.frontmatter?.key ?? '',
+                                    ...(e.target.value === 'exists'
+                                      ? { exists: true }
+                                      : { equals: rule.frontmatter?.equals ?? '' })
+                                  }
+                                })
+                              }
+                              className={ICON_RULE_INPUT_CLASS}
+                            >
+                              <option value="equals">equals</option>
+                              <option value="exists">exists</option>
+                            </select>
+                            {rule.frontmatter?.exists === true ? (
+                              <div className="flex items-center px-1 text-xs text-ink-400">
+                                key must be present
+                              </div>
+                            ) : (
+                              <input
+                                value={rule.frontmatter?.equals ?? ''}
+                                placeholder="done"
+                                onChange={(e) =>
+                                  updateRule(rule.id, {
+                                    frontmatter: {
+                                      key: rule.frontmatter?.key ?? '',
+                                      equals: e.target.value
+                                    }
+                                  })
+                                }
+                                className={ICON_RULE_INPUT_CLASS}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3 pt-1">
+                        <div className="text-xs font-medium text-ink-600">Icon</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void refreshCustomIcons()
+                            setIconPickerRuleId(rule.id)
+                          }}
+                          className="flex items-center gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                        >
+                          <span className="flex h-5 w-5 items-center justify-center text-ink-700">
+                            <DynamicIcon iconRef={rule.icon} customIcons={customIcons} size={16} />
+                          </span>
+                          Change icon
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {pickerRule && (
+        <FolderIconPickerModal
+          targetLabel={
+            pickerRule.target === 'note'
+              ? 'this note rule'
+              : pickerRule.target === 'file'
+                ? 'this file rule'
+                : 'this folder rule'
+          }
+          currentIconRef={pickerRule.icon}
+          customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
+          onSelect={(iconRef) => {
+            updateRule(pickerRule.id, { icon: iconRef })
+            setIconPickerRuleId(null)
+          }}
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, ...(section ? { section } : {}) })
+            updateRule(pickerRule.id, { icon: `custom:${icon.id}` })
+            setIconPickerRuleId(null)
+          }}
+          onCancel={() => setIconPickerRuleId(null)}
+        />
+      )}
+    </section>
+  )
 }
 
 const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'

@@ -38,6 +38,98 @@ export function parseFrontmatter(raw: string): ParsedFrontmatter {
   return { data, body: raw.slice(match[0].length) }
 }
 
+export interface NoteFrontmatterMeta {
+  /** Flat scalar key/value pairs from the leading frontmatter block. */
+  frontmatter: Record<string, string>
+  /** The raw `icon:` value, or `undefined` when absent/empty. */
+  icon: string | undefined
+}
+
+/**
+ * Pure helper for note metadata: parse the leading frontmatter block and pull
+ * the `icon:` scalar. Reuses {@link parseFrontmatter}, so it only sees
+ * first-level scalars (nested YAML is ignored). Never throws.
+ */
+export function extractNoteFrontmatter(raw: string): NoteFrontmatterMeta {
+  const { data } = parseFrontmatter(raw)
+  const icon = typeof data.icon === 'string' && data.icon !== '' ? data.icon : undefined
+  return { frontmatter: data, icon }
+}
+
+/**
+ * Insert `key: value` into a note body's leading frontmatter, without ever
+ * overwriting an existing key. If the body opens with a `---…---` block, the
+ * key is appended only when absent; otherwise a fresh frontmatter block is
+ * prepended. Pure and tolerant — never throws. Value is YAML-scalar quoted to
+ * match {@link composeTemplateFile}.
+ */
+export function upsertFrontmatterKey(body: string, key: string, value: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  const scalar = yamlScalar(value)
+  if (!match) {
+    // No frontmatter: prepend a fresh block. One newline after the closing
+    // fence so the body isn't glued onto `---`.
+    return `---\n${key}: ${scalar}\n---\n${body}`
+  }
+  // Existing block: leave it untouched if the key is already present.
+  const { data } = parseFrontmatter(body)
+  if (Object.prototype.hasOwnProperty.call(data, key)) return body
+  // Append the new line just before the closing `---`. match[1] is the inner
+  // YAML; rebuild the fence so we keep the original body verbatim afterwards.
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  return `---\n${inner}\n${key}: ${scalar}\n---\n${rest}`
+}
+
+/**
+ * Set `key: value` in a note body's leading frontmatter, **overwriting** an
+ * existing key (unlike {@link upsertFrontmatterKey}, which never overwrites). If
+ * the body has no frontmatter, a fresh block is prepended. Pure and tolerant —
+ * never throws. Value is YAML-scalar quoted to match {@link composeTemplateFile}.
+ */
+export function setFrontmatterKey(body: string, key: string, value: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  const scalar = yamlScalar(value)
+  if (!match) {
+    return `---\n${key}: ${scalar}\n---\n${body}`
+  }
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  const lines = inner.length ? inner.split(/\r?\n/) : []
+  let replaced = false
+  const nextLines = lines.map((line) => {
+    const idx = line.indexOf(':')
+    if (idx === -1) return line
+    if (line.slice(0, idx).trim() !== key) return line
+    replaced = true
+    return `${key}: ${scalar}`
+  })
+  if (!replaced) nextLines.push(`${key}: ${scalar}`)
+  return `---\n${nextLines.join('\n')}\n---\n${rest}`
+}
+
+/**
+ * Remove `key` from a note body's leading frontmatter. If the key (or the
+ * frontmatter block) is absent, the body is returned unchanged. When removing
+ * the key empties the block, the whole `---…---` fence is dropped. Pure and
+ * tolerant — never throws.
+ */
+export function removeFrontmatterKey(body: string, key: string): string {
+  const match = FRONTMATTER_RE.exec(body)
+  if (!match) return body
+  const inner = match[1].replace(/\r?\n$/, '')
+  const rest = body.slice(match[0].length)
+  const lines = inner.length ? inner.split(/\r?\n/) : []
+  const nextLines = lines.filter((line) => {
+    const idx = line.indexOf(':')
+    if (idx === -1) return true
+    return line.slice(0, idx).trim() !== key
+  })
+  if (nextLines.length === lines.length) return body // key absent: unchanged
+  if (nextLines.length === 0) return rest // block now empty: drop the fence
+  return `---\n${nextLines.join('\n')}\n---\n${rest}`
+}
+
 function normalizeCategory(value: string | undefined): TemplateCategory {
   if (value === 'Engineering' || value === 'Personal' || value === 'Custom') return value
   return 'Custom'
@@ -79,6 +171,7 @@ export function parseCustomTemplate(raw: string, sourcePath: string): NoteTempla
     titleTemplate: data.titleTemplate?.trim() || undefined,
     targetFolder: normalizeTargetFolder(data.targetFolder),
     targetSubpath: data.targetSubpath?.trim() || undefined,
+    icon: data.icon?.trim() || undefined,
     builtin: false,
     sourcePath,
     builtinId: data.builtinId?.trim() || undefined
@@ -121,6 +214,8 @@ export interface ComposeTemplateInput {
   titleTemplate?: string
   targetFolder?: NoteFolder
   targetSubpath?: string
+  /** IconRef for notes created from this template (injected as `icon:`). */
+  icon?: string
   /** Set when this file is an edited copy of a built-in template. */
   builtinId?: string
   body: string
@@ -143,6 +238,7 @@ export function composeTemplateFile(input: ComposeTemplateInput): string {
   if (input.titleTemplate) lines.push(`titleTemplate: ${yamlScalar(input.titleTemplate)}`)
   if (input.targetFolder) lines.push(`targetFolder: ${input.targetFolder}`)
   if (input.targetSubpath) lines.push(`targetSubpath: ${yamlScalar(input.targetSubpath)}`)
+  if (input.icon) lines.push(`icon: ${yamlScalar(input.icon)}`)
   if (input.builtinId) lines.push(`builtinId: ${input.builtinId}`)
   lines.push('---')
   // One newline after the closing fence so the parser (which consumes a single

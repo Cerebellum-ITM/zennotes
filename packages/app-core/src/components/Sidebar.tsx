@@ -11,7 +11,7 @@ import {
 import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
-import type { AssetMeta, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
+import type { AssetMeta, FolderEntry, NoteFolder, NoteMeta } from "@shared/ipc";
 import type { NoteSortOrder } from "../store";
 import { isArchiveTabPath } from "@shared/archive";
 import { isTrashTabPath } from "@shared/trash";
@@ -65,6 +65,14 @@ import {
   resolveFolderIconOption,
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
+import { DynamicIcon } from "./DynamicIcon";
+import {
+  buildCustomIconIndex,
+  resolveIcon,
+  resolveNoteIconRef,
+  resolveFolderIconRefByRules,
+  resolveFileIconRefByRules,
+} from "../lib/icon-resolve";
 import {
   getSidebarEdgePrefetchPaths,
   getSidebarEntryLimitIncludingIndex,
@@ -350,6 +358,11 @@ export function Sidebar(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
   const vaultSettings = useStore((s) => s.vaultSettings);
+  const customIcons = useStore((s) => s.customIcons);
+  const importCustomIcon = useStore((s) => s.importCustomIcon);
+  const refreshCustomIcons = useStore((s) => s.refreshCustomIcons);
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter);
+  const setNoteIcon = useStore((s) => s.setNoteIcon);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
   const setView = useStore((s) => s.setView);
@@ -829,6 +842,12 @@ export function Sidebar(): JSX.Element {
     subpath: string;
     label: string;
   } | null>(null);
+  // Per-note icon picker: writes the `icon:` frontmatter key on the note.
+  const [noteIconPicker, setNoteIconPicker] = useState<{
+    path: string;
+    label: string;
+    currentIconRef: string;
+  } | null>(null);
   const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -866,19 +885,30 @@ export function Sidebar(): JSX.Element {
   const openFolderIconPicker = useCallback(
     (folder: NoteFolder, subpath: string, label: string) => {
       setFolderMenu(null);
+      // Safety net: pick up SVGs dropped into `.zennotes/icons/` by hand.
+      void refreshCustomIcons();
       setFolderIconPicker({ folder, subpath, label });
     },
-    [],
+    [refreshCustomIcons],
+  );
+
+  const openNoteIconPicker = useCallback(
+    (path: string, label: string, currentIconRef: string) => {
+      setNoteMenu(null);
+      void refreshCustomIcons();
+      setNoteIconPicker({ path, label, currentIconRef });
+    },
+    [refreshCustomIcons],
   );
 
   const saveFolderIcon = useCallback(
-    async (folder: NoteFolder, subpath: string, iconId: FolderIconId) => {
+    async (folder: NoteFolder, subpath: string, iconRef: string) => {
       const key = folderIconKey(folder, subpath);
       const nextSettings = normalizeVaultSettings({
         ...vaultSettings,
         folderIcons: {
           ...vaultSettings.folderIcons,
-          [key]: iconId,
+          [key]: iconRef,
         },
       });
       await setVaultSettings(nextSettings);
@@ -901,6 +931,41 @@ export function Sidebar(): JSX.Element {
       setFolderIconPicker(null);
     },
     [setVaultSettings, vaultSettings],
+  );
+  const customIconsByName = useMemo(
+    () => buildCustomIconIndex(customIcons),
+    [customIcons],
+  );
+  // Icon node for a (system) folder, preferring a custom SVG when its stored
+  // IconRef resolves to one; otherwise the built-in glyph.
+  const folderIconNode = useCallback(
+    (folder: NoteFolder, subpath: string): JSX.Element => {
+      const ref = vaultSettings.folderIcons[folderIconKey(folder, subpath)];
+      if (ref && resolveIcon(ref, customIconsByName)?.kind === "custom") {
+        return <DynamicIcon iconRef={ref} customIcons={customIcons} />;
+      }
+      return resolveFolderIconOption(folder, subpath, vaultSettings.folderIcons).icon;
+    },
+    [customIcons, customIconsByName, vaultSettings.folderIcons],
+  );
+  // Icon node for a date-nav group row (daily/weekly root, year, month). Honors
+  // an explicit stored icon, then a matching folder rule, then a fallback glyph —
+  // so icon rules visibly drive the pinned daily/weekly navigator too (U10).
+  const dateFolderIcon = useCallback(
+    (subpath: string, name: string, fallback: JSX.Element): JSX.Element => {
+      const stored = vaultSettings.folderIcons[folderIconKey("inbox", subpath)];
+      const ref =
+        stored && resolveIcon(stored, customIconsByName)
+          ? stored
+          : resolveFolderIconRefByRules(
+              { subpath, name },
+              customIconsByName,
+              vaultSettings.iconRules,
+            );
+      if (ref) return <DynamicIcon iconRef={ref} customIcons={customIcons} />;
+      return fallback;
+    },
+    [customIcons, customIconsByName, vaultSettings.folderIcons, vaultSettings.iconRules],
   );
   const [noteMenu, setNoteMenu] = useState<{
     x: number;
@@ -1000,8 +1065,22 @@ export function Sidebar(): JSX.Element {
     const s = normalizeVaultSettings(vaultSettings);
     const dailyDir = s.dailyNotes.directory;
     const weeklyDir = s.weeklyNotes.directory;
-    const daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[] =
-      [];
+    // The real folder one level above a month folder, relative to dailyDir
+    // (e.g. "Daily notes/2024/01-Enero" → "Daily notes/2024"). Used so folder
+    // icon rules can target the year folder of nested daily-note layouts.
+    const yearFolderOf = (monthSubpath: string): string => {
+      if (monthSubpath === dailyDir || !monthSubpath.startsWith(`${dailyDir}/`)) {
+        return monthSubpath;
+      }
+      const rest = monthSubpath.slice(dailyDir.length + 1).split("/");
+      return rest.length >= 2 ? `${dailyDir}/${rest[0]}` : monthSubpath;
+    };
+    const daily: {
+      year: number;
+      total: number;
+      yearSubpath: string;
+      months: { month: number; notes: NoteMeta[]; monthSubpath: string }[];
+    }[] = [];
     const weekly: { year: number; notes: NoteMeta[] }[] = [];
 
     if (s.dailyNotes.enabled) {
@@ -1025,9 +1104,14 @@ export function Sidebar(): JSX.Element {
           .map(([month, entries]) => {
             entries.sort((a, b) => b.date.getTime() - a.date.getTime());
             total += entries.length;
-            return { month, notes: entries.map((e) => e.note) };
+            const notes = entries.map((e) => e.note);
+            const monthSubpath = noteFolderSubpath(notes[0], vaultSettings);
+            return { month, notes, monthSubpath };
           });
-        daily.push({ year, total, months: mlist });
+        const yearSubpath = mlist.length
+          ? yearFolderOf(mlist[0].monthSubpath)
+          : `${dailyDir}/${year}`;
+        daily.push({ year, total, yearSubpath, months: mlist });
       }
     }
 
@@ -1931,6 +2015,23 @@ export function Sidebar(): JSX.Element {
         });
       }
     }
+    if (n.folder !== "trash") {
+      items.push({ kind: "separator" });
+      items.push({
+        label: "Set icon…",
+        onSelect: async () => {
+          openNoteIconPicker(n.path, n.title, n.icon ?? "");
+        },
+      });
+      if (n.icon) {
+        items.push({
+          label: "Clear icon",
+          onSelect: async () => {
+            await setNoteIcon(n.path, null);
+          },
+        });
+      }
+    }
     items.push({ kind: "separator" });
     if (n.folder === "inbox" || n.folder === "quick") {
       items.push({
@@ -2014,6 +2115,8 @@ export function Sidebar(): JSX.Element {
     folderLabels.archive,
     folderLabels.inbox,
     folderLabels.trash,
+    openNoteIconPicker,
+    setNoteIcon,
   ]);
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -2689,7 +2792,7 @@ export function Sidebar(): JSX.Element {
           <FolderTreeRoot
             label={folderLabels.quick}
             icon={
-              resolveFolderIconOption("quick", "", vaultSettings.folderIcons).icon
+              folderIconNode("quick", "")
             }
             folder="quick"
             tree={trees.quick}
@@ -2743,6 +2846,7 @@ export function Sidebar(): JSX.Element {
             onToggle={toggleDateNav}
             dailyIcon={<CalendarIcon />}
             weeklyIcon={<CalendarIcon />}
+            folderIcon={dateFolderIcon}
             isFolderActive={isFolderActive}
             selectedPath={selectedPath}
             selectedKeys={selectedSidebarKeys}
@@ -2758,7 +2862,7 @@ export function Sidebar(): JSX.Element {
           <div className="mt-1">
             <ArchiveSidebarRow
               label={folderLabels.archive}
-              icon={resolveFolderIconOption("archive", "", vaultSettings.folderIcons).icon}
+              icon={folderIconNode("archive", "")}
               count={countNotesInTree(trees.archive)}
               active={
                 archiveViewActive ||
@@ -2776,7 +2880,7 @@ export function Sidebar(): JSX.Element {
 
             <TrashSidebarRow
               label={folderLabels.trash}
-              icon={resolveFolderIconOption("trash", "", vaultSettings.folderIcons).icon}
+              icon={folderIconNode("trash", "")}
               count={countNotesInTree(trees.trash)}
               active={trashViewActive || !!selectedPath?.startsWith("trash/")}
               onClick={() => {
@@ -2835,7 +2939,7 @@ export function Sidebar(): JSX.Element {
             <FolderTreeRoot
               label={folderLabels.inbox}
               icon={
-                resolveFolderIconOption("inbox", "", vaultSettings.folderIcons).icon
+                folderIconNode("inbox", "")
               }
               folder="inbox"
               tree={trees.inbox}
@@ -3046,19 +3150,52 @@ export function Sidebar(): JSX.Element {
       {folderIconPicker && (
         <FolderIconPickerModal
           targetLabel={folderIconPicker.label}
-          currentIconId={resolveFolderIconId(
-            folderIconPicker.folder,
-            folderIconPicker.subpath,
-            vaultSettings.folderIcons,
-          )}
-          onSelect={(iconId) =>
+          currentIconRef={
+            vaultSettings.folderIcons[
+              folderIconKey(folderIconPicker.folder, folderIconPicker.subpath)
+            ] ??
+            resolveFolderIconId(
+              folderIconPicker.folder,
+              folderIconPicker.subpath,
+              vaultSettings.folderIcons,
+            )
+          }
+          customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
+          onSelect={(iconRef) =>
             void saveFolderIcon(
               folderIconPicker.folder,
               folderIconPicker.subpath,
-              iconId,
+              iconRef,
             )
           }
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, section });
+            await saveFolderIcon(
+              folderIconPicker.folder,
+              folderIconPicker.subpath,
+              `custom:${icon.id}`,
+            );
+          }}
           onCancel={() => setFolderIconPicker(null)}
+        />
+      )}
+      {noteIconPicker && (
+        <FolderIconPickerModal
+          targetLabel={noteIconPicker.label}
+          currentIconRef={noteIconPicker.currentIconRef}
+          customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
+          onSelect={(iconRef) => {
+            void setNoteIcon(noteIconPicker.path, iconRef);
+            setNoteIconPicker(null);
+          }}
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, section });
+            await setNoteIcon(noteIconPicker.path, `custom:${icon.id}`);
+            setNoteIconPicker(null);
+          }}
+          onCancel={() => setNoteIconPicker(null)}
         />
       )}
       {sortMenu && (
@@ -3709,6 +3846,29 @@ function SubTree({
 }: { node: TreeNode; depth: number } & TreeRenderProps): JSX.Element {
   const key = `${folder}:${node.subpath}`;
   const isCollapsed = collapsed.has(key);
+  const customIcons = useStore((s) => s.customIcons);
+  const storedIconRef = vaultSettings.folderIcons[folderIconKey(folder, node.subpath)];
+  const customByName = useMemo(
+    () => buildCustomIconIndex(customIcons),
+    [customIcons],
+  );
+  const resolvedCustom =
+    storedIconRef && resolveIcon(storedIconRef, customByName)?.kind === "custom"
+      ? storedIconRef
+      : null;
+  // No explicit folderIcons entry: fall back to a matching icon rule (U06)
+  // before the built-in default. DynamicIcon renders both builtin & custom refs.
+  const ruleIconRef = useMemo(
+    () =>
+      storedIconRef
+        ? null
+        : resolveFolderIconRefByRules(
+            { subpath: node.subpath, name: node.name },
+            customByName,
+            vaultSettings.iconRules,
+          ),
+    [storedIconRef, node.subpath, node.name, customByName, vaultSettings.iconRules],
+  );
   const iconOption = resolveFolderIconOption(
     folder,
     node.subpath,
@@ -3761,7 +3921,17 @@ function SubTree({
   return (
     <div className="flex flex-col">
       <TreeRow
-        icon={iconOption.id === "folder" ? <FolderGlyphIcon open={!isCollapsed && hasChildren} /> : iconOption.icon}
+        icon={
+          resolvedCustom ? (
+            <DynamicIcon iconRef={resolvedCustom} customIcons={customIcons} />
+          ) : ruleIconRef ? (
+            <DynamicIcon iconRef={ruleIconRef} customIcons={customIcons} />
+          ) : iconOption.id === "folder" ? (
+            <FolderGlyphIcon open={!isCollapsed && hasChildren} />
+          ) : (
+            iconOption.icon
+          )
+        }
         label={node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}
@@ -3932,6 +4102,17 @@ const NoteLeaf = memo(function NoteLeaf({
   // Zustand actions are stable references, so pulling this here keeps the
   // memoized row cheap without threading another prop through the tree.
   const openNotePermanent = useStore((s) => s.selectNote);
+  const customIcons = useStore((s) => s.customIcons);
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  const customByName = useMemo(
+    () => buildCustomIconIndex(customIcons),
+    [customIcons],
+  );
+  const iconRules = vaultSettings.iconRules;
+  const noteIconRef = useMemo(
+    () => resolveNoteIconRef(note, vaultSettings, customByName, iconRules),
+    [note, vaultSettings, customByName, iconRules],
+  );
   const handleSelect = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       onSelectItem(event, { kind: "note", path: note.path }, () =>
@@ -3988,19 +4169,23 @@ const NoteLeaf = memo(function NoteLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={strongActive} rowActive={active || selected}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+        {noteIconRef ? (
+          <DynamicIcon iconRef={noteIconRef} customIcons={customIcons} size={14} />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
       <span className="flex-1 truncate">{note.title}</span>
       {note.isSymlink && (
@@ -4113,6 +4298,24 @@ function AssetLeaf({
   const extension = asset.name.includes(".")
     ? asset.name.split(".").pop()?.toUpperCase() ?? ""
     : "";
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  const customIcons = useStore((s) => s.customIcons);
+  const customByName = useMemo(
+    () => buildCustomIconIndex(customIcons),
+    [customIcons],
+  );
+  // Pattern rules (`target: 'file'`) can override the default file glyph by the
+  // asset's vault-relative subpath / file name. DynamicIcon renders both
+  // builtin and custom refs; null falls back to the default file icon below.
+  const ruleIconRef = useMemo(
+    () =>
+      resolveFileIconRefByRules(
+        { subpath: assetFolderSubpath(asset, vaultSettings), name: asset.name },
+        customByName,
+        vaultSettings.iconRules,
+      ),
+    [asset, vaultSettings, customByName],
+  );
   const handleDragStart = useCallback(
     (event: React.DragEvent<HTMLButtonElement>) => {
       setDragPayload(event, { kind: "asset", path: asset.path });
@@ -4143,19 +4346,23 @@ function AssetLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={false} rowActive={false}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+        {ruleIconRef ? (
+          <DynamicIcon iconRef={ruleIconRef} customIcons={customIcons} size={14} />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
       <span className="flex-1 truncate text-ink-700">{asset.name}</span>
       {extension && (
@@ -4780,7 +4987,12 @@ interface DateNavData {
   weeklyDir: string;
   dailyLabel: string;
   weeklyLabel: string;
-  daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[];
+  daily: {
+    year: number;
+    total: number;
+    yearSubpath: string;
+    months: { month: number; notes: NoteMeta[]; monthSubpath: string }[];
+  }[];
   weekly: { year: number; notes: NoteMeta[] }[];
   dailyTotal: number;
   weeklyTotal: number;
@@ -4798,6 +5010,7 @@ function DateNotesNav({
   onToggle,
   dailyIcon,
   weeklyIcon,
+  folderIcon,
   isFolderActive,
   selectedPath,
   selectedKeys,
@@ -4814,6 +5027,8 @@ function DateNotesNav({
   onToggle: (key: string) => void;
   dailyIcon: JSX.Element;
   weeklyIcon: JSX.Element;
+  /** Resolve a group row's icon from stored icons + folder rules (U10). */
+  folderIcon: (subpath: string, name: string, fallback: JSX.Element) => JSX.Element;
   isFolderActive: (folder: NoteFolder, subpath: string) => boolean;
   selectedPath: string | null;
   selectedKeys: Set<string>;
@@ -4883,7 +5098,7 @@ function DateNotesNav({
         dateNav.dailyTotal,
         0,
         () => onToggle("d"),
-        dailyIcon,
+        folderIcon(dateNav.dailyDir, dateNav.dailyLabel, dailyIcon),
         isFolderActive("inbox", dateNav.dailyDir),
         false,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.dailyDir) : undefined,
@@ -4899,7 +5114,11 @@ function DateNotesNav({
             yg.total,
             1,
             () => onToggle(yKey),
-            <FolderGlyphIcon open={expanded.has(yKey)} />,
+            folderIcon(
+              yg.yearSubpath,
+              yg.yearSubpath.split("/").pop() ?? String(yg.year),
+              <FolderGlyphIcon open={expanded.has(yKey)} />,
+            ),
             false,
             showSidebarChevrons,
           ),
@@ -4914,7 +5133,11 @@ function DateNotesNav({
                 mg.notes.length,
                 2,
                 () => onToggle(mKey),
-                <FolderGlyphIcon open={expanded.has(mKey)} />,
+                folderIcon(
+                  mg.monthSubpath,
+                  mg.monthSubpath.split("/").pop() ?? "",
+                  <FolderGlyphIcon open={expanded.has(mKey)} />,
+                ),
                 false,
                 showSidebarChevrons,
               ),
@@ -4934,7 +5157,7 @@ function DateNotesNav({
         dateNav.weeklyTotal,
         0,
         () => onToggle("w"),
-        weeklyIcon,
+        folderIcon(dateNav.weeklyDir, dateNav.weeklyLabel, weeklyIcon),
         isFolderActive("inbox", dateNav.weeklyDir),
         false,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.weeklyDir) : undefined,

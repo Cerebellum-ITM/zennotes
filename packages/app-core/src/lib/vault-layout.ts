@@ -4,6 +4,7 @@ import {
   DEFAULT_VAULT_SETTINGS,
   type AssetMeta,
   type FolderIconId,
+  type IconRule,
   type NoteFolder,
   type NoteMeta,
   type VaultSettings
@@ -56,6 +57,28 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
+const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Whether a stored `folderIcons` value is a valid IconRef: a bare built-in id,
+ * a `builtin:<id>` ref, or a `custom:<id>` ref (where `<id>` is a POSIX relpath
+ * whose segments are each a safe stem, e.g. `star` or `work/star`). Validates
+ * the format only — the renderer falls back to the default when missing.
+ */
+function isIconRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  if (value.startsWith('custom:')) {
+    return value
+      .slice('custom:'.length)
+      .split('/')
+      .every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
+  }
+  if (value.startsWith('builtin:')) {
+    return isFolderIconId(value.slice('builtin:'.length))
+  }
+  return isFolderIconId(value)
+}
+
 function pad(n: number): string {
   return n.toString().padStart(2, '0')
 }
@@ -95,14 +118,92 @@ export function normalizeLocale(value: string | null | undefined): string | unde
   return trimmed || undefined
 }
 
+function isValidRegexSource(source: string): boolean {
+  try {
+    new RegExp(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validate and normalize the `iconRules` list: drop rules without a valid
+ * `target`, an empty/invalid `icon` IconRef, or any matcher; drop rules whose
+ * `nameRegex` fails to compile or whose `pathGlob` is empty/whitespace.
+ */
+export function normalizeIconRules(value: unknown): IconRule[] {
+  if (!Array.isArray(value)) return []
+  const rules: IconRule[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Partial<IconRule>
+    const target = candidate.target
+    if (
+      target !== 'note' &&
+      target !== 'folder' &&
+      target !== 'file' &&
+      target !== 'lang'
+    )
+      continue
+    if (!isIconRef(candidate.icon)) continue
+
+    const pathGlob =
+      typeof candidate.pathGlob === 'string' ? candidate.pathGlob.trim() : ''
+    const nameRegex =
+      typeof candidate.nameRegex === 'string' ? candidate.nameRegex.trim() : ''
+    if (nameRegex && !isValidRegexSource(nameRegex)) continue
+
+    let frontmatter: IconRule['frontmatter']
+    if (
+      target === 'note' &&
+      candidate.frontmatter &&
+      typeof candidate.frontmatter === 'object' &&
+      typeof candidate.frontmatter.key === 'string' &&
+      candidate.frontmatter.key.trim()
+    ) {
+      const key = candidate.frontmatter.key.trim()
+      const equals =
+        typeof candidate.frontmatter.equals === 'string'
+          ? candidate.frontmatter.equals
+          : undefined
+      const exists =
+        typeof candidate.frontmatter.exists === 'boolean'
+          ? candidate.frontmatter.exists
+          : undefined
+      if (equals !== undefined || exists !== undefined) {
+        frontmatter = { key, ...(equals !== undefined ? { equals } : {}), ...(exists !== undefined ? { exists } : {}) }
+      }
+    }
+
+    const hasMatcher = !!pathGlob || !!nameRegex || !!frontmatter
+    if (!hasMatcher) continue
+
+    const id =
+      typeof candidate.id === 'string' && candidate.id
+        ? candidate.id
+        : `rule-${rules.length}-${Math.random().toString(36).slice(2, 9)}`
+
+    rules.push({
+      id,
+      target,
+      ...(pathGlob ? { pathGlob } : {}),
+      ...(nameRegex ? { nameRegex } : {}),
+      ...(frontmatter ? { frontmatter } : {}),
+      icon: candidate.icon as string
+    })
+  }
+  return rules
+}
+
 export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
   const folderIcons = settings?.folderIcons
-  const normalizedFolderIcons: Record<string, FolderIconId> = {}
+  const normalizedFolderIcons: Record<string, string> = {}
   if (folderIcons && typeof folderIcons === 'object') {
     for (const [key, value] of Object.entries(folderIcons)) {
-      if (!key || !isFolderIconId(value)) continue
+      if (!key || !isIconRef(value)) continue
       normalizedFolderIcons[key] = value
     }
   }
@@ -123,7 +224,8 @@ export function normalizeVaultSettings(
       directory: normalizeWeeklyNotesDirectory(settings?.weeklyNotes?.directory),
       templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
     },
-    folderIcons: normalizedFolderIcons
+    folderIcons: normalizedFolderIcons,
+    iconRules: normalizeIconRules(settings?.iconRules)
   }
 }
 
@@ -132,12 +234,12 @@ export function folderIconKey(folder: NoteFolder, subpath: string): string {
 }
 
 export function rewriteFolderIconsForRename(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   oldSubpath: string,
   newSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, oldSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -155,11 +257,11 @@ export function rewriteFolderIconsForRename(
 }
 
 export function removeFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   subpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, subpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -170,12 +272,12 @@ export function removeFolderIcons(
 }
 
 export function duplicateFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   sourceSubpath: string,
   targetSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = { ...folderIcons }
+): Record<string, string> {
+  const next: Record<string, string> = { ...folderIcons }
   const exactKey = folderIconKey(folder, sourceSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {

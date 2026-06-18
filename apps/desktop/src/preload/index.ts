@@ -15,9 +15,11 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CustomIcon,
   DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
+  ImportCustomIconInput,
   FolderEntry,
   ImportedAsset,
   LocalVaultEntry,
@@ -281,6 +283,12 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_WRITE_TEMPLATE, input),
   deleteTemplate: (sourcePath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_DELETE_TEMPLATE, sourcePath),
+  listCustomIcons: (): Promise<CustomIcon[]> =>
+    ipcRenderer.invoke(IPC.VAULT_LIST_CUSTOM_ICONS),
+  importCustomIcon: (input: ImportCustomIconInput): Promise<CustomIcon> =>
+    ipcRenderer.invoke(IPC.VAULT_IMPORT_CUSTOM_ICON, input),
+  deleteCustomIcon: (name: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_DELETE_CUSTOM_ICON, name),
   getVaultTextSearchCapabilities: (
     paths: VaultTextSearchToolPaths = {}
   ): Promise<VaultTextSearchCapabilities> =>

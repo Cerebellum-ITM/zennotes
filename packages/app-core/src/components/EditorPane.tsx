@@ -37,7 +37,7 @@ import {
   tooltips
 } from '@codemirror/view'
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
-import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
+import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder, NoteMeta } from '@shared/ipc'
 import {
   defaultKeymap,
   history,
@@ -53,6 +53,8 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
+import { linkIconsPlugin } from '../lib/cm-link-icons'
+import { langIconsPlugin } from '../lib/cm-lang-icons'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
@@ -70,6 +72,8 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
+import { DynamicIcon } from './DynamicIcon'
+import { buildCustomIconIndex, resolveNoteIconRef } from '../lib/icon-resolve'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
@@ -209,7 +213,9 @@ function markdownEditingExtensions(): Extension[] {
     frontmatterStyle,
     orderedListRenumber,
     headingFolding(),
-    codeBlockFontPlugin
+    codeBlockFontPlugin,
+    linkIconsPlugin,
+    langIconsPlugin
   ]
 }
 
@@ -545,6 +551,22 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   )
   const activeCommentId = useStore((s) => s.activeCommentId)
   const notes = useStore((s) => s.notes)
+  const customIcons = useStore((s) => s.customIcons)
+  const iconRulesSettings = useStore((s) => s.vaultSettings)
+  const iconRules = iconRulesSettings.iconRules
+  const customByName = useMemo(() => buildCustomIconIndex(customIcons), [customIcons])
+  const headerNoteIconRef = useMemo(
+    () =>
+      content
+        ? resolveNoteIconRef(content, iconRulesSettings, customByName, iconRules)
+        : null,
+    [content, iconRulesSettings, customByName, iconRules]
+  )
+  const notesByPath = useMemo(() => {
+    const map = new Map<string, NoteMeta>()
+    for (const note of notes) map.set(note.path, note)
+    return map
+  }, [notes])
   const assetFiles = useStore((s) => s.assetFiles)
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
@@ -2518,6 +2540,27 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               {tab.isDiagram && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
+              {!isVirtual &&
+                (() => {
+                  const tabNote = notesByPath.get(tab.path)
+                  if (!tabNote) return null
+                  const tabIconRef = resolveNoteIconRef(
+                    tabNote,
+                    iconRulesSettings,
+                    customByName,
+                    iconRules
+                  )
+                  if (!tabIconRef) return null
+                  return (
+                    <span className="flex shrink-0 items-center">
+                      <DynamicIcon
+                        iconRef={tabIconRef}
+                        customIcons={customIcons}
+                        size={14}
+                      />
+                    </span>
+                  )
+                })()}
               <span className={['min-w-0 flex-1 truncate', tab.preview ? 'italic' : ''].join(' ')}>
                 {tab.title}
               </span>
@@ -2542,11 +2585,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     [
       activeTab,
       closeTabInPane,
+      customByName,
+      customIcons,
+      iconRules,
+      iconRulesSettings,
       focusTabInPane,
       focusedPanel,
       getTabDropInfo,
       isActive,
       movePaneTab,
+      notesByPath,
       openNoteInPane,
       paneId,
       promoteTabInPane,
@@ -2916,6 +2964,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar}>
                 <PanelLeftIcon />
               </IconBtn>
+            )}
+            {headerNoteIconRef && (
+              <span className="flex shrink-0 items-center text-ink-700">
+                <DynamicIcon iconRef={headerNoteIconRef} customIcons={customIcons} size={18} />
+              </span>
             )}
             <Breadcrumb
               note={content}

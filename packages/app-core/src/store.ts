@@ -3,6 +3,7 @@ import type { EditorView } from '@codemirror/view'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
 import type {
   AssetMeta,
+  CustomIcon,
   DeletedAsset,
   FolderEntry,
   LocalVaultEntry,
@@ -89,7 +90,10 @@ import {
   composeTemplateFile,
   mergeTemplates,
   parseCustomTemplate,
-  slugifyTemplateName
+  removeFrontmatterKey,
+  setFrontmatterKey,
+  slugifyTemplateName,
+  upsertFrontmatterKey
 } from '@shared/template-files'
 import {
   INITIAL_VISIBLE_NOTE_PREFETCH_BATCH_SIZE,
@@ -197,7 +201,12 @@ async function listNotesFromBridge(): Promise<NoteMeta[]> {
 
 async function refreshVaultIndexes(): Promise<void> {
   const state = useStore.getState()
-  await Promise.all([state.refreshNotes(), state.refreshAssets(), state.loadCustomTemplates()])
+  await Promise.all([
+    state.refreshNotes(),
+    state.refreshAssets(),
+    state.loadCustomTemplates(),
+    state.refreshCustomIcons()
+  ])
 }
 
 /** Find a template (built-in or custom) by id, or undefined if it's gone. */
@@ -305,6 +314,8 @@ interface Prefs {
   unifiedSidebar: boolean
   /** Tint the sidebar surface a step darker than the main canvas. */
   darkSidebar: boolean
+  /** Icon picker: filter per custom section instead of one general search. */
+  iconPickerPerSectionFilter: boolean
   /** Show disclosure arrows for collapsible sidebar folders and sections. */
   showSidebarChevrons: boolean
   /** Keys of collapsed folders in the sidebar tree. */
@@ -440,6 +451,7 @@ const DEFAULT_PREFS: Prefs = {
   autoReveal: false,
   unifiedSidebar: true,
   darkSidebar: true,
+  iconPickerPerSectionFilter: false,
   showSidebarChevrons: true,
   collapsedFolders: [],
   pinnedRefPath: null,
@@ -579,6 +591,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.darkSidebar === 'boolean'
         ? p.darkSidebar
         : DEFAULT_PREFS.darkSidebar,
+    iconPickerPerSectionFilter:
+      typeof p.iconPickerPerSectionFilter === 'boolean'
+        ? p.iconPickerPerSectionFilter
+        : DEFAULT_PREFS.iconPickerPerSectionFilter,
     showSidebarChevrons:
       typeof p.showSidebarChevrons === 'boolean'
         ? p.showSidebarChevrons
@@ -1085,6 +1101,7 @@ function collectPrefs(s: {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  iconPickerPerSectionFilter: boolean
   showSidebarChevrons: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
@@ -1142,6 +1159,7 @@ function collectPrefs(s: {
     autoReveal: s.autoReveal,
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
+    iconPickerPerSectionFilter: s.iconPickerPerSectionFilter,
     showSidebarChevrons: s.showSidebarChevrons,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
@@ -1453,6 +1471,8 @@ interface Store {
   templatePaletteTarget: { folder: NoteFolder; subpath: string } | null
   /** Custom templates loaded from `.zennotes/templates/` (built-ins are constants). */
   customTemplates: NoteTemplate[]
+  /** Custom SVG icons loaded from `.zennotes/icons/`. */
+  customIcons: CustomIcon[]
   query: string
   initialized: boolean
   workspaceRestored: boolean
@@ -1493,6 +1513,8 @@ interface Store {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  /** Icon picker: filter per custom section instead of one general search. */
+  iconPickerPerSectionFilter: boolean
   showSidebarChevrons: boolean
   /** Sidebar tree collapsed-folder keys. Kept in the store so the
    *  state survives Sidebar unmount/mount (e.g. toggling the sidebar). */
@@ -1770,6 +1792,7 @@ interface Store {
   setAutoReveal: (on: boolean) => void
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
+  setIconPickerPerSectionFilter: (on: boolean) => void
   setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
@@ -1811,6 +1834,22 @@ interface Store {
     previousSourcePath?: string
   }) => Promise<void>
   deleteCustomTemplate: (sourcePath: string) => Promise<void>
+  /** Reload custom SVG icons from disk (called on vault open and after CRUD). */
+  refreshCustomIcons: () => Promise<void>
+  /** Import an SVG as a custom icon, then refresh the cache. */
+  importCustomIcon: (input: {
+    name: string
+    svg: string
+    /** Optional target section (subfolder under `.zennotes/icons/`). */
+    section?: string
+  }) => Promise<CustomIcon>
+  /** Delete a custom icon by id, then refresh the cache. */
+  deleteCustomIcon: (id: string) => Promise<void>
+  /**
+   * Set (or clear, when `iconRef` is `null`) a note's explicit `icon:`
+   * frontmatter key, then refresh the note list so the sidebar re-renders.
+   */
+  setNoteIcon: (path: string, iconRef: string | null) => Promise<void>
   /** Create + open a note from a template, substituting variables and placing
    *  the caret at `{{cursor}}`. Falls back to a title prompt when the template
    *  has no titleTemplate and no explicit title is supplied. */
@@ -2676,6 +2715,7 @@ export const useStore = create<Store>((set, get) => {
   templatePaletteMode: 'create',
   templatePaletteTarget: null,
   customTemplates: [],
+  customIcons: [],
   query: '',
   initialized: false,
   workspaceRestored: false,
@@ -2715,6 +2755,7 @@ export const useStore = create<Store>((set, get) => {
   autoReveal: loadPrefs().autoReveal,
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
+  iconPickerPerSectionFilter: loadPrefs().iconPickerPerSectionFilter,
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
@@ -3468,6 +3509,12 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshNotes()
       return
     }
+    if (ev.scope === 'custom-icons') {
+      // A custom SVG was dropped/edited/removed under `.zennotes/icons/`.
+      // Reload the registry so pickers and rendered icons update live.
+      await get().refreshCustomIcons()
+      return
+    }
     const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
     if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
       await get().refreshAssets()
@@ -4180,6 +4227,10 @@ export const useStore = create<Store>((set, get) => {
     set({ darkSidebar: on })
     savePrefs(collectPrefs(get()))
   },
+  setIconPickerPerSectionFilter: (on) => {
+    set({ iconPickerPerSectionFilter: on })
+    savePrefs(collectPrefs(get()))
+  },
   setShowSidebarChevrons: (on) => {
     set({ showSidebarChevrons: on })
     savePrefs(collectPrefs(get()))
@@ -4455,6 +4506,51 @@ export const useStore = create<Store>((set, get) => {
     await get().loadCustomTemplates()
   },
 
+  refreshCustomIcons: async () => {
+    try {
+      const icons = await window.zen.listCustomIcons()
+      set({ customIcons: icons })
+    } catch (err) {
+      console.error('refreshCustomIcons failed', err)
+      set({ customIcons: [] })
+    }
+  },
+
+  importCustomIcon: async (input) => {
+    const icon = await window.zen.importCustomIcon(input)
+    await get().refreshCustomIcons()
+    return icon
+  },
+
+  deleteCustomIcon: async (name) => {
+    await window.zen.deleteCustomIcon(name)
+    await get().refreshCustomIcons()
+  },
+
+  setNoteIcon: async (path, iconRef) => {
+    try {
+      const { body } = await window.zen.readNote(path)
+      const next =
+        iconRef === null
+          ? removeFrontmatterKey(body, 'icon')
+          : setFrontmatterKey(body, 'icon', iconRef)
+      if (next === body) return // no-op (e.g. clearing an absent key)
+      await window.zen.writeNote(path, next)
+      lastWrittenByPath.set(path, next)
+      // If the note is open, keep its buffer in sync so the editor shows the
+      // updated frontmatter instead of reverting on the next watcher echo.
+      set((s) => {
+        const existing = s.noteContents[path]
+        if (!existing) return s
+        return { noteContents: { ...s.noteContents, [path]: { ...existing, body: next } } }
+      })
+      await get().refreshNotes()
+    } catch (err) {
+      console.error('setNoteIcon failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
+    }
+  },
+
   createFromTemplate: async (template, opts) => {
     try {
       // 1. Destination. An explicit folder (e.g. right-click on a folder) is
@@ -4498,14 +4594,22 @@ export const useStore = create<Store>((set, get) => {
       }
       if (!title) title = template.name
       const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
+      // If the template defines an icon, seed the new note's frontmatter with it
+      // — but a body that already declares its own `icon:` wins (no overwrite).
+      const finalBody = template.icon
+        ? upsertFrontmatterKey(body, 'icon', template.icon)
+        : body
+      // Prepending a frontmatter block shifts every body offset; keep the cursor
+      // aligned by adding the length injected before the original body start.
+      const cursorShift = finalBody.length - body.length
       const meta = await window.zen.createNote(folder, title, subpath)
       // Write the rendered body before opening so the editor never flashes the
       // default `# Title` scaffold (mirrors importDroppedMarkdownFiles).
-      await window.zen.writeNote(meta.path, body)
+      await window.zen.writeNote(meta.path, finalBody)
       await get().refreshNotes()
       set({ view: { kind: 'folder', folder, subpath } })
       if (cursorOffset != null) {
-        await get().openNoteAtOffset(meta.path, cursorOffset)
+        await get().openNoteAtOffset(meta.path, cursorOffset + cursorShift)
       } else {
         await get().selectNote(meta.path)
       }

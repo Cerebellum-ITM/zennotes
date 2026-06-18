@@ -7,6 +7,9 @@ import {
   appendToNote,
   archiveNote,
   deleteAsset,
+  deriveCustomIconTarget,
+  importCustomIcon,
+  listCustomIcons,
   duplicateAsset,
   ensureVaultLayout,
   forgetLocalVault,
@@ -552,7 +555,9 @@ describe('listNotes metadata cache', () => {
               tags: ['cached'],
               wikilinks: ['Cached Target'],
               hasAttachments: false,
-              excerpt: 'cached excerpt'
+              excerpt: 'cached excerpt',
+              frontmatter: { icon: 'calendar' },
+              icon: 'calendar'
             }
           }
         ]
@@ -568,6 +573,58 @@ describe('listNotes metadata cache', () => {
     expect(note?.title).toBe('Cached Title')
     expect(note?.tags).toEqual(['cached'])
     expect(note?.excerpt).toBe('cached excerpt')
+    expect(note?.icon).toBe('calendar')
+    expect(note?.frontmatter).toEqual({ icon: 'calendar' })
+  })
+
+  it('reparses when persisted metadata predates the frontmatter fields', async () => {
+    const root = await makeTempDir('zennotes-meta-cache-noicon-')
+    await ensureVaultLayout(root)
+    const rel = 'inbox/legacy.md'
+    const abs = path.join(root, rel)
+    await writeFile(abs, '---\nicon: calendar\n---\n# Disk Title\n\n#disk\n', 'utf8')
+    const info = await stat(abs)
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
+      `${JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            path: rel,
+            mtimeMs: info.mtimeMs,
+            size: info.size,
+            meta: {
+              path: rel,
+              title: 'Cached Title',
+              folder: 'inbox',
+              siblingOrder: 0,
+              createdAt: info.birthtimeMs || info.ctimeMs,
+              updatedAt: info.mtimeMs,
+              size: info.size,
+              tags: ['cached'],
+              wikilinks: [],
+              hasAttachments: false,
+              excerpt: 'cached excerpt'
+              // no frontmatter/icon: written by an older build
+            }
+          }
+        ]
+      })}\n`,
+      'utf8'
+    )
+
+    invalidateNoteMetaCache(root)
+
+    const notes = await listNotes(root)
+    const note = notes.find((item) => item.path === rel)
+
+    // The legacy entry is treated as stale, so the note is reparsed from disk
+    // and the icon/frontmatter fields are populated.
+    expect(note?.title).toBe('legacy')
+    expect(note?.tags).toEqual(['disk'])
+    expect(note?.icon).toBe('calendar')
+    expect(note?.frontmatter).toEqual({ icon: 'calendar' })
   })
 
   it('ignores stale persisted metadata when file stats no longer match', async () => {
@@ -697,5 +754,58 @@ describe('archive / trash round-trips', () => {
     const restored = await unarchiveNote(root, archived.path)
     expect(restored.path).toBe('projects/Plan.md')
     await expect(readFile(path.join(root, 'projects', 'Plan.md'), 'utf8')).resolves.toBe('# Plan\n')
+  })
+})
+
+describe('deriveCustomIconTarget', () => {
+  it('returns a flat id (id == name) when no section is given', () => {
+    expect(deriveCustomIconTarget('star')).toEqual({ id: 'star', section: '' })
+  })
+
+  it('derives a sectioned id of the form section/name', () => {
+    expect(deriveCustomIconTarget('star', 'work')).toEqual({
+      id: 'work/star',
+      section: 'work'
+    })
+  })
+
+  it('supports nested sections and trims surrounding slashes', () => {
+    expect(deriveCustomIconTarget('star', '/work/icons/')).toEqual({
+      id: 'work/icons/star',
+      section: 'work/icons'
+    })
+  })
+
+  it('rejects invalid names and section segments', () => {
+    expect(() => deriveCustomIconTarget('bad name')).toThrow()
+    expect(() => deriveCustomIconTarget('star', 'bad section')).toThrow()
+    expect(() => deriveCustomIconTarget('star', 'work/has space')).toThrow()
+  })
+})
+
+describe('importCustomIcon with section', () => {
+  it('writes into <section>/<name>.svg and round-trips through listCustomIcons', async () => {
+    const root = await makeTempDir('zennotes-icons-')
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>'
+
+    const imported = await importCustomIcon(root, { name: 'star', svg, section: 'work' })
+    expect(imported.id).toBe('work/star')
+    expect(imported.section).toBe('work')
+    await expect(
+      readFile(path.join(root, '.zennotes', 'icons', 'work', 'star.svg'), 'utf8')
+    ).resolves.toBe(svg)
+
+    const listed = await listCustomIcons(root)
+    const found = listed.find((i) => i.id === 'work/star')
+    expect(found).toMatchObject({ id: 'work/star', name: 'star', section: 'work' })
+  })
+
+  it('imports at the root (id == name) when no section is given', async () => {
+    const root = await makeTempDir('zennotes-icons-')
+    const imported = await importCustomIcon(root, {
+      name: 'flag',
+      svg: '<svg viewBox="0 0 24 24"></svg>'
+    })
+    expect(imported).toMatchObject({ id: 'flag', name: 'flag', section: '' })
   })
 })

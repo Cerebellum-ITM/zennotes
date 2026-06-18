@@ -311,18 +311,29 @@ export function defaultFolderIconId(folder: NoteFolder, subpath: string): Folder
   }
 }
 
+/**
+ * Resolve the stored IconRef for a folder to a built-in {@link FolderIconId}.
+ *
+ * Handles bare ids and `builtin:<id>` refs. Custom (`custom:<name>`) refs and
+ * unknown values fall back to the folder's default built-in, so callers that
+ * only render built-ins (e.g. the icon picker's "current" highlight) stay
+ * correct. Use {@link DynamicIcon} when custom icons must actually render.
+ */
 export function resolveFolderIconId(
   folder: NoteFolder,
   subpath: string,
-  folderIcons: Record<string, FolderIconId>
+  folderIcons: Record<string, string>
 ): FolderIconId {
-  return folderIcons[folderIconKey(folder, subpath)] ?? defaultFolderIconId(folder, subpath)
+  const ref = folderIcons[folderIconKey(folder, subpath)]
+  const id = ref?.startsWith('builtin:') ? ref.slice('builtin:'.length) : ref
+  if (id && FOLDER_ICON_LOOKUP.has(id as FolderIconId)) return id as FolderIconId
+  return defaultFolderIconId(folder, subpath)
 }
 
 export function resolveFolderIconOption(
   folder: NoteFolder,
   subpath: string,
-  folderIcons: Record<string, FolderIconId>
+  folderIcons: Record<string, string>
 ): FolderIconOption {
   return (
     FOLDER_ICON_LOOKUP.get(resolveFolderIconId(folder, subpath, folderIcons)) ??

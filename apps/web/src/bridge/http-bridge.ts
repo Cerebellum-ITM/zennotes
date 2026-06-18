@@ -29,10 +29,12 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CustomIcon,
   DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
+  ImportCustomIconInput,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -614,6 +616,19 @@ function deleteTemplate(_sourcePath: string): Promise<void> {
   return Promise.reject(new Error('Custom templates are unavailable on the web'))
 }
 
+// Custom SVG icons require local-filesystem CRUD, unavailable in the web client.
+function listCustomIcons(): Promise<CustomIcon[]> {
+  return Promise.resolve([])
+}
+
+function importCustomIcon(_input: ImportCustomIconInput): Promise<CustomIcon> {
+  throw new Error('Custom icons are not supported in the web client yet')
+}
+
+function deleteCustomIcon(_name: string): Promise<void> {
+  throw new Error('Custom icons are not supported in the web client yet')
+}
+
 // --------------------------------------------------------------------
 // Assets (uploads, zen-asset URL resolution)
 // --------------------------------------------------------------------
@@ -1121,6 +1136,9 @@ export const httpBridge: ZenBridge = {
   generateDemoTour,
   removeDemoTour,
   listTemplates,
+  listCustomIcons,
+  importCustomIcon,
+  deleteCustomIcon,
   readTemplate,
   writeTemplate,
   deleteTemplate,

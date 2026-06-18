@@ -15,8 +15,11 @@ import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
+  type CustomIcon,
   DeletedAsset,
   type FolderIconId,
+  type IconRule,
+  type ImportCustomIconInput,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -39,6 +42,7 @@ import {
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
+import { extractNoteFrontmatter } from '@shared/template-files'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -133,6 +137,106 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
+const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Whether a stored `folderIcons` value is a valid {@link IconRef}: a bare
+ * built-in id, a `builtin:<id>` ref, or a `custom:<name>` ref. The format is
+ * validated, not the existence of the target — the renderer falls back to the
+ * default icon when a custom file is missing.
+ */
+function isIconRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  if (value.startsWith('custom:')) {
+    // A custom IconRef is `custom:<id>` where `<id>` is a POSIX relpath whose
+    // segments are each a safe stem (e.g. `star` or `work/star`).
+    return value
+      .slice('custom:'.length)
+      .split('/')
+      .every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
+  }
+  if (value.startsWith('builtin:')) {
+    return isFolderIconId(value.slice('builtin:'.length))
+  }
+  return isFolderIconId(value)
+}
+
+function isValidRegexSource(source: string): boolean {
+  try {
+    new RegExp(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validate and normalize `iconRules`: drop rules missing a valid target, a
+ * valid `icon` IconRef, or any matcher, plus rules whose `nameRegex` fails to
+ * compile or whose `pathGlob` is empty. Mirrors app-core's `normalizeIconRules`.
+ */
+function normalizeIconRules(value: unknown): IconRule[] {
+  if (!Array.isArray(value)) return []
+  const rules: IconRule[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Partial<IconRule>
+    const target = candidate.target
+    if (
+      target !== 'note' &&
+      target !== 'folder' &&
+      target !== 'file' &&
+      target !== 'lang'
+    )
+      continue
+    if (!isIconRef(candidate.icon)) continue
+
+    const pathGlob = typeof candidate.pathGlob === 'string' ? candidate.pathGlob.trim() : ''
+    const nameRegex = typeof candidate.nameRegex === 'string' ? candidate.nameRegex.trim() : ''
+    if (nameRegex && !isValidRegexSource(nameRegex)) continue
+
+    let frontmatter: IconRule['frontmatter']
+    if (
+      target === 'note' &&
+      candidate.frontmatter &&
+      typeof candidate.frontmatter === 'object' &&
+      typeof candidate.frontmatter.key === 'string' &&
+      candidate.frontmatter.key.trim()
+    ) {
+      const key = candidate.frontmatter.key.trim()
+      const equals =
+        typeof candidate.frontmatter.equals === 'string' ? candidate.frontmatter.equals : undefined
+      const exists =
+        typeof candidate.frontmatter.exists === 'boolean' ? candidate.frontmatter.exists : undefined
+      if (equals !== undefined || exists !== undefined) {
+        frontmatter = {
+          key,
+          ...(equals !== undefined ? { equals } : {}),
+          ...(exists !== undefined ? { exists } : {})
+        }
+      }
+    }
+
+    const hasMatcher = !!pathGlob || !!nameRegex || !!frontmatter
+    if (!hasMatcher) continue
+
+    const id =
+      typeof candidate.id === 'string' && candidate.id
+        ? candidate.id
+        : `rule-${rules.length}-${Math.random().toString(36).slice(2, 9)}`
+
+    rules.push({
+      id,
+      target,
+      ...(pathGlob ? { pathGlob } : {}),
+      ...(nameRegex ? { nameRegex } : {}),
+      ...(frontmatter ? { frontmatter } : {}),
+      icon: candidate.icon as string
+    })
+  }
+  return rules
+}
+
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
@@ -143,7 +247,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     enabled: false,
     directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
   },
-  folderIcons: {}
+  folderIcons: {},
+  iconRules: []
 }
 
 interface VaultTextSearchCandidate {
@@ -686,7 +791,11 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       directory: settings.weeklyNotes.directory,
       templateId: settings.weeklyNotes.templateId
     },
-    folderIcons: { ...settings.folderIcons }
+    folderIcons: { ...settings.folderIcons },
+    iconRules: (settings.iconRules ?? []).map((rule) => ({
+      ...rule,
+      ...(rule.frontmatter ? { frontmatter: { ...rule.frontmatter } } : {})
+    }))
   }
 }
 
@@ -742,7 +851,8 @@ function normalizeVaultSettings(
         enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
         directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
       },
-      folderIcons: {}
+      folderIcons: {},
+      iconRules: []
     }
   }
   const candidate = value as {
@@ -756,12 +866,13 @@ function normalizeVaultSettings(
     } | null
     weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
     folderIcons?: Record<string, unknown> | null
+    iconRules?: unknown
   }
-  const folderIcons: Record<string, FolderIconId> = {}
+  const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
-    for (const [key, iconId] of Object.entries(candidate.folderIcons)) {
-      if (!key || !isFolderIconId(iconId)) continue
-      folderIcons[key] = iconId
+    for (const [key, iconRef] of Object.entries(candidate.folderIcons)) {
+      if (!key || !isIconRef(iconRef)) continue
+      folderIcons[key] = iconRef
     }
   }
   return {
@@ -786,7 +897,8 @@ function normalizeVaultSettings(
       directory: normalizeWeeklyNotesDirectory(candidate.weeklyNotes?.directory),
       templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
     },
-    folderIcons
+    folderIcons,
+    iconRules: normalizeIconRules(candidate.iconRules)
   }
 }
 
@@ -795,12 +907,12 @@ function folderIconKey(folder: NoteFolder, subpath: string): string {
 }
 
 function rewriteFolderIconsForRename(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   oldSubpath: string,
   newSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, oldSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -818,11 +930,11 @@ function rewriteFolderIconsForRename(
 }
 
 function removeFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   subpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = {}
+): Record<string, string> {
+  const next: Record<string, string> = {}
   const exactKey = folderIconKey(folder, subpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -833,12 +945,12 @@ function removeFolderIcons(
 }
 
 function duplicateFolderIcons(
-  folderIcons: Record<string, FolderIconId>,
+  folderIcons: Record<string, string>,
   folder: NoteFolder,
   sourceSubpath: string,
   targetSubpath: string
-): Record<string, FolderIconId> {
-  const next: Record<string, FolderIconId> = { ...folderIcons }
+): Record<string, string> {
+  const next: Record<string, string> = { ...folderIcons }
   const exactKey = folderIconKey(folder, sourceSubpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
@@ -907,6 +1019,130 @@ export async function setVaultSettings(
     await fs.mkdir(path.join(root, 'inbox'), { recursive: true })
   }
   return cloneVaultSettings(normalized)
+}
+
+// --- Custom SVG icons (stored as `.zennotes/icons/<name>.svg`) ---------------
+
+const CUSTOM_ICONS_DIR = 'icons'
+
+function customIconsDir(root: string): string {
+  return path.join(root, INTERNAL_VAULT_DIR, CUSTOM_ICONS_DIR)
+}
+
+/**
+ * Build the vault-relative path of a custom icon from its `id` (the POSIX path
+ * relative to the icons dir, without `.svg`). A root id (no `/`) round-trips to
+ * the same file the flat layout used, preserving back-compat.
+ */
+function customIconRel(id: string): string {
+  return `${INTERNAL_VAULT_DIR}/${CUSTOM_ICONS_DIR}/${id}.svg`
+}
+
+/** Each path segment of a custom icon `id` must be a safe stem. */
+function isValidCustomIconId(id: string): boolean {
+  if (!id) return false
+  const segs = id.split('/')
+  return segs.every((seg) => CUSTOM_ICON_NAME_RE.test(seg))
+}
+
+const CUSTOM_ICONS_MAX_DEPTH = 3
+
+/**
+ * Derive a custom icon's `{ id, section }` from a name and optional section.
+ * Pure (no fs) so the path/id shape can be unit-tested. Validates the name and
+ * every section segment against {@link CUSTOM_ICON_NAME_RE}; throws otherwise.
+ */
+export function deriveCustomIconTarget(
+  name: string,
+  section?: string
+): { id: string; section: string } {
+  const trimmedName = (name ?? '').trim()
+  if (!CUSTOM_ICON_NAME_RE.test(trimmedName)) {
+    throw new Error(`Invalid custom icon name: ${name ?? ''}`)
+  }
+  const rawSection = (section ?? '').trim().replace(/^\/+|\/+$/g, '')
+  if (!rawSection) {
+    return { id: trimmedName, section: '' }
+  }
+  const segments = rawSection.split('/')
+  if (!segments.every((seg) => CUSTOM_ICON_NAME_RE.test(seg))) {
+    throw new Error(`Invalid custom icon section: ${section ?? ''}`)
+  }
+  const normalizedSection = segments.join('/')
+  return { id: `${normalizedSection}/${trimmedName}`, section: normalizedSection }
+}
+
+export async function listCustomIcons(root: string): Promise<CustomIcon[]> {
+  const baseDir = customIconsDir(root)
+  const icons: CustomIcon[] = []
+
+  // Recurse `.zennotes/icons/` up to a bounded depth. `section` is the parent
+  // directory relative to the icons dir (`''` = root); `id` is the POSIX
+  // relpath without `.svg` (unique key); `name` is the file stem (display).
+  const walk = async (dir: string, section: string, depth: number): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return // dir absent or unreadable
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        if (depth >= CUSTOM_ICONS_MAX_DEPTH) continue
+        if (!CUSTOM_ICON_NAME_RE.test(entry.name)) continue
+        const nextSection = section ? `${section}/${entry.name}` : entry.name
+        await walk(path.join(dir, entry.name), nextSection, depth + 1)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (!entry.name.toLowerCase().endsWith('.svg')) continue
+      const name = entry.name.slice(0, -'.svg'.length)
+      if (!CUSTOM_ICON_NAME_RE.test(name)) continue
+      const id = section ? `${section}/${name}` : name
+      const abs = resolveSafe(root, customIconRel(id))
+      try {
+        const [svg, stat] = await Promise.all([fs.readFile(abs, 'utf8'), fs.stat(abs)])
+        icons.push({ id, name, section, svg, updatedAt: stat.mtimeMs })
+      } catch (err) {
+        console.warn(`[icons] skipping unreadable custom icon ${id}:`, err)
+      }
+    }
+  }
+
+  await walk(baseDir, '', 0)
+  // Sort by section first (root before subfolders), then by display name.
+  icons.sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))
+  return icons
+}
+
+export async function importCustomIcon(
+  root: string,
+  input: ImportCustomIconInput
+): Promise<CustomIcon> {
+  if (typeof input?.svg !== 'string' || !input.svg.trim()) {
+    throw new Error('Custom icon SVG is empty')
+  }
+  // Validate name + optional section; an empty section lands at the icons root
+  // (id == name), preserving back-compat with the flat layout.
+  const { id, section } = deriveCustomIconTarget(input?.name, input?.section)
+  const name = (input.name ?? '').trim()
+  const abs = resolveSafe(root, customIconRel(id))
+  // mkdir the parent (recursive) so a new section folder is created on import.
+  await fs.mkdir(path.dirname(abs), { recursive: true })
+  await fs.writeFile(abs, input.svg, 'utf8')
+  const stat = await fs.stat(abs)
+  return { id, name, section, svg: input.svg, updatedAt: stat.mtimeMs }
+}
+
+export async function deleteCustomIcon(root: string, id: string): Promise<void> {
+  const trimmed = (id ?? '').trim()
+  // Accept either a flat name (back-compat) or a sectioned id (`work/star`).
+  if (!isValidCustomIconId(trimmed)) {
+    throw new Error(`Invalid custom icon id: ${id ?? ''}`)
+  }
+  const abs = resolveSafe(root, customIconRel(trimmed))
+  await fs.rm(abs, { force: true })
 }
 
 async function primaryNotesRoot(root: string): Promise<string> {
@@ -1190,6 +1426,19 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
   ) {
     return null
   }
+  // `frontmatter` is required for a cache hit: entries written by an older
+  // build lack it, and rejecting them here forces readMeta to reparse so the
+  // icon/frontmatter fields get populated.
+  if (
+    !candidate.frontmatter ||
+    typeof candidate.frontmatter !== 'object' ||
+    Object.values(candidate.frontmatter).some((value) => typeof value !== 'string')
+  ) {
+    return null
+  }
+  if (candidate.icon !== undefined && typeof candidate.icon !== 'string') {
+    return null
+  }
   return {
     path: candidate.path,
     title: candidate.title,
@@ -1201,7 +1450,9 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     tags: candidate.tags,
     wikilinks: candidate.wikilinks,
     hasAttachments: candidate.hasAttachments,
-    excerpt: candidate.excerpt
+    excerpt: candidate.excerpt,
+    frontmatter: candidate.frontmatter,
+    ...(candidate.icon !== undefined ? { icon: candidate.icon } : {})
   }
 }
 
@@ -1832,7 +2083,10 @@ async function readMeta(
     sameMtimeMs(cached.mtimeMs, stat.mtimeMs) &&
     cached.size === stat.size &&
     cached.meta.path === relPath &&
-    cached.meta.folder === folder
+    cached.meta.folder === folder &&
+    // Entries written before the icon/frontmatter fields existed are missing
+    // `frontmatter`; treat them as stale so the note gets reparsed from disk.
+    cached.meta.frontmatter !== undefined
   ) {
     return { ...cached.meta, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
   }
@@ -1843,6 +2097,7 @@ async function readMeta(
   } catch {
     /* ignore — treat as empty */
   }
+  const { frontmatter, icon } = extractNoteFrontmatter(body)
   const meta: NoteMeta = {
     path: relPath,
     title: path.basename(abs, path.extname(abs)),
@@ -1855,7 +2110,9 @@ async function readMeta(
     wikilinks: extractWikilinks(body),
     hasAttachments: bodyHasLocalAsset(body),
     excerpt: buildExcerpt(body),
-    isSymlink: linked
+    isSymlink: linked,
+    frontmatter,
+    ...(icon !== undefined ? { icon } : {})
   }
   noteMetaCache.set(cacheKey, {
     mtimeMs: stat.mtimeMs,
