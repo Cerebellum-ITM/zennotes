@@ -86,6 +86,37 @@ describe('resolveIcon — sections / stems', () => {
   })
 })
 
+describe('resolveIcon — Obsidian Iconize pack prefixes', () => {
+  const idx = buildCustomIconIndex([icon('custom_icons/PendingTaskPage', 'custom_icons')])
+
+  it('strips a pack prefix and resolves the stem (CuPendingTaskPage)', () => {
+    // Obsidian Iconize frontmatter: `Cu` (custom pack) + `PendingTaskPage`.
+    expect(resolveIcon('CuPendingTaskPage', idx)).toEqual({
+      kind: 'custom',
+      icon: idx.get('custom_icons/PendingTaskPage')
+    })
+    // Also via a custom: prefixed Iconize id.
+    expect(resolveIcon('custom:CuPendingTaskPage', idx)).toEqual({
+      kind: 'custom',
+      icon: idx.get('custom_icons/PendingTaskPage')
+    })
+  })
+
+  it('prefers a literal match over a prefix strip', () => {
+    // `Cubeacon` exists literally → not stripped to `beacon`.
+    const withLiteral = buildCustomIconIndex([icon('Cubeacon'), icon('beacon')])
+    expect(resolveIcon('Cubeacon', withLiteral)).toEqual({
+      kind: 'custom',
+      icon: withLiteral.get('Cubeacon')
+    })
+  })
+
+  it('returns null when the stripped stem is ambiguous', () => {
+    const ambiguous = buildCustomIconIndex([icon('a/House', 'a'), icon('b/House', 'b')])
+    expect(resolveIcon('FabHouse', ambiguous)).toBeNull()
+  })
+})
+
 describe('resolveNoteIcon', () => {
   const customByName = buildCustomIconIndex([icon('logo')])
 

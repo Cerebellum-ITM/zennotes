@@ -74,6 +74,24 @@ function resolveCustomByUniqueStem(
 }
 
 /**
+ * Obsidian Iconize stores frontmatter icons as `<PackPrefix><IconName>`, e.g.
+ * `Cu` (its "custom" pack) + `PendingTaskPage`, `Fab` + `Github`. When a ref
+ * doesn't match any icon directly, retry after stripping a leading pack prefix
+ * (one capital followed by lowercase/digits, before the next capital) and
+ * resolve the remainder by unique stem. The uniqueness guard makes a wrong
+ * strip a no-op (it just returns `null` and the caller falls back), so this is
+ * safe to attempt only as a last resort.
+ */
+function resolveIconizePrefixed(
+  ref: string,
+  customByName: Map<string, CustomIcon>
+): CustomIcon | null {
+  const match = /^[A-Z][a-z0-9]*([A-Z][A-Za-z0-9]*)$/.exec(ref)
+  if (!match) return null
+  return resolveCustomByUniqueStem(match[1], customByName)
+}
+
+/**
  * Resolve an {@link import('@shared/ipc').IconRef} to a concrete icon.
  *
  * Order (per spec):
@@ -83,7 +101,9 @@ function resolveCustomByUniqueStem(
  *    (back-compat for refs stored before the `custom:` prefix existed, and for
  *    Obsidian-style `icon: <stem>` frontmatter).
  * 3. `builtin:<id>` or a bare valid built-in id → that built-in glyph.
- * 4. Anything else → `null` (caller falls back to the default icon).
+ * 4. An Obsidian Iconize pack-prefixed name (e.g. `CuPendingTaskPage`) whose
+ *    stem (`PendingTaskPage`) resolves uniquely → that custom icon.
+ * 5. Anything else → `null` (caller falls back to the default icon).
  */
 export function resolveIcon(
   ref: string,
@@ -96,9 +116,12 @@ export function resolveIcon(
     // Exact id match (covers `custom:work/star` and root `custom:star`).
     const exact = customByName.get(key)
     if (exact) return { kind: 'custom', icon: exact }
-    // No section in the ref: try a unique stem (Obsidian-style bare names).
+    // No section in the ref: try a unique stem (Obsidian-style bare names),
+    // then an Iconize pack-prefixed stem (e.g. `custom:CuPendingTaskPage`).
     const byStem = resolveCustomByUniqueStem(key, customByName)
-    return byStem ? { kind: 'custom', icon: byStem } : null
+    if (byStem) return { kind: 'custom', icon: byStem }
+    const byPrefix = resolveIconizePrefixed(key, customByName)
+    return byPrefix ? { kind: 'custom', icon: byPrefix } : null
   }
 
   if (ref.startsWith('builtin:')) {
@@ -111,6 +134,10 @@ export function resolveIcon(
   if (custom) return { kind: 'custom', icon: custom }
 
   if (isFolderIconId(ref)) return { kind: 'builtin', id: ref }
+
+  // Last resort: an Obsidian Iconize pack-prefixed name (`CuPendingTaskPage`).
+  const prefixed = resolveIconizePrefixed(ref, customByName)
+  if (prefixed) return { kind: 'custom', icon: prefixed }
 
   return null
 }
