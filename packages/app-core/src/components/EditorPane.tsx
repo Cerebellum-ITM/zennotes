@@ -53,6 +53,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
+import { linkIconsPlugin } from '../lib/cm-link-icons'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
@@ -211,7 +212,8 @@ function markdownEditingExtensions(): Extension[] {
     frontmatterStyle,
     orderedListRenumber,
     headingFolding(),
-    codeBlockFontPlugin
+    codeBlockFontPlugin,
+    linkIconsPlugin
   ]
 }
 

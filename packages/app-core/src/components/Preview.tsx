@@ -5,6 +5,8 @@ import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
 import { resolveWikilinkTarget } from "../lib/wikilinks";
+import { buildCustomIconIndex, resolveNoteIconRef } from "../lib/icon-resolve";
+import { renderIconToDOM } from "../lib/render-icon-dom";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -370,6 +372,8 @@ export const Preview = memo(function Preview({
   const ref = useRef<HTMLDivElement | null>(null);
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
+  const customIcons = useStore((s) => s.customIcons);
+  const vaultSettings = useStore((s) => s.vaultSettings);
   const assetFiles = useStore((s) => s.assetFiles);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
@@ -680,17 +684,53 @@ export const Preview = memo(function Preview({
     const stage = document.createElement("article");
     stage.innerHTML = html;
 
+    const customByName = buildCustomIconIndex(customIcons);
+    const iconRules = vaultSettings?.iconRules;
+    // Prepend a resolved note's icon (frontmatter/rule) to a link, once.
+    const prependNoteIcon = (a: HTMLAnchorElement, note: NoteMeta): void => {
+      if (a.querySelector(":scope > .note-link-icon")) return;
+      const ref = resolveNoteIconRef(note, vaultSettings, customByName, iconRules);
+      if (!ref) return;
+      const iconEl = renderIconToDOM(ref, customByName, 14);
+      if (!iconEl) return;
+      iconEl.classList.add("note-link-icon");
+      a.insertBefore(iconEl, a.firstChild);
+    };
+
     stage.querySelectorAll<HTMLAnchorElement>("a.wikilink").forEach((a) => {
       const target = a.getAttribute("data-wikilink") || "";
       const resolved = resolveWikilinkTarget(notes, target);
       if (resolved) {
         a.classList.remove("broken");
         a.dataset.resolvedPath = resolved.path;
+        prependNoteIcon(a, resolved);
       } else {
         a.classList.add("broken");
         delete a.dataset.resolvedPath;
       }
     });
+
+    // Markdown links whose href resolves to a vault note also get the icon.
+    stage
+      .querySelectorAll<HTMLAnchorElement>("a[href]:not(.wikilink)")
+      .forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        if (
+          !href ||
+          href.startsWith("#") ||
+          /^[a-z][a-z0-9+.-]*:\/\//i.test(href)
+        ) {
+          return;
+        }
+        let target = href.replace(/^\.\//, "");
+        try {
+          target = decodeURIComponent(target);
+        } catch {
+          /* keep raw target */
+        }
+        const resolved = resolveWikilinkTarget(notes, target);
+        if (resolved) prependNoteIcon(a, resolved);
+      });
 
     enhanceLocalAssetNodes(stage, {
       vaultRoot: vault?.root,
@@ -744,6 +784,7 @@ export const Preview = memo(function Preview({
     };
   }, [
     assetFilesKey,
+    customIcons,
     effectiveMode,
     html,
     notePath,
@@ -753,6 +794,7 @@ export const Preview = memo(function Preview({
     pinnedRefVisible,
     togglePinnedRefVisible,
     vault?.root,
+    vaultSettings,
   ]);
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {
