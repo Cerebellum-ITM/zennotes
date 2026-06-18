@@ -164,6 +164,30 @@ describe('normalizeIconRules — file target', () => {
   })
 })
 
+describe('resolveByRules / normalize — lang target', () => {
+  it("matches a target:'lang' rule by nameRegex against the language token", () => {
+    const rules = [rule({ target: 'lang', nameRegex: '^lua$', icon: 'code' })]
+    expect(resolveByRules('lang', { subpath: '', name: 'lua' }, rules)).toBe('code')
+    expect(resolveByRules('lang', { subpath: '', name: 'python' }, rules)).toBeNull()
+  })
+
+  it("ignores pathGlob on a 'lang' rule (lang has no path)", () => {
+    // A stray glob must not block the language match.
+    const rules = [
+      rule({ target: 'lang', pathGlob: 'never/matches', nameRegex: '^lua$', icon: 'code' })
+    ]
+    expect(resolveByRules('lang', { subpath: '', name: 'lua' }, rules)).toBe('code')
+  })
+
+  it("keeps a 'lang' rule with a nameRegex through normalization", () => {
+    const out = normalizeIconRules([
+      { id: 'l', target: 'lang', nameRegex: '^lua$', icon: 'code' }
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ target: 'lang', nameRegex: '^lua$', icon: 'code' })
+  })
+})
+
 describe('resolveByRules — priority / first match', () => {
   it('returns the icon of the first matching rule in array order', () => {
     const ordered = [

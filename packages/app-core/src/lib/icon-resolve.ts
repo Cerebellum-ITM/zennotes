@@ -226,3 +226,19 @@ export function resolveFileIconRefByRules(
   if (ruleRef && resolveIcon(ruleRef, customByName)) return ruleRef
   return null
 }
+
+/**
+ * Resolve the {@link import('@shared/ipc').IconRef} for an inline `{lang icon}`
+ * code directive via pattern rules (`target: 'lang'`). The language token is
+ * matched against each rule's `nameRegex`. Returns `null` when no rule matches
+ * or the matched ref can't be resolved (caller leaves the directive as text).
+ */
+export function resolveLangIconRef(
+  lang: string,
+  customByName: Map<string, CustomIcon>,
+  iconRules: IconRule[] | undefined | null
+): string | null {
+  const ruleRef = resolveByRules('lang', { subpath: '', name: lang }, iconRules)
+  if (ruleRef && resolveIcon(ruleRef, customByName)) return ruleRef
+  return null
+}

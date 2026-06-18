@@ -5,8 +5,13 @@ import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
 import { resolveWikilinkTarget } from "../lib/wikilinks";
-import { buildCustomIconIndex, resolveNoteIconRef } from "../lib/icon-resolve";
+import {
+  buildCustomIconIndex,
+  resolveLangIconRef,
+  resolveNoteIconRef,
+} from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
+import { parseLangIconDirective } from "../lib/code-lang-icon";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -731,6 +736,20 @@ export const Preview = memo(function Preview({
         const resolved = resolveWikilinkTarget(notes, target);
         if (resolved) prependNoteIcon(a, resolved);
       });
+
+    // Inline code `{lang icon}rest` → language icon + the rest as code.
+    stage.querySelectorAll<HTMLElement>("code").forEach((code) => {
+      if (code.closest("pre")) return; // only inline code, not fenced blocks
+      const parsed = parseLangIconDirective(code.textContent ?? "");
+      if (!parsed) return;
+      const ref = resolveLangIconRef(parsed.lang, customByName, iconRules);
+      if (!ref) return;
+      const iconEl = renderIconToDOM(ref, customByName, 14);
+      if (!iconEl) return;
+      iconEl.classList.add("code-lang-icon");
+      code.textContent = parsed.rest;
+      code.insertBefore(iconEl, code.firstChild);
+    });
 
     enhanceLocalAssetNodes(stage, {
       vaultRoot: vault?.root,

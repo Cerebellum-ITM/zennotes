@@ -75,11 +75,12 @@ function compileRegex(source: string): RegExp | null {
 function ruleMatches(
   rule: IconRule,
   ctx: IconRuleContext,
-  target: 'note' | 'folder' | 'file'
+  target: 'note' | 'folder' | 'file' | 'lang'
 ): boolean {
   let hasMatcher = false
 
-  if (rule.pathGlob) {
+  // `lang` rules carry no path; pathGlob is ignored (only nameRegex applies).
+  if (rule.pathGlob && target !== 'lang') {
     const re = compileGlob(rule.pathGlob)
     if (!re) return false
     hasMatcher = true
@@ -115,7 +116,7 @@ function ruleMatches(
  * rule matches.
  */
 export function resolveByRules(
-  target: 'note' | 'folder' | 'file',
+  target: 'note' | 'folder' | 'file' | 'lang',
   ctx: IconRuleContext,
   rules: IconRule[] | undefined | null
 ): string | null {

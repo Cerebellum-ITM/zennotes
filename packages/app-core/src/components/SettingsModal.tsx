@@ -3214,6 +3214,18 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
     setEditingId(rule.id)
   }, [commit, rules])
 
+  // One-click example: an inline `{lua icon}…` code directive → the code glyph.
+  const addCodeLangExample = useCallback(() => {
+    const rule: IconRule = {
+      id: newIconRuleId(),
+      target: 'lang',
+      nameRegex: '^lua$',
+      icon: 'code'
+    }
+    commit([...rules, rule])
+    setEditingId(rule.id)
+  }, [commit, rules])
+
   const pickerRule = rules.find((r) => r.id === iconPickerRuleId) ?? null
 
   return (
@@ -3282,6 +3294,17 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                 <span className="font-medium text-ink-800">Frontmatter</span> — notes only:
                 require a key to exist or to equal a value.
               </div>
+              <div>
+                <span className="font-medium text-ink-800">Code language</span> — matches the
+                language token of an inline{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">{'{lua icon}'}</code>{' '}
+                directive (matcher: the language regex, e.g.{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">^lua$</code>). In a note,{' '}
+                <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">
+                  {'`{lua icon}options.lua`'}
+                </code>{' '}
+                renders the icon followed by <code className="rounded bg-paper-200 px-1 py-0.5 text-xs">options.lua</code>.
+              </div>
               <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-ink-700">
                 <span className="font-medium text-ink-800">Example —</span> give every image its
                 own icon: target <span className="font-medium">File</span>, name regex{' '}
@@ -3289,13 +3312,20 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                   \.(png|jpe?g|gif|webp)$
                 </code>
                 , and pick the icon you want.
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={addImageExample}
                     className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
                   >
                     Add image example
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addCodeLangExample}
+                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+                  >
+                    Add code language example
                   </button>
                 </div>
               </div>
@@ -3346,7 +3376,9 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                           ? 'Note'
                           : rule.target === 'file'
                             ? 'File'
-                            : 'Folder'}
+                            : rule.target === 'lang'
+                              ? 'Code language'
+                              : 'Folder'}
                         {!iconRuleHasMatcher(rule) && (
                           <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
                             Incomplete
@@ -3403,8 +3435,11 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                             updateRule(rule.id, {
                               target: e.target.value as IconRule['target'],
                               // Only note rules can use frontmatter; drop it for
-                              // folder and file targets.
-                              ...(e.target.value !== 'note' ? { frontmatter: undefined } : {})
+                              // folder/file/lang targets.
+                              ...(e.target.value !== 'note' ? { frontmatter: undefined } : {}),
+                              // `lang` rules have no path; drop a stale glob so the
+                              // matcher is just the language regex.
+                              ...(e.target.value === 'lang' ? { pathGlob: undefined } : {})
                             })
                           }
                           className={ICON_RULE_INPUT_CLASS}
@@ -3412,24 +3447,27 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                           <option value="note">Note</option>
                           <option value="folder">Folder</option>
                           <option value="file">File</option>
+                          <option value="lang">Code language</option>
                         </select>
                       </label>
 
-                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
-                        Path glob
-                        <input
-                          value={rule.pathGlob ?? ''}
-                          placeholder="Daily Notes/*"
-                          onChange={(e) => updateRule(rule.id, { pathGlob: e.target.value })}
-                          className={ICON_RULE_INPUT_CLASS}
-                        />
-                      </label>
+                      {rule.target !== 'lang' && (
+                        <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
+                          Path glob
+                          <input
+                            value={rule.pathGlob ?? ''}
+                            placeholder="Daily Notes/*"
+                            onChange={(e) => updateRule(rule.id, { pathGlob: e.target.value })}
+                            className={ICON_RULE_INPUT_CLASS}
+                          />
+                        </label>
+                      )}
 
                       <label className="flex flex-col gap-1 text-xs font-medium text-ink-600">
-                        Name regex
+                        {rule.target === 'lang' ? 'Language regex' : 'Name regex'}
                         <input
                           value={rule.nameRegex ?? ''}
-                          placeholder="^\\d{4}-\\d{2}-\\d{2}$"
+                          placeholder={rule.target === 'lang' ? '^lua$' : '^\\d{4}-\\d{2}-\\d{2}$'}
                           onChange={(e) => updateRule(rule.id, { nameRegex: e.target.value })}
                           className={ICON_RULE_INPUT_CLASS}
                         />

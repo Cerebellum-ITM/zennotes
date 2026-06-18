@@ -182,7 +182,13 @@ function normalizeIconRules(value: unknown): IconRule[] {
     if (!raw || typeof raw !== 'object') continue
     const candidate = raw as Partial<IconRule>
     const target = candidate.target
-    if (target !== 'note' && target !== 'folder' && target !== 'file') continue
+    if (
+      target !== 'note' &&
+      target !== 'folder' &&
+      target !== 'file' &&
+      target !== 'lang'
+    )
+      continue
     if (!isIconRef(candidate.icon)) continue
 
     const pathGlob = typeof candidate.pathGlob === 'string' ? candidate.pathGlob.trim() : ''

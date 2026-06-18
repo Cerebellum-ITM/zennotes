@@ -54,6 +54,7 @@ import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import { linkIconsPlugin } from '../lib/cm-link-icons'
+import { langIconsPlugin } from '../lib/cm-lang-icons'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
@@ -213,7 +214,8 @@ function markdownEditingExtensions(): Extension[] {
     orderedListRenumber,
     headingFolding(),
     codeBlockFontPlugin,
-    linkIconsPlugin
+    linkIconsPlugin,
+    langIconsPlugin
   ]
 }
 
