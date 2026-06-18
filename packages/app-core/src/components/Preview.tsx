@@ -11,7 +11,8 @@ import {
   resolveNoteIconRef,
 } from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
-import { parseLangIconDirective } from "../lib/code-lang-icon";
+import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
+import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -749,6 +750,21 @@ export const Preview = memo(function Preview({
       iconEl.classList.add("code-lang-icon");
       code.textContent = parsed.rest;
       code.insertBefore(iconEl, code.firstChild);
+    });
+
+    // Inline code `{lang}code` → syntax-highlighted inline code (preview only).
+    stage.querySelectorAll<HTMLElement>("code").forEach((code) => {
+      if (code.closest("pre")) return; // only inline code, not fenced blocks
+      if (code.querySelector(".code-lang-icon")) return; // already an icon span
+      const parsed = parseInlineLangDirective(code.textContent ?? "");
+      if (!parsed) return;
+      if (!hljs.getLanguage(parsed.lang)) return; // unknown language → leave literal
+      const { value } = hljs.highlight(parsed.rest, {
+        language: parsed.lang,
+        ignoreIllegals: true,
+      });
+      code.innerHTML = value;
+      code.classList.add("hljs");
     });
 
     enhanceLocalAssetNodes(stage, {

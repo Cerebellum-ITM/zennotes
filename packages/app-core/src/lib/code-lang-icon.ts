@@ -27,3 +27,25 @@ export function parseLangIconDirective(text: string): ParsedLangIcon | null {
     rest: text.slice(match[0].length).replace(/^[ \t]/, '')
   }
 }
+
+/**
+ * Inline syntax-highlight directive: `{<lang>}code` at the START of an inline
+ * code span highlights the rest of the span as `<lang>`. Distinct from the
+ * icon directive (`{lua icon}…`): here `}` follows the language token directly,
+ * so `{lua icon}` never matches this. Used only by the preview post-process.
+ */
+export const INLINE_CODE_LANG_RE = /^\{([A-Za-z0-9+#._-]+)\}([\s\S]+)$/
+
+export interface ParsedInlineLang {
+  /** The language token (e.g. `js`). */
+  lang: string
+  /** The code text after the `{lang}` directive. */
+  rest: string
+}
+
+/** Parse a leading `{lang}` highlight directive, or `null` when absent. */
+export function parseInlineLangDirective(text: string): ParsedInlineLang | null {
+  const match = INLINE_CODE_LANG_RE.exec(text)
+  if (!match) return null
+  return { lang: match[1], rest: match[2] }
+}

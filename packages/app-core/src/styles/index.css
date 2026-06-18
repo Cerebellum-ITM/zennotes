@@ -1,6 +1,6 @@
-/* KaTeX + highlight.js are pulled in by the markdown pipeline. */
+/* KaTeX is pulled in by the markdown pipeline. highlight.js token colors are
+ * defined locally (theme-aware, --z-* based) further down — no fixed hljs theme. */
 @import "katex/dist/katex.min.css";
-@import "highlight.js/styles/atom-one-light.css";
 
 @tailwind base;
 @tailwind components;
@@ -2234,7 +2234,6 @@ textarea,
 }
 .prose-zen .zen-code-block {
   position: relative;
-  --z-code-toolbar-line: max(var(--z-prose-line-gap), 28px);
   margin: var(--z-prose-block-gap) 0;
   background: theme("colors.paper.200");
   border: 1px solid theme("colors.paper.300");
@@ -2246,31 +2245,74 @@ textarea,
   border: 0;
   border-radius: 0;
   margin: 0;
-  padding: var(--z-code-toolbar-line) 16px var(--z-prose-line-gap);
+  padding: var(--z-prose-line-gap) 16px;
 }
 .prose-zen .zen-code-block[data-code-folded="true"] pre {
   display: none;
 }
-.prose-zen .zen-code-block-toolbar {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 1;
+
+/* Header bar: language label (left) + Fold/Copy toolbar (right). */
+.prose-zen .zen-code-block-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
+  min-height: 34px;
+  padding: 5px 8px 5px 14px;
+  background: theme("colors.paper.300");
+  border-bottom: 1px solid theme("colors.paper.400");
+}
+.prose-zen .zen-code-lang-label {
+  font-family: var(
+    --z-interface-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    system-ui,
+    sans-serif
+  );
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: theme("colors.ink.500");
+}
+.prose-zen .zen-code-lang-label:empty {
+  display: none;
+}
+.prose-zen .zen-code-block-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+/* Settings toggles (projected on :root as data-*). */
+:root[data-code-show-toolbar="false"] .prose-zen .zen-code-block-toolbar {
+  display: none;
+}
+:root[data-code-show-language="false"] .prose-zen .zen-code-lang-label {
+  display: none;
+}
+:root[data-code-show-toolbar="false"][data-code-show-language="false"]
+  .prose-zen
+  .zen-code-block-header {
+  display: none;
+}
+/* Folded blocks always keep the header visible so they can be re-opened. */
+.prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-header {
+  display: flex;
 }
 .prose-zen .zen-code-fold-button,
 .prose-zen .zen-code-copy-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  min-width: 52px;
-  border: 1px solid rgb(var(--z-bg-3) / 0.72);
+  height: 22px;
+  min-width: 48px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.6);
   border-radius: 6px;
-  background: rgb(var(--z-bg) / 0.82);
+  background: rgb(var(--z-bg) / 0.6);
   color: theme("colors.ink.600");
   font-family: var(
     --z-interface-font,
@@ -2286,7 +2328,6 @@ textarea,
   line-height: 1;
   padding: 0 8px;
   cursor: pointer;
-  backdrop-filter: blur(10px);
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
@@ -2315,7 +2356,7 @@ textarea,
 }
 .prose-zen .zen-code-block-summary {
   display: none;
-  padding: 42px 16px 14px;
+  padding: 12px 16px 14px;
   color: theme("colors.ink.500");
   font-family: var(
     --z-interface-font,
@@ -2331,6 +2372,102 @@ textarea,
 }
 .prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-summary {
   display: block;
+}
+
+/* Wrap long lines instead of scrolling. */
+:root[data-code-wrap="true"] .prose-zen .zen-code-block pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Line numbers (CSS counters over .zen-code-line wrappers). */
+.prose-zen .zen-code-line {
+  display: inline;
+}
+:root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre code {
+  counter-reset: zl;
+}
+:root[data-code-line-numbers="true"] .prose-zen .zen-code-block .zen-code-line::before {
+  counter-increment: zl;
+  content: counter(zl);
+  display: inline-block;
+  width: 2.25em;
+  margin-right: 1.1em;
+  text-align: right;
+  color: rgb(var(--z-fg-2) / 0.6);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* === Syntax highlighting (highlight.js classes) — theme-aware, mirrors the
+ * editor token palette so editor and preview match in every theme. Applies to
+ * both fenced blocks (pre code.hljs) and highlighted inline code. === */
+.prose-zen :is(.hljs-keyword, .hljs-built_in, .hljs-literal, .hljs-selector-tag, .hljs-doctag) {
+  color: rgb(var(--z-accent));
+  font-weight: 600;
+}
+.prose-zen :is(.hljs-string, .hljs-regexp, .hljs-meta .hljs-string, .hljs-addition) {
+  color: rgb(var(--z-green));
+}
+.prose-zen :is(.hljs-comment, .hljs-quote) {
+  color: rgb(var(--z-fg-2));
+  font-style: italic;
+  opacity: 0.85;
+}
+.prose-zen :is(.hljs-number, .hljs-symbol, .hljs-bullet) {
+  color: rgb(var(--z-yellow));
+}
+.prose-zen :is(.hljs-title, .hljs-title.function_, .hljs-section) {
+  color: rgb(var(--z-blue));
+}
+.prose-zen :is(.hljs-type, .hljs-class .hljs-title, .hljs-title.class_) {
+  color: rgb(var(--z-purple));
+}
+.prose-zen :is(.hljs-tag, .hljs-name, .hljs-deletion) {
+  color: rgb(var(--z-red));
+}
+.prose-zen
+  :is(.hljs-attr, .hljs-attribute, .hljs-selector-attr, .hljs-selector-pseudo, .hljs-selector-class, .hljs-selector-id, .hljs-template-variable) {
+  color: rgb(var(--z-purple));
+}
+.prose-zen :is(.hljs-variable, .hljs-property, .hljs-params) {
+  color: rgb(var(--z-fg));
+}
+.prose-zen :is(.hljs-operator, .hljs-punctuation, .hljs-meta, .hljs-comment .hljs-doctag) {
+  color: rgb(var(--z-fg-2));
+}
+.prose-zen :is(.hljs-link, .hljs-meta .hljs-keyword) {
+  color: rgb(var(--z-accent-soft));
+}
+.prose-zen .hljs-emphasis {
+  font-style: italic;
+}
+.prose-zen .hljs-strong {
+  font-weight: 600;
+}
+/* Monochrome palette: drop token colors, keep structural weight/style. */
+:root[data-code-palette="mono"] .prose-zen [class^="hljs-"],
+:root[data-code-palette="mono"] .prose-zen [class*=" hljs-"] {
+  color: inherit;
+}
+
+/* Named highlight.js palettes (everything but theme/mono) bring their own
+ * background + token colors via an injected, scoped stylesheet. Let that theme
+ * fill the code surface — the header bar stays app chrome. The injected CSS is
+ * color-only (layout stripped), so padding/line layout stay owned here. */
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])
+  .prose-zen
+  .zen-code-block
+  pre {
+  padding: 0;
+}
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])
+  .prose-zen
+  .zen-code-block
+  pre
+  code.hljs {
+  display: block;
+  padding: var(--z-prose-line-gap) 16px;
 }
 .prose-zen table {
   border-collapse: collapse;
