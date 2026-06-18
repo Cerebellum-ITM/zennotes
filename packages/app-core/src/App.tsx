@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useStore } from './store'
 import { resolveAuto } from './lib/themes'
-import { scopedCodeThemeCss } from './lib/code-theme'
+import { scopedCodeThemeCss, editorCodeThemeCss } from './lib/code-theme'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TitleBar } from './components/TitleBar'
@@ -275,6 +275,8 @@ function App(): JSX.Element {
   const codeLineNumbers = useStore((s) => s.codeLineNumbers)
   const codeWrapLines = useStore((s) => s.codeWrapLines)
   const codePalette = useStore((s) => s.codePalette)
+  const codeBackground = useStore((s) => s.codeBackground)
+  const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
@@ -473,13 +475,25 @@ function App(): JSX.Element {
     html.dataset.codeLineNumbers = String(codeLineNumbers)
     html.dataset.codeWrap = String(codeWrapLines)
     html.dataset.codePalette = codePalette
-  }, [codeShowLanguageLabel, codeShowToolbar, codeLineNumbers, codeWrapLines, codePalette])
+    html.dataset.codeBg = codeBackground
+    html.style.setProperty('--z-code-bg-custom', codeBackgroundColor)
+  }, [
+    codeShowLanguageLabel,
+    codeShowToolbar,
+    codeLineNumbers,
+    codeWrapLines,
+    codePalette,
+    codeBackground,
+    codeBackgroundColor
+  ])
 
   // Named highlight.js palettes inject their (scoped, color-only) stylesheet on
   // demand; the built-in `theme`/`mono` modes use the rules already in index.css.
   useEffect(() => {
     const STYLE_ID = 'zen-code-theme'
-    const css = scopedCodeThemeCss(codePalette)
+    const css = [scopedCodeThemeCss(codePalette), editorCodeThemeCss(codePalette)]
+      .filter(Boolean)
+      .join('\n')
     let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null
     if (!css) {
       style?.remove()

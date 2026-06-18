@@ -748,7 +748,17 @@ export const Preview = memo(function Preview({
       const iconEl = renderIconToDOM(ref, customByName, 14);
       if (!iconEl) return;
       iconEl.classList.add("code-lang-icon");
-      code.textContent = parsed.rest;
+      // Highlight the remainder too when the directive's token is a known
+      // language, so `{python icon}x+3` shows the icon AND colored code.
+      if (hljs.getLanguage(parsed.lang)) {
+        code.innerHTML = hljs.highlight(parsed.rest, {
+          language: parsed.lang,
+          ignoreIllegals: true,
+        }).value;
+        code.classList.add("hljs");
+      } else {
+        code.textContent = parsed.rest;
+      }
       code.insertBefore(iconEl, code.firstChild);
     });
 

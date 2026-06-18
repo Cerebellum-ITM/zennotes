@@ -43,9 +43,10 @@ export interface ParsedInlineLang {
   rest: string
 }
 
-/** Parse a leading `{lang}` highlight directive, or `null` when absent. */
+/** Parse a leading `{lang}` highlight directive, or `null` when absent. A single
+ *  separator space after the directive (`{js} foo`) is dropped from `rest`. */
 export function parseInlineLangDirective(text: string): ParsedInlineLang | null {
   const match = INLINE_CODE_LANG_RE.exec(text)
   if (!match) return null
-  return { lang: match[1], rest: match[2] }
+  return { lang: match[1], rest: match[2].replace(/^[ \t]/, '') }
 }

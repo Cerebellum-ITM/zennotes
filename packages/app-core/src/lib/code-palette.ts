@@ -48,3 +48,23 @@ export const CODE_PALETTE_VALUES: CodePalette[] = CODE_PALETTE_OPTIONS.map((o) =
 export function isNamedCodePalette(palette: CodePalette): boolean {
   return palette !== 'theme' && palette !== 'mono'
 }
+
+/**
+ * Background surface for fenced code blocks, independent of the token palette.
+ * `theme` keeps each palette's own surface (named themes use their background,
+ * theme/mono use the app surface); `app` forces the app surface for every
+ * palette; `custom` uses a user-picked color (`codeBackgroundColor`).
+ */
+export type CodeBackground = 'theme' | 'app' | 'custom'
+
+export const CODE_BACKGROUND_OPTIONS: { value: CodeBackground; label: string }[] = [
+  { value: 'theme', label: 'Theme default' },
+  { value: 'app', label: 'App surface' },
+  { value: 'custom', label: 'Custom color' }
+]
+
+export const CODE_BACKGROUND_VALUES: CodeBackground[] = CODE_BACKGROUND_OPTIONS.map(
+  (o) => o.value
+)
+
+export const DEFAULT_CODE_BACKGROUND_COLOR = '#1e1e2e'

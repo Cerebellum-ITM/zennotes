@@ -2469,6 +2469,20 @@ textarea,
   display: block;
   padding: var(--z-prose-line-gap) 16px;
 }
+
+/* Background override (Settings → Code → Background). `app`/`custom` force the
+ * block surface for every palette, beating a named theme's own background
+ * (which is injected, not !important). `theme` leaves each palette as-is. */
+:root[data-code-bg="app"] .prose-zen .zen-code-block {
+  background: theme("colors.paper.200") !important;
+}
+:root[data-code-bg="custom"] .prose-zen .zen-code-block {
+  background: var(--z-code-bg-custom) !important;
+}
+:root[data-code-bg="app"] .prose-zen .zen-code-block .hljs,
+:root[data-code-bg="custom"] .prose-zen .zen-code-block .hljs {
+  background: transparent !important;
+}
 .prose-zen table {
   border-collapse: collapse;
   width: 100%;

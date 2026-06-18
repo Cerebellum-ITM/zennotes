@@ -62,7 +62,7 @@ import { Button } from './ui/Button'
 import { FolderIconPickerModal } from './FolderIconPickerModal'
 import { DynamicIcon } from './DynamicIcon'
 import { normalizeIconRules } from '../lib/vault-layout'
-import { CODE_PALETTE_OPTIONS } from '../lib/code-palette'
+import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palette'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -363,6 +363,10 @@ export function SettingsModal(): JSX.Element {
   const setCodeWrapLines = useStore((s) => s.setCodeWrapLines)
   const codePalette = useStore((s) => s.codePalette)
   const setCodePalette = useStore((s) => s.setCodePalette)
+  const codeBackground = useStore((s) => s.codeBackground)
+  const setCodeBackground = useStore((s) => s.setCodeBackground)
+  const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
+  const setCodeBackgroundColor = useStore((s) => s.setCodeBackgroundColor)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const setInterfaceFont = useStore((s) => s.setInterfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -1409,6 +1413,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Color palette',
           description: 'Theme-matched token colors or a monochrome treatment.',
           keywords: ['code', 'palette', 'colors', 'theme', 'mono']
+        },
+        {
+          id: 'code-background',
+          title: 'Block background',
+          description: 'Keep each palette’s surface or override it for all blocks.',
+          keywords: ['code', 'background', 'surface', 'color', 'theme']
         }
       ],
       content: (
@@ -1425,6 +1435,34 @@ export function SettingsModal(): JSX.Element {
               options={CODE_PALETTE_OPTIONS}
               onChange={(next) => setCodePalette(next)}
             />
+            <SelectRow
+              label="Block background"
+              description="“Theme default” keeps each palette's own surface. “App surface” and “Custom” override the block background for every palette (including named themes)."
+              value={codeBackground}
+              settingId="code-background"
+              options={CODE_BACKGROUND_OPTIONS}
+              onChange={(next) => setCodeBackground(next)}
+            />
+            {codeBackground === 'custom' && (
+              <div
+                className="flex items-center justify-between gap-5 px-5 py-4"
+                {...settingsSearchTargetProps('code-background-color')}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink-900">Custom background color</div>
+                  <div className="mt-1 text-xs leading-5 text-ink-500">
+                    Applied to every code block when “Custom” is selected.
+                  </div>
+                </div>
+                <input
+                  type="color"
+                  value={codeBackgroundColor}
+                  onChange={(e) => setCodeBackgroundColor(e.target.value)}
+                  className="h-8 w-12 shrink-0 cursor-pointer rounded-lg border border-paper-300/70 bg-transparent"
+                  aria-label="Custom code block background color"
+                />
+              </div>
+            )}
           </Section>
 
           <Section

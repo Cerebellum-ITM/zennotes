@@ -50,8 +50,14 @@ import {
   type TaskPriority as TaskLinePriority
 } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
-import { CODE_PALETTE_VALUES, type CodePalette } from './lib/code-palette'
-export type { CodePalette }
+import {
+  CODE_PALETTE_VALUES,
+  CODE_BACKGROUND_VALUES,
+  DEFAULT_CODE_BACKGROUND_COLOR,
+  type CodePalette,
+  type CodeBackground
+} from './lib/code-palette'
+export type { CodePalette, CodeBackground }
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
@@ -163,6 +169,7 @@ const VALID_SORTS: NoteSortOrder[] = [
 ]
 const VALID_LINE_NUMBER_MODES: LineNumberMode[] = ['off', 'absolute', 'relative']
 const VALID_CODE_PALETTES: CodePalette[] = CODE_PALETTE_VALUES
+const VALID_CODE_BACKGROUNDS: CodeBackground[] = CODE_BACKGROUND_VALUES
 const VALID_WHICH_KEY_HINT_MODES: WhichKeyHintMode[] = ['timed', 'sticky']
 const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
   'auto',
@@ -308,6 +315,10 @@ interface Prefs {
   codeWrapLines: boolean
   /** Token color palette for preview code: theme tokens or structural-only. */
   codePalette: CodePalette
+  /** Background surface for fenced code blocks (independent of palette). */
+  codeBackground: CodeBackground
+  /** Custom code-block background color (used when codeBackground === 'custom'). */
+  codeBackgroundColor: string
   /** Font used by the whole app chrome (sidebar, menus, title bar). */
   interfaceFont: string | null
   /** Font used inside the editor + preview content. */
@@ -455,6 +466,8 @@ const DEFAULT_PREFS: Prefs = {
   codeLineNumbers: false,
   codeWrapLines: false,
   codePalette: 'theme',
+  codeBackground: 'theme',
+  codeBackgroundColor: DEFAULT_CODE_BACKGROUND_COLOR,
   // Leave all font slots on the built-in "Default" path. That lets the
   // shipped CSS fallbacks choose sensible system fonts on each machine
   // instead of forcing a specific family that may not exist.
@@ -591,6 +604,14 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.codePalette && VALID_CODE_PALETTES.includes(p.codePalette)
         ? p.codePalette
         : DEFAULT_PREFS.codePalette,
+    codeBackground:
+      p.codeBackground && VALID_CODE_BACKGROUNDS.includes(p.codeBackground)
+        ? p.codeBackground
+        : DEFAULT_PREFS.codeBackground,
+    codeBackgroundColor:
+      typeof p.codeBackgroundColor === 'string'
+        ? p.codeBackgroundColor
+        : DEFAULT_PREFS.codeBackgroundColor,
     interfaceFont:
       typeof p.interfaceFont === 'string' || p.interfaceFont === null
         ? (p.interfaceFont as string | null)
@@ -1169,6 +1190,8 @@ function collectPrefs(s: {
   codeLineNumbers: boolean
   codeWrapLines: boolean
   codePalette: CodePalette
+  codeBackground: CodeBackground
+  codeBackgroundColor: string
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -1231,7 +1254,9 @@ function collectPrefs(s: {
     codeShowToolbar: s.codeShowToolbar,
     codeLineNumbers: s.codeLineNumbers,
     codeWrapLines: s.codeWrapLines,
-    codePalette: s.codePalette
+    codePalette: s.codePalette,
+    codeBackground: s.codeBackground,
+    codeBackgroundColor: s.codeBackgroundColor
   }
 }
 
@@ -1555,6 +1580,8 @@ interface Store {
   codeLineNumbers: boolean
   codeWrapLines: boolean
   codePalette: CodePalette
+  codeBackground: CodeBackground
+  codeBackgroundColor: string
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -1839,6 +1866,8 @@ interface Store {
   setCodeLineNumbers: (on: boolean) => void
   setCodeWrapLines: (on: boolean) => void
   setCodePalette: (palette: CodePalette) => void
+  setCodeBackground: (background: CodeBackground) => void
+  setCodeBackgroundColor: (color: string) => void
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
   setMonoFont: (family: string | null) => void
@@ -2807,6 +2836,8 @@ export const useStore = create<Store>((set, get) => {
   codeLineNumbers: loadPrefs().codeLineNumbers,
   codeWrapLines: loadPrefs().codeWrapLines,
   codePalette: loadPrefs().codePalette,
+  codeBackground: loadPrefs().codeBackground,
+  codeBackgroundColor: loadPrefs().codeBackgroundColor,
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
   monoFont: loadPrefs().monoFont,
@@ -4255,6 +4286,14 @@ export const useStore = create<Store>((set, get) => {
   },
   setCodePalette: (palette) => {
     set({ codePalette: palette })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeBackground: (background) => {
+    set({ codeBackground: background })
+    savePrefs(collectPrefs(get()))
+  },
+  setCodeBackgroundColor: (color) => {
+    set({ codeBackgroundColor: color })
     savePrefs(collectPrefs(get()))
   },
   setInterfaceFont: (family) => {
