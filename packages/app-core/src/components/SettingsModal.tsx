@@ -3124,6 +3124,18 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   // The collapsible "How rules work" help block.
   const [helpOpen, setHelpOpen] = useState(false)
+  // An in-progress edit that would currently fail normalization (e.g. an empty
+  // matcher mid-typing, or a target switch that cleared the matcher). Kept local
+  // and NOT persisted so the on-disk normalizer can't delete the row mid-edit.
+  const [draftRule, setDraftRule] = useState<IconRule | null>(null)
+
+  // The persisted rules, with the live draft overlaid for display/editing.
+  const displayRules = useMemo(() => {
+    if (!draftRule) return rules
+    return rules.some((r) => r.id === draftRule.id)
+      ? rules.map((r) => (r.id === draftRule.id ? draftRule : r))
+      : [...rules, draftRule]
+  }, [rules, draftRule])
 
   const commit = useCallback(
     (next: IconRule[]) => {
@@ -3136,20 +3148,21 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
 
   const updateRule = useCallback(
     (id: string, patch: Partial<IconRule>) => {
-      // Keep the rule the user is editing even if a mid-edit value would fail
-      // normalization (e.g. an empty matcher): normalize the rest, but preserve
-      // the edited rule verbatim so the open editor never vanishes.
-      const next = rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
-      const normalized = normalizeIconRules(next)
-      const edited = next.find((r) => r.id === id)
-      const survived = normalized.some((r) => r.id === id)
-      const merged =
-        edited && !survived
-          ? next.map((r) => (r.id === id ? r : normalized.find((n) => n.id === r.id) ?? r))
-          : normalized
-      void persistVaultSettings({ ...vaultSettings, iconRules: merged })
+      const base = displayRules.find((r) => r.id === id)
+      if (!base) return
+      const edited = { ...base, ...patch }
+      // A matcher-less rule is dropped by the on-disk normalizer, which would
+      // delete the row mid-edit (closing the editor + icon picker). So only
+      // persist when the rule is valid; otherwise hold the in-progress edit in
+      // local draft state so the UI stays put until the matcher is fixed.
+      if (normalizeIconRules([edited]).length === 1) {
+        setDraftRule(null)
+        commit(displayRules.map((r) => (r.id === id ? edited : r)))
+      } else {
+        setDraftRule(edited)
+      }
     },
-    [persistVaultSettings, rules, vaultSettings]
+    [commit, displayRules]
   )
 
   const addRule = useCallback(() => {
@@ -3167,6 +3180,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
 
   const deleteRule = useCallback(
     (id: string) => {
+      setDraftRule(null)
       commit(rules.filter((r) => r.id !== id))
       if (editingId === id) setEditingId(null)
     },
@@ -3175,6 +3189,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
 
   const move = useCallback(
     (id: string, dir: -1 | 1) => {
+      setDraftRule(null)
       const idx = rules.findIndex((r) => r.id === id)
       const next = idx + dir
       if (idx < 0 || next < 0 || next >= rules.length) return
@@ -3226,7 +3241,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
     setEditingId(rule.id)
   }, [commit, rules])
 
-  const pickerRule = rules.find((r) => r.id === iconPickerRuleId) ?? null
+  const pickerRule = displayRules.find((r) => r.id === iconPickerRuleId) ?? null
 
   return (
     <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
@@ -3360,9 +3375,9 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
           </div>
         </div>
 
-        {rules.length > 0 && (
+        {displayRules.length > 0 && (
           <div className="divide-y divide-paper-300/45 border-t border-paper-300/45">
-            {rules.map((rule, index) => {
+            {displayRules.map((rule, index) => {
               const editing = editingId === rule.id
               return (
                 <div key={rule.id} className="px-5 py-4">
@@ -3402,7 +3417,7 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                       <button
                         type="button"
                         aria-label="Move down"
-                        disabled={index === rules.length - 1}
+                        disabled={index === displayRules.length - 1}
                         onClick={() => move(rule.id, 1)}
                         className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs text-ink-700 transition-colors hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40"
                       >
@@ -3410,7 +3425,10 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingId(editing ? null : rule.id)}
+                        onClick={() => {
+                          setDraftRule(null)
+                          setEditingId(editing ? null : rule.id)
+                        }}
                         className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                       >
                         {editing ? 'Done' : 'Edit'}
@@ -3431,17 +3449,23 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
                         Target
                         <select
                           value={rule.target}
-                          onChange={(e) =>
-                            updateRule(rule.id, {
-                              target: e.target.value as IconRule['target'],
-                              // Only note rules can use frontmatter; drop it for
-                              // folder/file/lang targets.
-                              ...(e.target.value !== 'note' ? { frontmatter: undefined } : {}),
+                          onChange={(e) => {
+                            const target = e.target.value as IconRule['target']
+                            const patch: Partial<IconRule> = { target }
+                            // Only note rules can use frontmatter; drop it for
+                            // folder/file/lang targets.
+                            if (target !== 'note') patch.frontmatter = undefined
+                            if (target === 'lang') {
                               // `lang` rules have no path; drop a stale glob so the
-                              // matcher is just the language regex.
-                              ...(e.target.value === 'lang' ? { pathGlob: undefined } : {})
-                            })
-                          }
+                              // matcher is just the language regex. Seed a default
+                              // regex when none exists so the rule keeps a matcher
+                              // and survives normalization (otherwise persisting a
+                              // matcher-less rule deletes it, closing the editor).
+                              patch.pathGlob = undefined
+                              if (!rule.nameRegex?.trim()) patch.nameRegex = '^lua$'
+                            }
+                            updateRule(rule.id, patch)
+                          }}
                           className={ICON_RULE_INPUT_CLASS}
                         >
                           <option value="note">Note</option>
