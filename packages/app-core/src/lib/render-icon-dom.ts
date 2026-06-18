@@ -29,7 +29,12 @@ export function renderIconToDOM(
   span.style.display = 'inline-flex'
   span.style.alignItems = 'center'
   span.style.justifyContent = 'center'
-  span.style.verticalAlign = 'text-bottom'
+  // Center the glyph against the text's optical middle. `text-bottom` dropped it
+  // below the baseline; `middle` aligns to the x-height midpoint and a small
+  // upward nudge lands it even with code/prose text.
+  span.style.verticalAlign = 'middle'
+  span.style.position = 'relative'
+  span.style.top = '-0.06em'
   span.style.flex = '0 0 auto'
 
   const markup =
