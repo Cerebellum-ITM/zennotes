@@ -120,6 +120,18 @@ function toVimSequence(binding: string): string | null {
   return tokens.join('')
 }
 
+/**
+ * Resolve a keymap binding to a single-key Vim mapping. The keymap registry
+ * canonicalizes a bare letter to uppercase for display (e.g. `s` → `S`), but
+ * Vim is case-sensitive: a lone letter with no modifier is the unshifted key, so
+ * it must reach Vim lowercase. (Multi-key sequences like `z M` keep their case
+ * and go through `toVimSequence` untouched.)
+ */
+function toVimEditorKey(binding: string): string | null {
+  const normalized = /^[A-Za-z]$/.test(binding) ? binding.toLowerCase() : binding
+  return toVimSequence(normalized)
+}
+
 function paneMapBindings(overrides: KeymapOverrides, actionId: KeymapId): string[] {
   const prefixBinding = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))
   const actionBinding = toVimSequence(getKeymapBinding(overrides, actionId))
@@ -192,7 +204,7 @@ function syncVimKeymaps(overrides: KeymapOverrides, flashJumpEnabled: boolean): 
       // native vim substitute.
       contexts: ['normal', 'visual'],
       bindings: flashJumpEnabled
-        ? [toVimSequence(getKeymapBinding(overrides, 'vim.flashJump'))].filter(
+        ? [toVimEditorKey(getKeymapBinding(overrides, 'vim.flashJump'))].filter(
             (binding): binding is string => !!binding
           )
         : []

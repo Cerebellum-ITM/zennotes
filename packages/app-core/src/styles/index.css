@@ -1243,6 +1243,8 @@ textarea,
 
 .cm-editor {
   background: transparent !important;
+  /* Anchor the flash-jump overlay layer (.zen-flash-layer) to the editor box. */
+  position: relative;
   --z-heading-line-height: var(--z-editor-line-height, 1.7);
   --z-heading-bottom-gap: 0px;
   /* Text font (editor + preview body). Falls back to SF Mono so
@@ -3219,25 +3221,41 @@ textarea,
 }
 
 /* Flash jump (flash.nvim-style in-editor jump) */
-.zen-flash-match {
-  background: rgb(var(--z-accent-muted) / 0.25);
+/* Dim the whole editor (text + widgets) while a jump is armed; the labels and
+ * match boxes live in a separate overlay layer that stays at full strength. */
+.cm-flash-active .cm-content {
+  opacity: 0.4;
+  transition: opacity 80ms ease-out;
+}
+.zen-flash-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.zen-flash-match-box {
+  position: absolute;
+  background: rgb(var(--z-accent-muted) / 0.5);
   border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(var(--z-accent) / 0.4);
 }
 .zen-flash-label {
-  display: inline-block;
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  height: 1.25em;
   background: rgb(var(--z-accent));
   color: rgb(var(--z-bg));
   font-size: 0.85em;
   font-weight: 700;
   font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
-  padding: 0 3px;
-  margin-right: 1px;
+  padding: 0 4px;
   border-radius: 3px;
-  line-height: 1.2;
+  line-height: 1;
   text-transform: lowercase;
-  vertical-align: baseline;
-  pointer-events: none;
-  box-shadow: 0 1px 3px rgb(var(--z-shadow) / 0.4);
+  transform: translate(-1px, -1px);
+  box-shadow: 0 1px 4px rgb(var(--z-shadow) / 0.5);
 }
 .zen-flash-label-matched {
   opacity: 0.55;

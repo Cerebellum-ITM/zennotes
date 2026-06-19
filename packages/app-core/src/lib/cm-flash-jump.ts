@@ -5,14 +5,7 @@ import {
   StateField,
   type Extension
 } from '@codemirror/state'
-import {
-  Decoration,
-  type DecorationSet,
-  EditorView,
-  ViewPlugin,
-  WidgetType,
-  type ViewUpdate
-} from '@codemirror/view'
+import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { getCM } from '@replit/codemirror-vim'
 import { generateHintLabels } from './vim-nav'
 
@@ -133,64 +126,6 @@ export function flashSelection(
 
 const setFlash = StateEffect.define<FlashState | null>()
 
-class FlashLabelWidget extends WidgetType {
-  constructor(
-    readonly label: string,
-    readonly matched: string
-  ) {
-    super()
-  }
-
-  eq(other: FlashLabelWidget): boolean {
-    return other.label === this.label && other.matched === this.matched
-  }
-
-  toDOM(): HTMLElement {
-    const span = document.createElement('span')
-    span.className = 'zen-flash-label'
-    const remaining = this.label.slice(this.matched.length)
-    if (this.matched) {
-      const matched = document.createElement('span')
-      matched.className = 'zen-flash-label-matched'
-      matched.textContent = this.matched
-      span.appendChild(matched)
-    }
-    span.appendChild(document.createTextNode(remaining))
-    return span
-  }
-
-  ignoreEvent(): boolean {
-    return true
-  }
-}
-
-function buildDecorations(state: FlashState | null): DecorationSet {
-  if (!state || state.targets.length === 0) return Decoration.none
-  const decos: { from: number; to: number; deco: Decoration }[] = []
-  for (const target of state.targets) {
-    // Only show labels still reachable given the label buffer.
-    if (state.labelBuffer && !target.label.startsWith(state.labelBuffer)) continue
-    decos.push({
-      from: target.from,
-      to: target.to,
-      deco: Decoration.mark({ class: 'zen-flash-match' })
-    })
-    decos.push({
-      from: target.from,
-      to: target.from,
-      deco: Decoration.widget({
-        widget: new FlashLabelWidget(target.label, state.labelBuffer),
-        side: -1
-      })
-    })
-  }
-  decos.sort((a, b) => a.from - b.from || (a.to === a.from ? -1 : 1))
-  return Decoration.set(
-    decos.map((d) => d.deco.range(d.from, d.to)),
-    true
-  )
-}
-
 export const flashStateField = StateField.define<FlashState | null>({
   create: () => null,
   update(value, tr) {
@@ -200,9 +135,114 @@ export const flashStateField = StateField.define<FlashState | null>({
     // Flash is transient: any document change ends it.
     if (value && tr.docChanged) return null
     return value
-  },
-  provide: (field) => EditorView.decorations.from(field, buildDecorations)
+  }
 })
+
+/**
+ * Renders the flash labels and match boxes in a dedicated overlay layer above
+ * the editor, instead of as inline decorations. This is deliberate: inline
+ * widgets collide with the editor's many other decoration providers (frontmatter
+ * styling, live-preview, lang-icon chips), which made labels render empty on some
+ * lines. An absolutely-positioned layer sits clear of all that and always paints
+ * the label letter. Dimming is done separately via the `cm-flash-active` class so
+ * it also dims widgets (code chips, icons), which a text-only mark could not.
+ */
+const flashOverlay = ViewPlugin.fromClass(
+  class {
+    private readonly layer: HTMLDivElement
+    private readonly view: EditorView
+    private frame = 0
+    private readonly onScroll: () => void
+
+    constructor(view: EditorView) {
+      this.view = view
+      this.layer = document.createElement('div')
+      this.layer.className = 'zen-flash-layer'
+      // Append to view.dom (the .cm-editor root, made position:relative via CSS),
+      // NOT scrollDOM/contentDOM — CodeMirror reconciles those and an extra child
+      // there breaks its update cycle. Tooltips use view.dom for the same reason.
+      view.dom.appendChild(this.layer)
+      this.onScroll = () => this.schedule()
+      view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true })
+      this.schedule()
+    }
+
+    update(update: ViewUpdate): void {
+      const next = update.state.field(flashStateField, false)
+      update.view.dom.classList.toggle('cm-flash-active', next != null)
+      this.schedule()
+    }
+
+    /** Defer DOM reads to after layout so coordsAtPos is safe. */
+    private schedule(): void {
+      if (this.frame) return
+      this.frame = requestAnimationFrame(() => {
+        this.frame = 0
+        this.render()
+      })
+    }
+
+    private render(): void {
+      const view = this.view
+      this.layer.textContent = ''
+      const state = view.state.field(flashStateField, false)
+      if (!state) return
+      let domRect: DOMRect
+      try {
+        domRect = view.dom.getBoundingClientRect()
+      } catch {
+        return
+      }
+      const targets = state.targets.filter(
+        (t) => !state.labelBuffer || t.label.startsWith(state.labelBuffer)
+      )
+      for (const target of targets) {
+        let start: { left: number; right: number; top: number; bottom: number } | null
+        let end: { left: number; right: number; top: number; bottom: number } | null
+        try {
+          start = view.coordsAtPos(target.from)
+          end = view.coordsAtPos(target.to)
+        } catch {
+          continue
+        }
+        if (!start) continue
+        const left = start.left - domRect.left
+        const top = start.top - domRect.top
+        // Bright box over the matched text (single-line matches only).
+        if (end && Math.abs(end.top - start.top) < 1 && end.left > start.left) {
+          const box = document.createElement('div')
+          box.className = 'zen-flash-match-box'
+          box.style.left = `${left}px`
+          box.style.top = `${top}px`
+          box.style.width = `${end.left - start.left}px`
+          box.style.height = `${start.bottom - start.top}px`
+          this.layer.appendChild(box)
+        }
+        // The label chip, always carrying its key letter.
+        const label = document.createElement('div')
+        label.className = 'zen-flash-label'
+        const remaining = target.label.slice(state.labelBuffer.length)
+        if (state.labelBuffer) {
+          const matched = document.createElement('span')
+          matched.className = 'zen-flash-label-matched'
+          matched.textContent = state.labelBuffer
+          label.appendChild(matched)
+        }
+        label.appendChild(document.createTextNode(remaining))
+        label.style.left = `${left}px`
+        label.style.top = `${top}px`
+        this.layer.appendChild(label)
+      }
+    }
+
+    destroy(): void {
+      if (this.frame) cancelAnimationFrame(this.frame)
+      this.view.scrollDOM.removeEventListener('scroll', this.onScroll)
+      this.view.dom.classList.remove('cm-flash-active')
+      this.layer.remove()
+    }
+  }
+)
 
 export function isFlashActive(view: EditorView): boolean {
   return view.state.field(flashStateField, false) != null
@@ -332,5 +372,5 @@ export function flashModeFor(view: EditorView): FlashMode {
 }
 
 export function flashJump(): Extension {
-  return [flashStateField, Prec.highest(flashKeyCapture)]
+  return [flashStateField, flashOverlay, Prec.highest(flashKeyCapture)]
 }
