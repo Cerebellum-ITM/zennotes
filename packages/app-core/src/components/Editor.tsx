@@ -41,6 +41,7 @@ import {
 } from '../lib/keymaps'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { flashModeFor, startFlashJump } from '../lib/cm-flash-jump'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -166,14 +167,35 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
   scroller.scrollTop = nextTop
 }
 
-function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> = [
+type VimMapContext = 'normal' | 'visual'
+
+const syncedVimContexts: Partial<Record<KeymapId, VimMapContext[]>> = {}
+
+function syncVimKeymaps(overrides: KeymapOverrides, flashJumpEnabled: boolean): void {
+  const mappings: Array<{
+    id: KeymapId
+    action: string
+    bindings: string[]
+    contexts?: VimMapContext[]
+  }> = [
     {
       id: 'vim.goToDefinition',
       action: 'goToDefinition',
       bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.goToDefinition'))].filter(
         (binding): binding is string => !!binding
       )
+    },
+    {
+      id: 'vim.flashJump',
+      action: 'flashJump',
+      // Mapped in normal + visual; disabling the feature leaves `s` as the
+      // native vim substitute.
+      contexts: ['normal', 'visual'],
+      bindings: flashJumpEnabled
+        ? [toVimSequence(getKeymapBinding(overrides, 'vim.flashJump'))].filter(
+            (binding): binding is string => !!binding
+          )
+        : []
     },
     {
       id: 'vim.paneFocusLeft',
@@ -268,17 +290,24 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
   ]
 
   for (const mapping of mappings) {
+    const contexts = mapping.contexts ?? ['normal']
+    const prevContexts = syncedVimContexts[mapping.id] ?? ['normal']
     for (const binding of syncedVimBindings[mapping.id] ?? []) {
-      try {
-        Vim.unmap(binding, 'normal')
-      } catch {
-        /* ignore */
+      for (const context of prevContexts) {
+        try {
+          Vim.unmap(binding, context)
+        } catch {
+          /* ignore */
+        }
       }
     }
     for (const binding of mapping.bindings) {
-      Vim.mapCommand(binding, 'action', mapping.action, {}, { context: 'normal' })
+      for (const context of contexts) {
+        Vim.mapCommand(binding, 'action', mapping.action, {}, { context })
+      }
     }
     syncedVimBindings[mapping.id] = mapping.bindings
+    syncedVimContexts[mapping.id] = contexts
   }
 }
 
@@ -540,6 +569,12 @@ function registerVimCommands(): void {
         window.alert((err as Error).message)
       }
     })
+  })
+
+  Vim.defineAction('flashJump', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (!view) return
+    startFlashJump(view, flashModeFor(view))
   })
 
   // Vim-style pane navigation actions are registered here, but their
@@ -1259,6 +1294,7 @@ export function Editor(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activeNote = useStore((s) => s.activeNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
 
@@ -1268,8 +1304,8 @@ export function Editor(): JSX.Element {
 
   useEffect(() => {
     registerVimCommands()
-    syncVimKeymaps(keymapOverrides)
-  }, [keymapOverrides])
+    syncVimKeymaps(keymapOverrides, flashJumpEnabled)
+  }, [keymapOverrides, flashJumpEnabled])
 
   useEffect(() => {
     applyVimInsertEscape(vimInsertEscape)

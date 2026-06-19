@@ -64,6 +64,7 @@ export type KeymapId =
   | "vim.tabNext"
   | "vim.hintMode"
   | "vim.goToDefinition"
+  | "vim.flashJump"
   | "vim.foldCurrent"
   | "vim.unfoldCurrent"
   | "vim.foldAll"
@@ -661,6 +662,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBinding: "g d",
     vimOnly: true,
     maxTokens: 2,
+  },
+  {
+    id: "vim.flashJump",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Flash jump",
+    description:
+      "Type to label every visible match, then press its label to jump (flash.nvim-style). Works in normal and visual mode.",
+    defaultBinding: "s",
+    vimOnly: true,
+    maxTokens: 1,
   },
   {
     id: "vim.foldCurrent",

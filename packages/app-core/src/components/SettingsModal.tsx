@@ -215,6 +215,8 @@ export function SettingsModal(): JSX.Element {
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
+  const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
+  const setFlashJumpEnabled = useStore((s) => s.setFlashJumpEnabled)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -903,6 +905,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'jk', 'jj', 'escape', 'insert mode', 'esc']
         },
         {
+          id: 'flash-jump',
+          title: 'Flash jump',
+          description: 'Press s to label every visible match as you type, then press its label to jump (flash.nvim-style).',
+          keywords: ['vim', 'flash', 'jump', 'hop', 'leap', 's', 'motion']
+        },
+        {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
@@ -1018,6 +1026,13 @@ export function SettingsModal(): JSX.Element {
                   placeholder="jk"
                   settingId="vim-insert-escape"
                   onChange={(next) => setVimInsertEscape(next ?? '')}
+                />
+                <ToggleRow
+                  label="Flash jump"
+                  description="Press s to label every visible match as you type, then press its label to jump (flash.nvim-style). Works in normal and visual mode; rebind the key in the shortcut editor."
+                  value={flashJumpEnabled}
+                  settingId="flash-jump"
+                  onChange={setFlashJumpEnabled}
                 />
                 <ToggleRow
                   label="Leader key hints"

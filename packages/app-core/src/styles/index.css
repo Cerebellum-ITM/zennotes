@@ -3218,6 +3218,31 @@ textarea,
   opacity: 0.55;
 }
 
+/* Flash jump (flash.nvim-style in-editor jump) */
+.zen-flash-match {
+  background: rgb(var(--z-accent-muted) / 0.25);
+  border-radius: 2px;
+}
+.zen-flash-label {
+  display: inline-block;
+  background: rgb(var(--z-accent));
+  color: rgb(var(--z-bg));
+  font-size: 0.85em;
+  font-weight: 700;
+  font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
+  padding: 0 3px;
+  margin-right: 1px;
+  border-radius: 3px;
+  line-height: 1.2;
+  text-transform: lowercase;
+  vertical-align: baseline;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgb(var(--z-shadow) / 0.4);
+}
+.zen-flash-label-matched {
+  opacity: 0.55;
+}
+
 /* ==========================================================================
  * Slash commands autocomplete
  * =========================================================================*/
