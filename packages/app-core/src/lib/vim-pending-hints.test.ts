@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getPendingHints } from './vim-pending-hints'
+import { getPendingHints, panelStyleFor } from './vim-pending-hints'
 
 describe('getPendingHints — operator top level', () => {
   it('shows next-key choices (text object + motion), not full sequences', () => {
@@ -71,6 +71,33 @@ describe('getPendingHints — visual top level', () => {
   it('titles each visual kind', () => {
     expect(getPendingHints({ kind: 'visual', visualKind: 'line', buffer: '' }).title).toBe('Visual Line')
     expect(getPendingHints({ kind: 'visual', visualKind: 'block', buffer: '' }).title).toBe('Visual Block')
+  })
+})
+
+describe('panelStyleFor', () => {
+  // Editor rect 100..700 horizontally, 50..450 vertically, in a 1000x500 viewport.
+  const rect = { left: 100, right: 700, top: 50, bottom: 450, height: 400 }
+  const W = 1000
+  const H = 500
+  const G = 16
+
+  it('anchors the four corners to the right edges', () => {
+    expect(panelStyleFor('top-right', rect, W, H, G)).toMatchObject({ top: 66, right: 316 })
+    expect(panelStyleFor('top-left', rect, W, H, G)).toMatchObject({ top: 66, left: 116 })
+    expect(panelStyleFor('bottom-right', rect, W, H, G)).toMatchObject({ bottom: 66, right: 316 })
+    expect(panelStyleFor('bottom-left', rect, W, H, G)).toMatchObject({ bottom: 66, left: 116 })
+  })
+
+  it('centers vertically for the left/right sides', () => {
+    const right = panelStyleFor('right', rect, W, H, G)
+    expect(right).toMatchObject({ right: 316, top: 250, transform: 'translateY(-50%)' })
+    expect(right.bottom).toBeUndefined()
+    const left = panelStyleFor('left', rect, W, H, G)
+    expect(left).toMatchObject({ left: 116, top: 250, transform: 'translateY(-50%)' })
+  })
+
+  it('always sets a sane maxHeight', () => {
+    expect(panelStyleFor('top-right', rect, W, H, G).maxHeight).toBe(368)
   })
 })
 

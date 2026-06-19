@@ -219,6 +219,8 @@ export function SettingsModal(): JSX.Element {
   const setFlashJumpEnabled = useStore((s) => s.setFlashJumpEnabled)
   const vimPendingHints = useStore((s) => s.vimPendingHints)
   const setVimPendingHints = useStore((s) => s.setVimPendingHints)
+  const vimPendingHintsPosition = useStore((s) => s.vimPendingHintsPosition)
+  const setVimPendingHintsPosition = useStore((s) => s.setVimPendingHintsPosition)
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
@@ -921,6 +923,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'motion', 'hints', 'which-key', 'lazygit', 'operator', 'visual']
         },
         {
+          id: 'vim-pending-hints-position',
+          title: 'Motion hints position',
+          description: 'Which corner or side of the editor the motion hint panel anchors to.',
+          keywords: ['vim', 'motion', 'hints', 'position', 'corner', 'left', 'right', 'placement']
+        },
+        {
           id: 'vim-yank-clipboard',
           title: 'Copy yank to clipboard',
           description: 'Vim y also copies to the system clipboard, so you can paste outside the app.',
@@ -1052,11 +1060,28 @@ export function SettingsModal(): JSX.Element {
                 />
                 <ToggleRow
                   label="Motion hints"
-                  description="Show a LazyGit-style hint panel on the right while a vim operator (c/d/y), visual mode, or a g/z prefix is pending."
+                  description="Show a LazyGit-style hint panel while a vim operator (c/d/y), visual mode, or a g/z prefix is pending."
                   value={vimPendingHints}
                   settingId="vim-pending-hints"
                   onChange={setVimPendingHints}
                 />
+                {vimPendingHints && (
+                  <SelectRow
+                    label="Motion hints position"
+                    description="Which corner or side of the editor the hint panel anchors to."
+                    value={vimPendingHintsPosition}
+                    settingId="vim-pending-hints-position"
+                    options={[
+                      { value: 'top-left', label: 'Top left' },
+                      { value: 'top-right', label: 'Top right' },
+                      { value: 'bottom-left', label: 'Bottom left' },
+                      { value: 'bottom-right', label: 'Bottom right' },
+                      { value: 'left', label: 'Left (centered)' },
+                      { value: 'right', label: 'Right (centered)' }
+                    ]}
+                    onChange={(next) => setVimPendingHintsPosition(next)}
+                  />
+                )}
                 <ToggleRow
                   label="Copy yank to clipboard"
                   description="Vim y also copies to the system clipboard, so you can paste outside the app."

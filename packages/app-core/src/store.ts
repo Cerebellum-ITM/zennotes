@@ -108,6 +108,7 @@ import {
   selectInitialVisibleNotePrefetchPaths
 } from './lib/note-prefetch'
 import type { Panel } from './lib/vim-nav'
+import { VIM_HINTS_POSITIONS, type VimHintsPosition } from './lib/vim-pending-hints'
 import {
   allLeaves,
   findLeaf,
@@ -292,6 +293,8 @@ interface Prefs {
   flashJumpEnabled: boolean
   /** When true, show a LazyGit-style hint panel while a vim operator/visual/g-z prefix is pending. */
   vimPendingHints: boolean
+  /** Which corner/side of the editor the motion hint panel anchors to. */
+  vimPendingHintsPosition: VimHintsPosition
   /** When true, a Vim yank (`y`) also copies to the system clipboard. */
   vimYankToClipboard: boolean
   /** Which engine powers vault-wide text search. */
@@ -455,6 +458,7 @@ const DEFAULT_PREFS: Prefs = {
   whichKeyHintTimeoutMs: 900,
   flashJumpEnabled: true,
   vimPendingHints: true,
+  vimPendingHintsPosition: 'top-right',
   vimYankToClipboard: true,
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
@@ -559,6 +563,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimPendingHints === 'boolean'
         ? p.vimPendingHints
         : DEFAULT_PREFS.vimPendingHints,
+    vimPendingHintsPosition:
+      p.vimPendingHintsPosition && VIM_HINTS_POSITIONS.includes(p.vimPendingHintsPosition)
+        ? p.vimPendingHintsPosition
+        : DEFAULT_PREFS.vimPendingHintsPosition,
     vimYankToClipboard:
       typeof p.vimYankToClipboard === 'boolean'
         ? p.vimYankToClipboard
@@ -1158,6 +1166,7 @@ function collectPrefs(s: {
   whichKeyHintTimeoutMs: number
   flashJumpEnabled: boolean
   vimPendingHints: boolean
+  vimPendingHintsPosition: VimHintsPosition
   vimYankToClipboard: boolean
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
@@ -1226,6 +1235,7 @@ function collectPrefs(s: {
     whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
     flashJumpEnabled: s.flashJumpEnabled,
     vimPendingHints: s.vimPendingHints,
+    vimPendingHintsPosition: s.vimPendingHintsPosition,
     vimYankToClipboard: s.vimYankToClipboard,
     vaultTextSearchBackend: s.vaultTextSearchBackend,
     ripgrepBinaryPath: s.ripgrepBinaryPath,
@@ -1589,6 +1599,7 @@ interface Store {
   whichKeyHintTimeoutMs: number
   flashJumpEnabled: boolean
   vimPendingHints: boolean
+  vimPendingHintsPosition: VimHintsPosition
   vimYankToClipboard: boolean
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
@@ -1874,6 +1885,7 @@ interface Store {
   setVimMode: (on: boolean) => void
   setFlashJumpEnabled: (on: boolean) => void
   setVimPendingHints: (on: boolean) => void
+  setVimPendingHintsPosition: (position: VimHintsPosition) => void
   setVimYankToClipboard: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
@@ -2851,6 +2863,7 @@ export const useStore = create<Store>((set, get) => {
   whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
   flashJumpEnabled: loadPrefs().flashJumpEnabled,
   vimPendingHints: loadPrefs().vimPendingHints,
+  vimPendingHintsPosition: loadPrefs().vimPendingHintsPosition,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
   vaultTextSearchBackend: loadPrefs().vaultTextSearchBackend,
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
@@ -4200,6 +4213,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimPendingHints: (on) => {
     set({ vimPendingHints: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setVimPendingHintsPosition: (position) => {
+    set({ vimPendingHintsPosition: position })
     savePrefs(collectPrefs(get()))
   },
   setVimYankToClipboard: (on) => {

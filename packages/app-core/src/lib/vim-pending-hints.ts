@@ -37,6 +37,77 @@ export interface PendingHints {
   groups: HintGroup[]
 }
 
+// ---------------------------------------------------------------------------
+// Panel placement (pure, unit-tested)
+// ---------------------------------------------------------------------------
+
+export type VimHintsPosition =
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'left'
+  | 'right'
+
+export const VIM_HINTS_POSITIONS: VimHintsPosition[] = [
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+  'left',
+  'right'
+]
+
+export interface PanelRect {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  height: number
+}
+
+export interface PanelStyle {
+  left?: number
+  right?: number
+  top?: number
+  bottom?: number
+  transform?: string
+  maxHeight: number
+}
+
+/**
+ * Fixed-position CSS style anchoring the hint panel to one of six spots around
+ * the editor rect (`rect` is the editor scroller's viewport rect). `left`/`right`
+ * center vertically; the four corners pin to that corner.
+ */
+export function panelStyleFor(
+  position: VimHintsPosition,
+  rect: PanelRect,
+  viewportWidth: number,
+  viewportHeight: number,
+  gutter = 16
+): PanelStyle {
+  const style: PanelStyle = { maxHeight: Math.max(120, rect.height - gutter * 2) }
+
+  if (position === 'top-left' || position === 'bottom-left' || position === 'left') {
+    style.left = Math.max(gutter, rect.left + gutter)
+  } else {
+    style.right = Math.max(gutter, viewportWidth - rect.right + gutter)
+  }
+
+  if (position === 'top-left' || position === 'top-right') {
+    style.top = rect.top + gutter
+  } else if (position === 'bottom-left' || position === 'bottom-right') {
+    style.bottom = Math.max(gutter, viewportHeight - rect.bottom + gutter)
+  } else {
+    // left / right → vertically centered on the editor.
+    style.top = rect.top + rect.height / 2
+    style.transform = 'translateY(-50%)'
+  }
+
+  return style
+}
+
 const OPERATOR_LABELS: Record<string, string> = {
   change: 'Change',
   delete: 'Delete',
