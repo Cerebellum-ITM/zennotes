@@ -292,6 +292,8 @@ interface Prefs {
   flashJumpEnabled: boolean
   /** When true, show a LazyGit-style hint panel while a vim operator/visual/g-z prefix is pending. */
   vimPendingHints: boolean
+  /** When true, a Vim yank (`y`) also copies to the system clipboard. */
+  vimYankToClipboard: boolean
   /** Which engine powers vault-wide text search. */
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   /** Optional explicit binary path for ripgrep. Blank uses PATH lookup. */
@@ -453,6 +455,7 @@ const DEFAULT_PREFS: Prefs = {
   whichKeyHintTimeoutMs: 900,
   flashJumpEnabled: true,
   vimPendingHints: true,
+  vimYankToClipboard: true,
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
@@ -556,6 +559,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimPendingHints === 'boolean'
         ? p.vimPendingHints
         : DEFAULT_PREFS.vimPendingHints,
+    vimYankToClipboard:
+      typeof p.vimYankToClipboard === 'boolean'
+        ? p.vimYankToClipboard
+        : DEFAULT_PREFS.vimYankToClipboard,
     vaultTextSearchBackend:
       p.vaultTextSearchBackend &&
       VALID_VAULT_TEXT_SEARCH_BACKENDS.includes(p.vaultTextSearchBackend)
@@ -1151,6 +1158,7 @@ function collectPrefs(s: {
   whichKeyHintTimeoutMs: number
   flashJumpEnabled: boolean
   vimPendingHints: boolean
+  vimYankToClipboard: boolean
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
@@ -1218,6 +1226,7 @@ function collectPrefs(s: {
     whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
     flashJumpEnabled: s.flashJumpEnabled,
     vimPendingHints: s.vimPendingHints,
+    vimYankToClipboard: s.vimYankToClipboard,
     vaultTextSearchBackend: s.vaultTextSearchBackend,
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
@@ -1580,6 +1589,7 @@ interface Store {
   whichKeyHintTimeoutMs: number
   flashJumpEnabled: boolean
   vimPendingHints: boolean
+  vimYankToClipboard: boolean
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
@@ -1864,6 +1874,7 @@ interface Store {
   setVimMode: (on: boolean) => void
   setFlashJumpEnabled: (on: boolean) => void
   setVimPendingHints: (on: boolean) => void
+  setVimYankToClipboard: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
@@ -2840,6 +2851,7 @@ export const useStore = create<Store>((set, get) => {
   whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
   flashJumpEnabled: loadPrefs().flashJumpEnabled,
   vimPendingHints: loadPrefs().vimPendingHints,
+  vimYankToClipboard: loadPrefs().vimYankToClipboard,
   vaultTextSearchBackend: loadPrefs().vaultTextSearchBackend,
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
@@ -4188,6 +4200,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimPendingHints: (on) => {
     set({ vimPendingHints: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setVimYankToClipboard: (on) => {
+    set({ vimYankToClipboard: on })
     savePrefs(collectPrefs(get()))
   },
   setVimInsertEscape: (sequence) => {

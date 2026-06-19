@@ -42,6 +42,7 @@ import {
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { flashModeFor, startFlashJump } from '../lib/cm-flash-jump'
+import { setVimYankClipboardEnabled, setupVimYankClipboard } from '../lib/cm-vim-yank-clipboard'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -369,6 +370,9 @@ function registerVimCommands(): void {
     /* ignore */
   }
   clearKnownVimMappings()
+
+  // Mirror yanks to the system clipboard (toggle-gated, synced from the store).
+  setupVimYankClipboard()
 
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
@@ -1307,6 +1311,7 @@ export function Editor(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
 
@@ -1318,6 +1323,10 @@ export function Editor(): JSX.Element {
     registerVimCommands()
     syncVimKeymaps(keymapOverrides, flashJumpEnabled)
   }, [keymapOverrides, flashJumpEnabled])
+
+  useEffect(() => {
+    setVimYankClipboardEnabled(vimYankToClipboard)
+  }, [vimYankToClipboard])
 
   useEffect(() => {
     applyVimInsertEscape(vimInsertEscape)

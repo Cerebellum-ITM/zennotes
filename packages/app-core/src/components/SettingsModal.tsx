@@ -219,6 +219,8 @@ export function SettingsModal(): JSX.Element {
   const setFlashJumpEnabled = useStore((s) => s.setFlashJumpEnabled)
   const vimPendingHints = useStore((s) => s.vimPendingHints)
   const setVimPendingHints = useStore((s) => s.setVimPendingHints)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
+  const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -919,6 +921,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'motion', 'hints', 'which-key', 'lazygit', 'operator', 'visual']
         },
         {
+          id: 'vim-yank-clipboard',
+          title: 'Copy yank to clipboard',
+          description: 'Vim y also copies to the system clipboard, so you can paste outside the app.',
+          keywords: ['vim', 'yank', 'clipboard', 'copy', 'y', 'system']
+        },
+        {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
@@ -1048,6 +1056,13 @@ export function SettingsModal(): JSX.Element {
                   value={vimPendingHints}
                   settingId="vim-pending-hints"
                   onChange={setVimPendingHints}
+                />
+                <ToggleRow
+                  label="Copy yank to clipboard"
+                  description="Vim y also copies to the system clipboard, so you can paste outside the app."
+                  value={vimYankToClipboard}
+                  settingId="vim-yank-clipboard"
+                  onChange={setVimYankToClipboard}
                 />
                 <ToggleRow
                   label="Leader key hints"
