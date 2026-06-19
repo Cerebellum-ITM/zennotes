@@ -217,6 +217,8 @@ export function SettingsModal(): JSX.Element {
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
   const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
   const setFlashJumpEnabled = useStore((s) => s.setFlashJumpEnabled)
+  const vimPendingHints = useStore((s) => s.vimPendingHints)
+  const setVimPendingHints = useStore((s) => s.setVimPendingHints)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -911,6 +913,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'flash', 'jump', 'hop', 'leap', 's', 'motion']
         },
         {
+          id: 'vim-pending-hints',
+          title: 'Motion hints',
+          description: 'Show a LazyGit-style hint panel while a vim operator, visual mode, or g/z prefix is pending.',
+          keywords: ['vim', 'motion', 'hints', 'which-key', 'lazygit', 'operator', 'visual']
+        },
+        {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
@@ -1033,6 +1041,13 @@ export function SettingsModal(): JSX.Element {
                   value={flashJumpEnabled}
                   settingId="flash-jump"
                   onChange={setFlashJumpEnabled}
+                />
+                <ToggleRow
+                  label="Motion hints"
+                  description="Show a LazyGit-style hint panel on the right while a vim operator (c/d/y), visual mode, or a g/z prefix is pending."
+                  value={vimPendingHints}
+                  settingId="vim-pending-hints"
+                  onChange={setVimPendingHints}
                 />
                 <ToggleRow
                   label="Leader key hints"
