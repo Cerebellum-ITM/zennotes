@@ -55,6 +55,7 @@ import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import { linkIconsPlugin } from '../lib/cm-link-icons'
 import { langIconsPlugin } from '../lib/cm-lang-icons'
+import { flashJump } from '../lib/cm-flash-jump'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
@@ -1327,6 +1328,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           highlightActiveLine(),
           taskJumpHighlightField,
           commentDecorationField,
+          flashJump(),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
           markdownSyntaxCompartment.of(

@@ -132,6 +132,11 @@ const VimNav = lazy(async () => {
   return { default: module.VimNav }
 })
 
+const VimPendingHints = lazy(async () => {
+  const module = await import('./components/VimPendingHints')
+  return { default: module.VimPendingHints }
+})
+
 const SearchPalette = lazy(async () => {
   const module = await loadSearchPaletteModule()
   return { default: module.SearchPalette }
@@ -802,6 +807,7 @@ function App(): JSX.Element {
       <AppUpdateNotice hidden={zenMode || settingsOpen} />
       <Suspense fallback={null}>
         <VimNav />
+        <VimPendingHints />
       </Suspense>
     </div>
   )

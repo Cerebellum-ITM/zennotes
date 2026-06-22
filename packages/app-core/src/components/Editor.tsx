@@ -41,6 +41,8 @@ import {
 } from '../lib/keymaps'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { flashModeFor, startFlashJump } from '../lib/cm-flash-jump'
+import { setVimYankClipboardEnabled, setupVimYankClipboard } from '../lib/cm-vim-yank-clipboard'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -119,6 +121,18 @@ function toVimSequence(binding: string): string | null {
   return tokens.join('')
 }
 
+/**
+ * Resolve a keymap binding to a single-key Vim mapping. The keymap registry
+ * canonicalizes a bare letter to uppercase for display (e.g. `s` → `S`), but
+ * Vim is case-sensitive: a lone letter with no modifier is the unshifted key, so
+ * it must reach Vim lowercase. (Multi-key sequences like `z M` keep their case
+ * and go through `toVimSequence` untouched.)
+ */
+function toVimEditorKey(binding: string): string | null {
+  const normalized = /^[A-Za-z]$/.test(binding) ? binding.toLowerCase() : binding
+  return toVimSequence(normalized)
+}
+
 function paneMapBindings(overrides: KeymapOverrides, actionId: KeymapId): string[] {
   const prefixBinding = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))
   const actionBinding = toVimSequence(getKeymapBinding(overrides, actionId))
@@ -166,14 +180,35 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
   scroller.scrollTop = nextTop
 }
 
-function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> = [
+type VimMapContext = 'normal' | 'visual'
+
+const syncedVimContexts: Partial<Record<KeymapId, VimMapContext[]>> = {}
+
+function syncVimKeymaps(overrides: KeymapOverrides, flashJumpEnabled: boolean): void {
+  const mappings: Array<{
+    id: KeymapId
+    action: string
+    bindings: string[]
+    contexts?: VimMapContext[]
+  }> = [
     {
       id: 'vim.goToDefinition',
       action: 'goToDefinition',
       bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.goToDefinition'))].filter(
         (binding): binding is string => !!binding
       )
+    },
+    {
+      id: 'vim.flashJump',
+      action: 'flashJump',
+      // Mapped in normal + visual; disabling the feature leaves `s` as the
+      // native vim substitute.
+      contexts: ['normal', 'visual'],
+      bindings: flashJumpEnabled
+        ? [toVimEditorKey(getKeymapBinding(overrides, 'vim.flashJump'))].filter(
+            (binding): binding is string => !!binding
+          )
+        : []
     },
     {
       id: 'vim.paneFocusLeft',
@@ -268,17 +303,24 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
   ]
 
   for (const mapping of mappings) {
+    const contexts = mapping.contexts ?? ['normal']
+    const prevContexts = syncedVimContexts[mapping.id] ?? ['normal']
     for (const binding of syncedVimBindings[mapping.id] ?? []) {
-      try {
-        Vim.unmap(binding, 'normal')
-      } catch {
-        /* ignore */
+      for (const context of prevContexts) {
+        try {
+          Vim.unmap(binding, context)
+        } catch {
+          /* ignore */
+        }
       }
     }
     for (const binding of mapping.bindings) {
-      Vim.mapCommand(binding, 'action', mapping.action, {}, { context: 'normal' })
+      for (const context of contexts) {
+        Vim.mapCommand(binding, 'action', mapping.action, {}, { context })
+      }
     }
     syncedVimBindings[mapping.id] = mapping.bindings
+    syncedVimContexts[mapping.id] = contexts
   }
 }
 
@@ -328,6 +370,9 @@ function registerVimCommands(): void {
     /* ignore */
   }
   clearKnownVimMappings()
+
+  // Mirror yanks to the system clipboard (toggle-gated, synced from the store).
+  setupVimYankClipboard()
 
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
@@ -540,6 +585,12 @@ function registerVimCommands(): void {
         window.alert((err as Error).message)
       }
     })
+  })
+
+  Vim.defineAction('flashJump', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (!view) return
+    startFlashJump(view, flashModeFor(view))
   })
 
   // Vim-style pane navigation actions are registered here, but their
@@ -1259,6 +1310,8 @@ export function Editor(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activeNote = useStore((s) => s.activeNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
 
@@ -1268,8 +1321,12 @@ export function Editor(): JSX.Element {
 
   useEffect(() => {
     registerVimCommands()
-    syncVimKeymaps(keymapOverrides)
-  }, [keymapOverrides])
+    syncVimKeymaps(keymapOverrides, flashJumpEnabled)
+  }, [keymapOverrides, flashJumpEnabled])
+
+  useEffect(() => {
+    setVimYankClipboardEnabled(vimYankToClipboard)
+  }, [vimYankToClipboard])
 
   useEffect(() => {
     applyVimInsertEscape(vimInsertEscape)

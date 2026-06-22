@@ -191,18 +191,28 @@ export function flattenSidebarItems(
 const HOME_ROW = 'asdfghjkl'
 const ALL_KEYS = HOME_ROW + 'qwertyuiopzxcvbnm'
 
-export function generateHintLabels(count: number): string[] {
+/**
+ * Generate jump labels (home-row first, then two-char combos when there are
+ * more targets than keys). `exclude` drops characters from the alphabet — used
+ * by flash-jump to keep the next likely search character from doubling as a
+ * label, so typing it always extends the query instead of triggering a jump.
+ */
+export function generateHintLabels(count: number, exclude?: ReadonlySet<string>): string[] {
+  const keys =
+    exclude && exclude.size > 0
+      ? [...ALL_KEYS].filter((k) => !exclude.has(k))
+      : [...ALL_KEYS]
   const labels: string[] = []
-  if (count <= ALL_KEYS.length) {
+  if (count <= keys.length) {
     // Single-char labels
-    for (let i = 0; i < count && i < ALL_KEYS.length; i++) {
-      labels.push(ALL_KEYS[i])
+    for (let i = 0; i < count && i < keys.length; i++) {
+      labels.push(keys[i])
     }
   } else {
     // Two-char labels
-    for (let i = 0; i < ALL_KEYS.length && labels.length < count; i++) {
-      for (let j = 0; j < ALL_KEYS.length && labels.length < count; j++) {
-        labels.push(ALL_KEYS[i] + ALL_KEYS[j])
+    for (let i = 0; i < keys.length && labels.length < count; i++) {
+      for (let j = 0; j < keys.length && labels.length < count; j++) {
+        labels.push(keys[i] + keys[j])
       }
     }
   }
