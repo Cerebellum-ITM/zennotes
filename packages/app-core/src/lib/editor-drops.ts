@@ -89,11 +89,13 @@ const ATTACHMENT_MIME_RE = /^(image|audio|video)\//
  * markdown drop handler). Errs toward NOT showing the border when the drag
  * type is unknown.
  */
+const ATTACHMENT_DOC_MIMES = new Set(['application/pdf', 'text/html'])
+
 export function dragHasAttachmentFile(dataTransfer: DataTransfer | null): boolean {
   if (!dataTransfer) return false
   const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === 'file')
   return items.some(
-    (item) => ATTACHMENT_MIME_RE.test(item.type) || item.type === 'application/pdf'
+    (item) => ATTACHMENT_MIME_RE.test(item.type) || ATTACHMENT_DOC_MIMES.has(item.type)
   )
 }
 

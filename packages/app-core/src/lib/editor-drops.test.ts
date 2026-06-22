@@ -64,9 +64,10 @@ describe('editor drop helpers', () => {
 })
 
 describe('dragHasAttachmentFile', () => {
-  it('is true for media + pdf file drags', () => {
+  it('is true for media + pdf + html file drags', () => {
     expect(dragHasAttachmentFile(transfer([{ kind: 'file', type: 'image/png' }]))).toBe(true)
     expect(dragHasAttachmentFile(transfer([{ kind: 'file', type: 'application/pdf' }]))).toBe(true)
+    expect(dragHasAttachmentFile(transfer([{ kind: 'file', type: 'text/html' }]))).toBe(true)
     expect(dragHasAttachmentFile(transfer([{ kind: 'file', type: 'audio/mpeg' }]))).toBe(true)
     expect(dragHasAttachmentFile(transfer([{ kind: 'file', type: 'video/mp4' }]))).toBe(true)
   })

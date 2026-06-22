@@ -635,6 +635,42 @@ function installNavigationGuards(win: BrowserWindow): void {
   })
 }
 
+/**
+ * CSP for a sandboxed HTML attachment, served as a `zen-asset` response header.
+ *
+ * Must mirror `buildHtmlAttachmentCsp` in
+ * `packages/app-core/src/lib/html-attachment.ts` (kept as the documented,
+ * unit-tested source of truth). It lives here too because the policy has to be
+ * an HTTP response header on a non-local scheme: a `blob:`/`srcdoc` document
+ * inherits the renderer's strict CSP (`script-src 'self' 'unsafe-eval'`, no
+ * `'unsafe-inline'`), which silently blocks the attachment's own inline
+ * scripts. Serving via `zen-asset` with this header avoids that inheritance so
+ * local scripts run while `connect-src 'none'` still blocks exfiltration.
+ */
+function buildHtmlAttachmentCsp(allowNetwork: boolean): string {
+  const directives: Record<string, string> = {
+    'default-src': "'none'",
+    'script-src': "'unsafe-inline' 'unsafe-eval'",
+    'style-src': "'unsafe-inline'",
+    'img-src': 'data: blob:',
+    'font-src': 'data:',
+    'media-src': 'data: blob:',
+    'connect-src': "'none'",
+    'form-action': "'none'",
+    'base-uri': "'none'"
+  }
+  if (allowNetwork) {
+    directives['script-src'] += ' https:'
+    directives['style-src'] += ' https:'
+    directives['img-src'] += ' https:'
+    directives['font-src'] += ' https:'
+    directives['media-src'] += ' https:'
+  }
+  return Object.entries(directives)
+    .map(([key, value]) => `${key} ${value}`)
+    .join('; ')
+}
+
 function mimeTypeForPath(absPath: string): string {
   const ext = path.extname(absPath).toLowerCase()
   switch (ext) {
@@ -3183,6 +3219,25 @@ app.whenReady().then(async () => {
     if (!abs || !windowVaults.isPathInsideOpenLocalVault(abs)) {
       throw new Error(`Invalid local asset URL: ${request.url}`)
     }
+
+    // HTML attachments render in a sandboxed iframe. Serving them here (a
+    // non-local scheme) with a CSP response header lets their own inline
+    // scripts run — a blob:/srcdoc document would instead inherit the
+    // renderer's strict CSP and have its scripts blocked. The iframe stays
+    // sandboxed without allow-same-origin, so the opaque origin can't use this
+    // scheme's fetch privileges; connect-src 'none' blocks exfiltration.
+    const params = new URL(request.url).searchParams
+    if (params.get('zenHtml') === '1') {
+      const html = await fsp.readFile(abs, 'utf8')
+      return new Response(html, {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'content-security-policy': buildHtmlAttachmentCsp(params.get('zenNet') === '1'),
+          'cache-control': 'no-cache'
+        }
+      })
+    }
+
     const data = await fsp.readFile(abs)
     return new Response(data, {
       headers: {
