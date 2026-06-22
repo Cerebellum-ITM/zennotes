@@ -376,6 +376,9 @@ interface Prefs {
    *  into the editor) or a non-text asset like a PDF (loaded into an
    *  iframe). Defaults to 'note'. */
   pinnedRefKind: 'note' | 'asset'
+  /** When true, sandboxed HTML attachments may load scripts/styles from
+   *  https CDNs (connect-src/forms stay blocked). Off = fully offline. */
+  htmlAttachmentAllowNetwork: boolean
 
   /** Per-note reference pins. Keyed by the note's vault-relative path.
    *  When the active note has an entry here it overrides the global
@@ -497,6 +500,7 @@ const DEFAULT_PREFS: Prefs = {
   editorMaxWidth: 920,
   pdfEmbedInEditMode: 'compact',
   pinnedRefKind: 'note',
+  htmlAttachmentAllowNetwork: false,
   noteRefs: {},
   contentAlign: 'center',
   tagsCollapsed: false,
@@ -705,6 +709,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.pinnedRefKind === 'asset' || p.pinnedRefKind === 'note'
         ? p.pinnedRefKind
         : DEFAULT_PREFS.pinnedRefKind,
+    htmlAttachmentAllowNetwork:
+      typeof p.htmlAttachmentAllowNetwork === 'boolean'
+        ? p.htmlAttachmentAllowNetwork
+        : DEFAULT_PREFS.htmlAttachmentAllowNetwork,
     noteRefs:
       p.noteRefs && typeof p.noteRefs === 'object'
         ? Object.fromEntries(
@@ -1175,6 +1183,7 @@ function collectPrefs(s: {
   editorMaxWidth: number
   pdfEmbedInEditMode: 'compact' | 'full'
   pinnedRefKind: 'note' | 'asset'
+  htmlAttachmentAllowNetwork: boolean
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
@@ -1240,6 +1249,7 @@ function collectPrefs(s: {
     editorMaxWidth: s.editorMaxWidth,
     pdfEmbedInEditMode: s.pdfEmbedInEditMode,
     pinnedRefKind: s.pinnedRefKind,
+    htmlAttachmentAllowNetwork: s.htmlAttachmentAllowNetwork,
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
@@ -1634,6 +1644,7 @@ interface Store {
   /** Whether the pinned reference is a markdown note (default) or
    *  some other asset (PDF, audio, etc.) shown via iframe. */
   pinnedRefKind: 'note' | 'asset'
+  htmlAttachmentAllowNetwork: boolean
 
   /** Per-note reference pins. Active note's entry overrides the
    *  global pinnedRefPath while that note is open. */
@@ -1949,6 +1960,7 @@ interface Store {
   setPreviewSmoothScroll: (on: boolean) => void
   setEditorMaxWidth: (px: number) => void
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
+  setHtmlAttachmentAllowNetwork: (on: boolean) => void
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
   setAutoCalendarPanel: (enabled: boolean) => void
@@ -2864,6 +2876,7 @@ export const useStore = create<Store>((set, get) => {
   editorMaxWidth: loadPrefs().editorMaxWidth,
   pdfEmbedInEditMode: loadPrefs().pdfEmbedInEditMode,
   pinnedRefKind: loadPrefs().pinnedRefKind,
+  htmlAttachmentAllowNetwork: loadPrefs().htmlAttachmentAllowNetwork,
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
@@ -4774,6 +4787,11 @@ export const useStore = create<Store>((set, get) => {
 
   setPdfEmbedInEditMode: (mode) => {
     set({ pdfEmbedInEditMode: mode })
+    savePrefs(collectPrefs(get()))
+  },
+
+  setHtmlAttachmentAllowNetwork: (on) => {
+    set({ htmlAttachmentAllowNetwork: on })
     savePrefs(collectPrefs(get()))
   },
 

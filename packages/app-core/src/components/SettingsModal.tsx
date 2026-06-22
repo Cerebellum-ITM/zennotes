@@ -248,6 +248,8 @@ export function SettingsModal(): JSX.Element {
   const setEditorMaxWidth = useStore((s) => s.setEditorMaxWidth)
   const pdfEmbedInEditMode = useStore((s) => s.pdfEmbedInEditMode)
   const setPdfEmbedInEditMode = useStore((s) => s.setPdfEmbedInEditMode)
+  const htmlAttachmentAllowNetwork = useStore((s) => s.htmlAttachmentAllowNetwork)
+  const setHtmlAttachmentAllowNetwork = useStore((s) => s.setHtmlAttachmentAllowNetwork)
   const contentAlign = useStore((s) => s.contentAlign)
   const setContentAlign = useStore((s) => s.setContentAlign)
   const vault = useStore((s) => s.vault)
@@ -978,6 +980,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['pdf', 'embed']
         },
         {
+          id: 'html-attachment-network',
+          title: 'Allow external resources in HTML attachments',
+          description: 'HTML attachments render in a sandbox. Control whether they may load scripts/styles from CDNs.',
+          keywords: ['html', 'attachment', 'sandbox', 'network', 'cdn', 'external', 'security']
+        },
+        {
           id: 'date-titled-quick-notes',
           title: 'Date-titled Quick Notes',
           description: 'New Quick Notes use YYYY-MM-DD instead of timestamp-style titles.',
@@ -1159,6 +1167,13 @@ export function SettingsModal(): JSX.Element {
                 { value: 'full', label: 'Full' }
               ]}
               onChange={(next) => setPdfEmbedInEditMode(next)}
+            />
+            <ToggleRow
+              label="Allow external resources in HTML attachments"
+              description="HTML attachments render in a sandbox. Off = fully offline. On = allow scripts/styles from CDNs, but network requests (fetch/forms) stay blocked."
+              value={htmlAttachmentAllowNetwork}
+              settingId="html-attachment-network"
+              onChange={setHtmlAttachmentAllowNetwork}
             />
             <ToggleRow
               label="Date-titled Quick Notes"

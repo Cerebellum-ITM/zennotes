@@ -66,6 +66,7 @@ type ParsedPdf = {
   label: string
   href: string
   resolvedUrl: string
+  kind: 'pdf' | 'html'
 }
 
 function decodeURIComponentSafe(value: string | undefined): string {
@@ -195,26 +196,30 @@ function parseStandaloneLocalPdf(lineText: string): ParsedPdf | null {
   const fromMarkdown = lineText.match(STANDALONE_PDF_RE)
   if (fromMarkdown) {
     const href = (fromMarkdown[2] ?? fromMarkdown[3] ?? '').trim()
-    if (classifyLocalAssetHref(href) !== 'pdf') return null
+    const kind = classifyLocalAssetHref(href)
+    if (kind !== 'pdf' && kind !== 'html') return null
     const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
     if (!resolvedUrl) return null
     return {
       label: (fromMarkdown[1] ?? '').trim(),
       href,
-      resolvedUrl
+      resolvedUrl,
+      kind
     }
   }
 
   const fromEmbed = lineText.match(STANDALONE_OBSIDIAN_EMBED_RE)
   if (!fromEmbed) return null
   const href = (fromEmbed[1] ?? '').trim()
-  if (classifyLocalAssetHref(href) !== 'pdf') return null
+  const kind = classifyLocalAssetHref(href)
+  if (kind !== 'pdf' && kind !== 'html') return null
   const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
   if (!resolvedUrl) return null
   return {
     label: (fromEmbed[2] ?? '').trim(),
     href,
-    resolvedUrl
+    resolvedUrl,
+    kind
   }
 }
 
@@ -351,7 +356,10 @@ class LocalPdfWidget extends WidgetType {
     /** True when this PDF is the active pinned reference — affects
      *  the compact card's primary action ("focus reference" vs
      *  "pin as reference"). */
-    private readonly pinnedAsRef: boolean
+    private readonly pinnedAsRef: boolean,
+    /** PDF gets the inline-preview iframe; HTML only the compact card
+     *  (it opens in the sandboxed reference-pane viewer). */
+    private readonly kind: 'pdf' | 'html' = 'pdf'
   ) {
     super()
   }
@@ -365,7 +373,8 @@ class LocalPdfWidget extends WidgetType {
       other.href === this.href &&
       other.resolvedUrl === this.resolvedUrl &&
       other.compact === this.compact &&
-      other.pinnedAsRef === this.pinnedAsRef
+      other.pinnedAsRef === this.pinnedAsRef &&
+      other.kind === this.kind
     )
   }
 
@@ -393,7 +402,7 @@ class LocalPdfWidget extends WidgetType {
       ? 'local-pdf-embed local-asset-pinned-ref cm-local-pdf-embed'
       : 'local-pdf-embed cm-local-pdf-embed'
     figure.dataset.localAssetUrl = this.resolvedUrl
-    figure.dataset.localAssetKind = 'pdf'
+    figure.dataset.localAssetKind = this.kind
     figure.dataset.localAssetHref = this.href
 
     if (this.compact) {
@@ -438,28 +447,34 @@ class LocalPdfWidget extends WidgetType {
       badge.className = 'local-asset-pinned-ref-badge'
       badge.textContent = this.pinnedAsRef ? 'in reference pane' : 'open as reference'
 
-      // Per-block preview toggle — opens the PDF inline right here in
-      // the editor without pinning it as the side reference. Useful
-      // when you just want to quickly read a page or two.
-      const previewButton = document.createElement('button')
-      previewButton.type = 'button'
-      previewButton.className = 'local-asset-pinned-ref-preview'
-      previewButton.title = 'Show PDF inline (toggle)'
-      previewButton.setAttribute('aria-label', 'Show PDF inline')
-      previewButton.textContent = 'Preview'
-      previewButton.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const view = useStore.getState().editorViewRef
-        if (!view) return
-        togglePdfExpanded(view, this.href)
-      })
-
       const editButton = this.buildEditButton()
       editButton.classList.add('local-asset-pinned-ref-edit')
 
       button.append(icon, text, badge)
-      figure.append(button, previewButton, editButton)
+      figure.append(button)
+
+      // Per-block preview toggle — opens the PDF inline right here in the
+      // editor without pinning it as the side reference. HTML has no inline
+      // preview (it opens in the sandboxed reference-pane viewer), so it
+      // only gets the "open as reference" + edit affordances.
+      if (this.kind !== 'html') {
+        const previewButton = document.createElement('button')
+        previewButton.type = 'button'
+        previewButton.className = 'local-asset-pinned-ref-preview'
+        previewButton.title = 'Show PDF inline (toggle)'
+        previewButton.setAttribute('aria-label', 'Show PDF inline')
+        previewButton.textContent = 'Preview'
+        previewButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          const view = useStore.getState().editorViewRef
+          if (!view) return
+          togglePdfExpanded(view, this.href)
+        })
+        figure.append(previewButton)
+      }
+
+      figure.append(editButton)
       return figure
     }
 
@@ -682,7 +697,8 @@ function computeDecorations(view: EditorView): DecorationSet {
         // default the user has selected.
         const defaultCompact = st.pdfEmbedInEditMode === 'compact'
         const toggled = isPdfExpanded(view, parsedPdf.href)
-        const compact = isPinned ? true : defaultCompact !== toggled
+        // HTML never inline-expands (no editor iframe); always the compact card.
+        const compact = parsedPdf.kind === 'html' ? true : isPinned ? true : defaultCompact !== toggled
         replacedLines.add(lineNo)
         pending.push({
           from: line.from,
@@ -697,7 +713,8 @@ function computeDecorations(view: EditorView): DecorationSet {
               parsedPdf.href,
               parsedPdf.resolvedUrl,
               compact,
-              isPinned
+              isPinned,
+              parsedPdf.kind
             )
           })
         })

@@ -43,6 +43,7 @@ import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
+import { HtmlAttachmentFrame } from './HtmlAttachmentFrame'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 
@@ -125,6 +126,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const pinnedRefWidth = useStore((s) => s.pinnedRefWidth)
   const pinnedRefMode = useStore((s) => s.pinnedRefMode)
   const vaultRoot = useStore((s) => s.vault?.root ?? null)
+  const htmlAttachmentAllowNetwork = useStore((s) => s.htmlAttachmentAllowNetwork)
   const unpinReferenceGlobal = useStore((s) => s.unpinReference)
   const unpinReferenceForNote = useStore((s) => s.unpinReferenceForNote)
   const togglePinnedRefVisible = useStore((s) => s.togglePinnedRefVisible)
@@ -335,6 +337,9 @@ export function PinnedReferencePane(): JSX.Element | null {
   const assetKind: LocalAssetKind | null =
     pinnedRefPath && isAsset ? classifyLocalAssetHref(pinnedRefPath) ?? 'file' : null
   const useAssetIframe = assetKind === 'pdf' || assetKind === 'file'
+  // HTML attachments get a hardened, sandboxed frame instead of the raw
+  // `src=zen-asset` iframe (which would run on the privileged origin).
+  const isHtmlAsset = assetKind === 'html'
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide
@@ -525,6 +530,16 @@ export function PinnedReferencePane(): JSX.Element | null {
                 }}
               />
             ))}
+          </div>
+        )}
+
+        {isAsset && isHtmlAsset && assetUrl && (
+          <div className="absolute inset-0">
+            <HtmlAttachmentFrame
+              key={assetUrl}
+              assetUrl={assetUrl}
+              allowNetwork={htmlAttachmentAllowNetwork}
+            />
           </div>
         )}
 

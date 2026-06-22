@@ -481,9 +481,11 @@ function registerVimCommands(): void {
 
     const state = useStore.getState()
 
-    // PDF links: pin the asset in the reference pane for this note
-    // instead of prompting to create a note.
-    if (classifyLocalAssetHref(target) === 'pdf') {
+    // PDF and HTML links: pin the asset in the reference pane for this
+    // note instead of prompting to create a note. (HTML renders in a
+    // sandboxed frame.)
+    const targetKind = classifyLocalAssetHref(target)
+    if (targetKind === 'pdf' || targetKind === 'html') {
       const activePath = state.selectedPath
       const vaultRoot = state.vault?.root
       if (activePath && vaultRoot) {

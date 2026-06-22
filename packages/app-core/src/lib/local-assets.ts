@@ -11,10 +11,11 @@ const IMAGE_EXTENSIONS = new Set([
   '.webp'
 ])
 const PDF_EXTENSIONS = new Set(['.pdf'])
+const HTML_EXTENSIONS = new Set(['.html', '.htm'])
 const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
 const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
-export type LocalAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
+export type LocalAssetKind = 'image' | 'pdf' | 'html' | 'audio' | 'video' | 'file'
 
 function stripQueryAndHash(href: string): string {
   return href.split('#')[0]?.split('?')[0] ?? href
@@ -63,6 +64,7 @@ export function classifyLocalAssetHref(href: string): LocalAssetKind | null {
   const ext = assetExtension(href)
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  if (HTML_EXTENSIONS.has(ext)) return 'html'
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
   if (VIDEO_EXTENSIONS.has(ext)) return 'video'
   return 'file'
@@ -417,7 +419,9 @@ export function enhanceLocalAssetNodes(
       })
     }
 
-    if (kind === 'file' || kind === 'image') return
+    // HTML attachments open in the sandboxed reference-pane viewer (like a
+    // file link), never inline-embedded in the note.
+    if (kind === 'file' || kind === 'image' || kind === 'html') return
 
     const paragraph = isStandaloneAnchorParagraph(anchor)
     if (!paragraph || paragraph.dataset.assetEmbed === 'true') return
