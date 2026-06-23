@@ -3494,7 +3494,11 @@ textarea,
   border-radius: 3px;
   line-height: 1;
   text-transform: lowercase;
-  transform: translate(-1px, -1px);
+  /* Sit the chip just BEFORE the match (right edge meets the word start) and
+     vertically centered on the match mid-line — `top` is set to the match
+     center in JS, so shift up by half the chip's own height here. Keeps the
+     label centered across mixed font sizes (headings vs body). */
+  transform: translate(-100%, -50%);
   box-shadow: 0 1px 4px rgb(var(--z-shadow) / 0.5);
 }
 .zen-flash-label-matched {

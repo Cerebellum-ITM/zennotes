@@ -229,8 +229,11 @@ const flashOverlay = ViewPlugin.fromClass(
           label.appendChild(matched)
         }
         label.appendChild(document.createTextNode(remaining))
+        // Anchor the chip's right edge at the word start (CSS translateX(-100%))
+        // and its vertical center on the match's mid-line (translateY(-50%)), so
+        // it stays centered regardless of the matched text's font size.
         label.style.left = `${left}px`
-        label.style.top = `${top}px`
+        label.style.top = `${(start.top + start.bottom) / 2 - domRect.top}px`
         this.layer.appendChild(label)
       }
     }
