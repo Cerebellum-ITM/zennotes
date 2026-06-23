@@ -184,6 +184,11 @@ function isIconRef(value: unknown): value is string {
   if (value.startsWith('builtin:')) {
     return isFolderIconId(value.slice('builtin:'.length))
   }
+  if (value.startsWith('lang:')) {
+    // A bundled language-logo ref: `lang:<token>` (validated app-side against
+    // the curated registry; here we only sanity-check the token shape).
+    return /^[a-z0-9+#._-]+$/.test(value.slice('lang:'.length))
+  }
   return isFolderIconId(value)
 }
 
@@ -263,6 +268,22 @@ function normalizeIconRules(value: unknown): IconRule[] {
   return rules
 }
 
+/**
+ * Per-language icon overrides: keep only entries with a valid IconRef value,
+ * lowercasing keys. Mirrors app-core's `normalizeLangIcons`.
+ */
+function normalizeLangIcons(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (value && typeof value === 'object') {
+    for (const [key, ref] of Object.entries(value as Record<string, unknown>)) {
+      const token = String(key).trim().toLowerCase()
+      if (!token || !isIconRef(ref)) continue
+      out[token] = ref
+    }
+  }
+  return out
+}
+
 const VALID_FOLDER_COLOR_IDS = new Set<FolderColorId>([
   'red',
   'orange',
@@ -309,7 +330,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   iconRules: [],
   folderColors: {},
   favorites: [],
-  enabledHistoryPaths: []
+  enabledHistoryPaths: [],
+  langIcons: {}
 }
 
 interface VaultTextSearchCandidate {
@@ -868,7 +890,8 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     })),
     folderColors: { ...settings.folderColors },
     favorites: [...settings.favorites],
-    enabledHistoryPaths: [...settings.enabledHistoryPaths]
+    enabledHistoryPaths: [...settings.enabledHistoryPaths],
+    langIcons: { ...(settings.langIcons ?? {}) }
   }
 }
 
@@ -1012,7 +1035,8 @@ function normalizeVaultSettings(
       iconRules: [],
       folderColors: {},
       favorites: [],
-      enabledHistoryPaths: []
+      enabledHistoryPaths: [],
+      langIcons: {}
     }
   }
   const candidate = value as {
@@ -1040,6 +1064,7 @@ function normalizeVaultSettings(
     folderColors?: Record<string, unknown> | null
     favorites?: unknown
     enabledHistoryPaths?: unknown
+    langIcons?: Record<string, unknown> | null
   }
   const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -1087,7 +1112,8 @@ function normalizeVaultSettings(
     iconRules: normalizeIconRules(candidate.iconRules),
     folderColors: normalizeFolderColors(candidate.folderColors),
     favorites: normalizeFavorites(candidate.favorites),
-    enabledHistoryPaths: normalizeEnabledHistoryPaths(candidate.enabledHistoryPaths)
+    enabledHistoryPaths: normalizeEnabledHistoryPaths(candidate.enabledHistoryPaths),
+    langIcons: normalizeLangIcons(candidate.langIcons)
   }
 }
 

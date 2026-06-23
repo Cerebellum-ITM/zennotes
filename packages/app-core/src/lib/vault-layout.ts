@@ -83,6 +83,9 @@ function isIconRef(value: unknown): value is string {
   if (value.startsWith('builtin:')) {
     return isFolderIconId(value.slice('builtin:'.length))
   }
+  if (value.startsWith('lang:')) {
+    return /^[a-z0-9+#._-]+$/.test(value.slice('lang:'.length))
+  }
   return isFolderIconId(value)
 }
 
@@ -707,8 +710,26 @@ export function normalizeVaultSettings(
     iconRules: normalizeIconRules(settings?.iconRules),
     folderColors: normalizedFolderColors,
     favorites: normalizedFavorites,
-    enabledHistoryPaths: normalizedHistoryPaths
+    enabledHistoryPaths: normalizedHistoryPaths,
+    langIcons: normalizeLangIcons(settings?.langIcons)
   }
+}
+
+/**
+ * Per-language icon overrides: keep only entries whose value is a valid
+ * {@link isIconRef} (`lang:`/`builtin:`/`custom:`), lowercasing keys so they
+ * match the canonical tokens the resolver looks up.
+ */
+export function normalizeLangIcons(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (value && typeof value === 'object') {
+    for (const [key, ref] of Object.entries(value as Record<string, unknown>)) {
+      const token = String(key).trim().toLowerCase()
+      if (!token || !isIconRef(ref)) continue
+      out[token] = ref
+    }
+  }
+  return out
 }
 
 export function folderIconKey(folder: NoteFolder, subpath: string): string {

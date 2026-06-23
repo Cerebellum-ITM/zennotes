@@ -399,6 +399,14 @@ export interface VaultSettings {
   folderIcons: Record<string, IconRef>
   /** Ordered icon-assignment rules. Array order = match priority. */
   iconRules?: IconRule[]
+  /**
+   * Per-language icon overrides for the `{lang icon}` directive, keyed by the
+   * canonical (lowercased, alias-resolved) language token. Value is an
+   * {@link IconRef} (`lang:`, `builtin:`, or `custom:`). Wins over a
+   * `target:'lang'` rule and the bundled default. Absent/empty = use the
+   * built-in default logo.
+   */
+  langIcons?: Record<string, IconRef>
   /** Per-folder accent color, keyed by `folder:subpath` (same key as folderIcons). */
   folderColors: Record<string, FolderColorId>
   /**
@@ -475,7 +483,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   folderIcons: {},
   folderColors: {},
   favorites: [],
-  enabledHistoryPaths: []
+  enabledHistoryPaths: [],
+  langIcons: {}
 }
 
 export interface NoteMeta {
