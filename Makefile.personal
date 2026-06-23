@@ -1,0 +1,42 @@
+# Makefile.personal — packaging helpers for the personal fork.
+#
+# Not part of upstream: lives only on the `personal` branch so syncing with
+# upstream never conflicts. Builds a local macOS .dmg of the CURRENT version
+# (whatever `apps/desktop/package.json` says) into ./dist.
+#
+# Usage:
+#   make -f Makefile.personal dmg       # arm64 .dmg only (Apple Silicon) — fast
+#   make -f Makefile.personal dmg-all   # arm64 + x64 (.dmg + .zip) — release config
+#   make -f Makefile.personal where     # list the produced artifacts
+
+DESKTOP := apps/desktop
+
+.PHONY: help dmg dmg-all where
+
+help:
+	@echo ""
+	@echo "  Personal packaging (macOS)"
+	@echo "    make -f Makefile.personal dmg      — build the arm64 .dmg into ./dist (fast)"
+	@echo "    make -f Makefile.personal dmg-all  — build arm64 + x64 (.dmg + .zip)"
+	@echo "    make -f Makefile.personal where    — list the .dmg artifacts in ./dist"
+	@echo ""
+
+# Apple-Silicon-only .dmg. Runs the desktop prod gate (typecheck + tests +
+# electron-vite build), then packages with electron-builder. Signing is
+# disabled so it builds without Apple certs (local, unsigned artifact).
+dmg:
+	cd $(DESKTOP) && npm run build:prod && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64 --publish never
+	@$(MAKE) -f Makefile.personal --no-print-directory where
+
+# Full release-style build: every configured mac target/arch (arm64 + x64,
+# .dmg + .zip). Slower; mirrors the official `npm run dist:mac`.
+dmg-all:
+	npm run dist:mac
+	@$(MAKE) -f Makefile.personal --no-print-directory where
+
+where:
+	@echo ""
+	@echo "Artifacts in ./dist:"
+	@ls -1 dist/*.dmg 2>/dev/null | sed 's/^/  /' || true
+	@ls -1 dist/*.dmg >/dev/null 2>&1 || echo "  (no .dmg yet — run 'make -f Makefile.personal dmg')"
+	@echo ""
