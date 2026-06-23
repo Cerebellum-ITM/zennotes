@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeLineDiff, diffStats } from './history-diff'
+import { computeBlockDiff, computeLineDiff, diffStats, splitBlocks } from './history-diff'
 
 describe('computeLineDiff', () => {
   it('marks pure additions', () => {
@@ -32,5 +32,40 @@ describe('computeLineDiff', () => {
   it('reports no changes for identical text', () => {
     const lines = computeLineDiff('same\ntext\n', 'same\ntext\n')
     expect(diffStats(lines)).toEqual({ added: 0, modified: 0, removed: 0 })
+  })
+})
+
+describe('splitBlocks', () => {
+  it('keeps paragraphs whole but splits headings and list items', () => {
+    const md = '# Title\n\nA paragraph that\nwraps two lines.\n\n- one\n- two\n'
+    expect(splitBlocks(md)).toEqual([
+      '# Title',
+      'A paragraph that\nwraps two lines.',
+      '- one',
+      '- two'
+    ])
+  })
+})
+
+describe('computeBlockDiff', () => {
+  it('marks an edited paragraph as a single modified block carrying new text', () => {
+    const blocks = computeBlockDiff('# T\n\nold body\n', '# T\n\nnew body\n')
+    expect(blocks).toEqual([
+      { kind: 'context', text: '# T' },
+      { kind: 'modified', text: 'new body' }
+    ])
+  })
+
+  it('marks an appended task as added and a removed task as removed', () => {
+    const added = computeBlockDiff('- a\n', '- a\n- b\n')
+    expect(added).toEqual([
+      { kind: 'context', text: '- a' },
+      { kind: 'added', text: '- b' }
+    ])
+    const removed = computeBlockDiff('- a\n- b\n', '- a\n')
+    expect(removed).toEqual([
+      { kind: 'context', text: '- a' },
+      { kind: 'removed', text: '- b' }
+    ])
   })
 })

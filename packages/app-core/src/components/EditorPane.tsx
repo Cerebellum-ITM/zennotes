@@ -99,6 +99,7 @@ import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { HistoryTimelinePane } from './HistoryTimelinePane'
+import { HistoryPreviewOverlay } from './HistoryPreviewOverlay'
 import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -732,6 +733,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
+  const historyPreview = useStore((s) => s.historyPreview)
 
   const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
   const mode = paneModeForPath(modesByPath, activeTab)
@@ -3382,6 +3384,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   })
                 }}
                 >
+                  {content && historyPreview && historyPreview.path === content.path && (
+                    <HistoryPreviewOverlay
+                      note={content}
+                      oid={historyPreview.oid}
+                      shortOid={historyPreview.shortOid}
+                    />
+                  )}
                   {imageDropIndicatorTop != null && (
                   <div
                     className="pointer-events-none absolute inset-x-4 z-20"

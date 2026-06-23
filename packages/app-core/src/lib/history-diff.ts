@@ -1,7 +1,7 @@
 // Pure line-diff helpers for the note-history timeline. Kept free of git/IPC so
 // the logic is unit-testable; the panel fetches snapshot contents via the bridge
 // and renders the result of these functions.
-import { diffLines } from 'diff'
+import { diffArrays, diffLines } from 'diff'
 
 export type DiffLineKind = 'context' | 'added' | 'removed'
 
@@ -66,4 +66,84 @@ export function diffStats(lines: DiffLine[]): DiffStats {
     added += a - m
   }
   return { added, modified, removed }
+}
+
+// --- Block-level diff (for the rendered "viewing" overlay) -------------------
+
+export type DiffBlockKind = 'context' | 'added' | 'removed' | 'modified'
+
+export interface DiffBlock {
+  kind: DiffBlockKind
+  /** Raw markdown for this block (the new text, except for `removed`). */
+  text: string
+}
+
+const STANDALONE_BLOCK_RE = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s?|---\s*$|===\s*$)/
+
+/**
+ * Split markdown into renderable blocks for block-level diffing. Blank lines end
+ * a block; headings, list items, task items, blockquotes and rules each become
+ * their own block so they decorate (and diff) independently — matching how the
+ * timeline highlights one paragraph / heading / task at a time.
+ */
+export function splitBlocks(text: string): string[] {
+  const blocks: string[] = []
+  let buf: string[] = []
+  const flush = (): void => {
+    if (buf.length) blocks.push(buf.join('\n'))
+    buf = []
+  }
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') {
+      flush()
+      continue
+    }
+    if (STANDALONE_BLOCK_RE.test(line)) {
+      flush()
+      blocks.push(line)
+      continue
+    }
+    buf.push(line)
+  }
+  flush()
+  return blocks
+}
+
+/**
+ * Block-level diff between two note bodies (old → new). A removed block
+ * immediately followed by an added block is reported as a single `modified`
+ * block (carrying the new text), mirroring the timeline's `~` semantics; the
+ * surplus on either side stays a pure add/remove.
+ */
+export function computeBlockDiff(oldText: string, newText: string): DiffBlock[] {
+  const parts = diffArrays(splitBlocks(oldText), splitBlocks(newText))
+  const out: DiffBlock[] = []
+  let i = 0
+  while (i < parts.length) {
+    const p = parts[i]
+    if (!p.added && !p.removed) {
+      for (const t of p.value) out.push({ kind: 'context', text: t })
+      i++
+      continue
+    }
+    if (p.removed) {
+      const removed = p.value
+      const next = parts[i + 1]
+      if (next?.added) {
+        const added = next.value
+        const m = Math.min(removed.length, added.length)
+        for (let k = 0; k < m; k++) out.push({ kind: 'modified', text: added[k] })
+        for (let k = m; k < removed.length; k++) out.push({ kind: 'removed', text: removed[k] })
+        for (let k = m; k < added.length; k++) out.push({ kind: 'added', text: added[k] })
+        i += 2
+        continue
+      }
+      for (const t of removed) out.push({ kind: 'removed', text: t })
+      i++
+      continue
+    }
+    for (const t of p.value) out.push({ kind: 'added', text: t })
+    i++
+  }
+  return out
 }

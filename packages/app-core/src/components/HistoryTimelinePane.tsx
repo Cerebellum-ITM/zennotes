@@ -3,17 +3,18 @@
  * OutlinePanel / ConnectionsPanel) so each pane shows history for its own note.
  *
  * Git lives in the desktop main process (see `vault-history.ts`); this panel
- * only talks to the bridge. Snapshots are listed newest-first; expanding a row
- * shows the line diff against the previous snapshot (computed with the pure
- * `history-diff` helpers). Restore is non-destructive — it brings back old
- * content as a new forward snapshot.
+ * only talks to the bridge. Snapshots are listed newest-first as a vertical
+ * commit timeline. Selecting a snapshot opens it read-only in the editor (the
+ * `HistoryPreviewOverlay` "viewing" mode) rather than showing the diff in this
+ * narrow panel. Restore is non-destructive — it brings back old content as a
+ * new forward snapshot.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HistorySnapshot, NoteContent } from '@shared/ipc'
 import { useStore } from '../store'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
-import { computeLineDiff, diffStats, type DiffLine, type DiffStats } from '../lib/history-diff'
+import { computeLineDiff, diffStats, type DiffStats } from '../lib/history-diff'
 import { promptApp } from '../lib/prompt-requests'
 import { confirmApp } from '../lib/confirm-requests'
 
@@ -31,39 +32,51 @@ function StatsBadges({ stats }: { stats: DiffStats | undefined }): JSX.Element |
   const { added, modified, removed } = stats
   if (!added && !modified && !removed) return null
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-2xs font-mono">
-      {added > 0 && <span className="text-success">+{added}</span>}
-      {modified > 0 && <span className="text-warning">~{modified}</span>}
-      {removed > 0 && <span className="text-danger">-{removed}</span>}
+    <span className="flex shrink-0 items-center gap-1 font-mono text-2xs font-medium">
+      {added > 0 && (
+        <span className="rounded bg-success/15 px-1.5 py-0.5 text-success">+{added}</span>
+      )}
+      {modified > 0 && (
+        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">~{modified}</span>
+      )}
+      {removed > 0 && (
+        <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">-{removed}</span>
+      )}
     </span>
   )
 }
 
-function DiffView({ lines }: { lines: DiffLine[] | undefined }): JSX.Element {
-  if (!lines) {
-    return <div className="px-3 py-2 text-2xs text-ink-400">Loading diff…</div>
-  }
-  if (lines.length === 0) {
-    return <div className="px-3 py-2 text-2xs text-ink-400">No changes.</div>
-  }
+/** A node on the vertical commit line: connecting rail + colored dot. */
+function TimelineRail({
+  isFirst,
+  isLast,
+  tone
+}: {
+  isFirst: boolean
+  isLast: boolean
+  tone: 'head' | 'viewing' | 'normal' | 'working'
+}): JSX.Element {
+  const dot =
+    tone === 'head'
+      ? 'border-accent bg-accent'
+      : tone === 'viewing'
+        ? 'border-accent bg-paper-50 ring-2 ring-accent/40'
+        : tone === 'working'
+          ? 'border-accent-soft bg-paper-50'
+          : 'border-ink-400/60 bg-paper-50'
   return (
-    <pre className="overflow-x-auto px-3 py-2 text-2xs font-mono leading-relaxed">
-      {lines.map((line, i) => {
-        const cls =
-          line.kind === 'added'
-            ? 'bg-success/10 text-success'
-            : line.kind === 'removed'
-              ? 'bg-danger/10 text-danger line-through decoration-danger/40'
-              : 'text-ink-600'
-        const sign = line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '
-        return (
-          <div key={i} className={`whitespace-pre-wrap ${cls}`}>
-            <span className="select-none opacity-60">{sign} </span>
-            {line.text || ' '}
-          </div>
-        )
-      })}
-    </pre>
+    <div className="relative flex w-7 shrink-0 justify-center">
+      {/* connecting line (clipped at the ends of the list) */}
+      <span
+        aria-hidden
+        className="absolute left-1/2 w-px -translate-x-1/2 bg-paper-300/80"
+        style={{ top: isFirst ? '14px' : 0, bottom: isLast ? 'calc(100% - 14px)' : 0 }}
+      />
+      <span
+        aria-hidden
+        className={`absolute top-[10px] h-2.5 w-2.5 rounded-full border ${dot}`}
+      />
+    </div>
   )
 }
 
@@ -76,13 +89,15 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
   const disableNoteHistory = useStore((s) => s.disableNoteHistory)
   const takeHistorySnapshot = useStore((s) => s.takeHistorySnapshot)
   const restoreHistorySnapshot = useStore((s) => s.restoreHistorySnapshot)
+  const historyPreview = useStore((s) => s.historyPreview)
+  const setHistoryPreview = useStore((s) => s.setHistoryPreview)
+  const viewingOid =
+    historyPreview && historyPreview.path === note.path ? historyPreview.oid : null
 
   const [snapshots, setSnapshots] = useState<HistorySnapshot[]>([])
   const [workingDirty, setWorkingDirty] = useState(false)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [diffByOid, setDiffByOid] = useState<Record<string, DiffLine[]>>({})
   const [statsByOid, setStatsByOid] = useState<Record<string, DiffStats>>({})
   const contentCache = useRef<Map<string, string>>(new Map())
 
@@ -111,18 +126,13 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
       ])
       setSnapshots(list)
       setWorkingDirty(ws.dirty)
-      // Compute per-snapshot stats/diffs against the previous (older) snapshot.
-      const diffs: Record<string, DiffLine[]> = {}
       const stats: Record<string, DiffStats> = {}
       for (let i = 0; i < list.length; i++) {
         const newText = await getContent(list[i].oid)
         const olderOid = list[i + 1]?.oid
         const oldText = olderOid ? await getContent(olderOid) : ''
-        const lines = computeLineDiff(oldText, newText)
-        diffs[list[i].oid] = lines
-        stats[list[i].oid] = diffStats(lines)
+        stats[list[i].oid] = diffStats(computeLineDiff(oldText, newText))
       }
-      setDiffByOid(diffs)
       setStatsByOid(stats)
     } catch (err) {
       console.error('history reload failed', err)
@@ -131,13 +141,14 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
     }
   }, [enabled, note.path, getContent])
 
-  // Reload when the note changes, history is toggled, or a snapshot/restore
-  // happens elsewhere (command palette, another pane).
+  // Reload (and leave any stale viewing mode) when the note changes, history is
+  // toggled, or a snapshot/restore happens elsewhere.
   useEffect(() => {
     contentCache.current.clear()
-    setExpanded(null)
     setNotice(null)
+    if (historyPreview && historyPreview.path !== note.path) setHistoryPreview(null)
     void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload])
 
   useEffect(() => {
@@ -145,17 +156,6 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
     window.addEventListener('zen:history-changed', handler)
     return () => window.removeEventListener('zen:history-changed', handler)
   }, [reload])
-
-  // The working-state diff (disk vs latest snapshot) is computed on demand.
-  const [workingDiff, setWorkingDiff] = useState<DiffLine[] | undefined>(undefined)
-  useEffect(() => {
-    setWorkingDiff(undefined)
-  }, [note.body, snapshots])
-  const ensureWorkingDiff = useCallback(async () => {
-    const head = snapshots[0]
-    const oldText = head ? await getContent(head.oid) : ''
-    setWorkingDiff(computeLineDiff(oldText, note.body))
-  }, [snapshots, note.body, getContent])
 
   const onSnapshot = useCallback(async () => {
     const message = await promptApp({
@@ -227,53 +227,71 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
           </button>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {notice && (
-            <div className="border-b border-paper-300/40 px-4 py-2 text-2xs text-ink-500">
+            <div className="mx-3 my-1 rounded-md bg-paper-200/50 px-3 py-1.5 text-2xs text-ink-500">
               {notice}
             </div>
           )}
+
+          {/* Working state — the live, unsnapshotted buffer. Selecting it leaves
+              viewing mode (the editor already shows the current content). */}
           {workingDirty && (
-            <div className="border-b border-paper-300/40 border-l-2 border-l-accent-soft">
-              <button
-                type="button"
-                onClick={() => {
-                  const open = expanded === 'working'
-                  setExpanded(open ? null : 'working')
-                  if (!open) void ensureWorkingDiff()
-                }}
-                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-paper-200/40"
-              >
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-ink-900">Working state</span>
-                  <span className="block text-2xs text-ink-500">Unsaved local changes</span>
+            <button
+              type="button"
+              onClick={() => setHistoryPreview(null)}
+              className={`flex w-full items-stretch gap-1 px-2 text-left ${
+                viewingOid == null ? 'bg-accent/5' : 'hover:bg-paper-200/40'
+              }`}
+            >
+              <TimelineRail isFirst isLast={false} tone="working" />
+              <span className="min-w-0 flex-1 py-2 pr-2">
+                <span className="block text-xs font-medium text-ink-900">Working state</span>
+                <span className="block text-2xs text-ink-500">
+                  Unsaved local changes{viewingOid == null ? ' · current' : ''}
                 </span>
-                <span className="text-2xs text-ink-400">{expanded === 'working' ? '▾' : '▸'}</span>
-              </button>
-              {expanded === 'working' && <DiffView lines={workingDiff} />}
-            </div>
+              </span>
+            </button>
           )}
+
           {snapshots.length === 0 && !loading && (
             <div className="px-4 py-6 text-center text-xs text-ink-400">
               No snapshots yet. Edit the note and take a snapshot.
             </div>
           )}
+
           <ul className="flex flex-col">
             {snapshots.map((snap, i) => {
-              const isOpen = expanded === snap.oid
+              const isViewing = viewingOid === snap.oid
+              const isHead = i === 0
               return (
-                <li key={snap.oid} className="border-b border-paper-300/30">
-                  <div className="flex items-stretch">
+                <li key={snap.oid}>
+                  <div
+                    className={`group flex items-stretch gap-1 px-2 ${
+                      isViewing ? 'bg-accent/10' : 'hover:bg-paper-200/40'
+                    }`}
+                  >
+                    <TimelineRail
+                      isFirst={!workingDirty && isHead}
+                      isLast={i === snapshots.length - 1}
+                      tone={isViewing ? 'viewing' : isHead ? 'head' : 'normal'}
+                    />
                     <button
                       type="button"
-                      onClick={() => setExpanded(isOpen ? null : snap.oid)}
-                      className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-2 text-left hover:bg-paper-200/40"
+                      onClick={() =>
+                        setHistoryPreview({ path: note.path, oid: snap.oid, shortOid: snap.shortOid })
+                      }
+                      className="flex min-w-0 flex-1 flex-col gap-1 py-2 pr-1 text-left"
                     >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink-900">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`min-w-0 flex-1 truncate text-xs ${
+                            isViewing ? 'font-semibold text-accent' : 'font-medium text-ink-900'
+                          }`}
+                        >
                           {snap.message}
                         </span>
-                        {i === 0 && (
+                        {isHead && (
                           <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-2xs font-medium text-accent">
                             HEAD
                           </span>
@@ -288,21 +306,17 @@ export function HistoryTimelinePane({ note }: { note: NoteContent }): JSX.Elemen
                         {snap.author?.name && <span className="truncate">{snap.author.name}</span>}
                       </span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void onRestore(snap)}
+                      title="Restore this version"
+                      className={`my-2 shrink-0 self-start rounded-md border border-paper-300/60 px-2 py-1 text-2xs text-ink-600 transition-opacity hover:border-accent hover:text-accent ${
+                        isViewing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                    >
+                      Restore
+                    </button>
                   </div>
-                  {isOpen && (
-                    <div>
-                      <DiffView lines={diffByOid[snap.oid]} />
-                      <div className="flex justify-end px-3 pb-2">
-                        <button
-                          type="button"
-                          onClick={() => void onRestore(snap)}
-                          className="rounded-md border border-paper-300/60 px-2 py-1 text-2xs text-ink-600 hover:border-accent hover:text-accent"
-                        >
-                          Restore
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </li>
               )
             })}

@@ -1948,6 +1948,10 @@ interface Store {
 
   setVault: (v: VaultInfo | null) => void
   setVaultSettings: (next: VaultSettings) => Promise<void>
+  /** When set, the editor shows this note snapshot read-only instead of the live
+   *  buffer (history "viewing" mode). Cleared by `setHistoryPreview(null)`. */
+  historyPreview: { path: string; oid: string; shortOid: string } | null
+  setHistoryPreview: (preview: { path: string; oid: string; shortOid: string } | null) => void
   /** True when the note at `path` has git-backed version history enabled. */
   isNoteHistoryEnabled: (path: string | null | undefined) => boolean
   /** Turn on per-note history (opt-in) and persist; takes a baseline snapshot. */
@@ -3320,6 +3324,7 @@ export const useStore = create<Store>((set, get) => {
   noteDirty: {},
   noteComments: {},
   activeCommentId: null,
+  historyPreview: null,
 
   setVault: (v) =>
     set((s) => {
@@ -3341,6 +3346,9 @@ export const useStore = create<Store>((set, get) => {
     } catch (err) {
       console.error('setVaultSettings failed', err)
     }
+  },
+  setHistoryPreview: (preview) => {
+    set({ historyPreview: preview })
   },
   isNoteHistoryEnabled: (path) => {
     if (!path) return false
@@ -3383,6 +3391,8 @@ export const useStore = create<Store>((set, get) => {
     try {
       const { meta } = await window.zen.restoreHistorySnapshot(path, oid)
       void meta
+      // Leave viewing mode — the restored content is now the live buffer.
+      set({ historyPreview: null })
       // Refresh the open buffer so the editor shows the restored content and
       // drops the dirty flag (mirrors the watcher's external-change handling).
       try {
