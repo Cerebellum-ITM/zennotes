@@ -18,7 +18,8 @@ import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
   appUpdateNoticeLabel,
   appUpdatePrimaryActionLabel,
-  useAppUpdateState
+  useAppUpdateState,
+  useUpdateNoticeDismissal
 } from './lib/app-update-state'
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
@@ -194,8 +195,12 @@ function AppUpdateNotice({
   const updateState = useAppUpdateState()
   const label = appUpdateNoticeLabel(updateState)
   const actionLabel = appUpdatePrimaryActionLabel(updateState)
+  const { dismissed, dismiss } = useUpdateNoticeDismissal(updateState?.availableVersion)
+  // Only the "available" notice is dismissible; once downloading/downloaded the
+  // user already opted in, so we keep showing the progress.
+  const canDismiss = updateState?.phase === 'available'
 
-  if (hidden || !label) return null
+  if (hidden || !label || (canDismiss && dismissed)) return null
 
   const runPrimaryAction = (): void => {
     if (updateState?.phase === 'available') {
@@ -227,6 +232,28 @@ function AppUpdateNotice({
           className="shrink-0 rounded-lg border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
         >
           {actionLabel}
+        </button>
+      )}
+      {canDismiss && (
+        <button
+          type="button"
+          onClick={dismiss}
+          aria-label="Dismiss until next version"
+          title="Dismiss until next version"
+          className="shrink-0 rounded-md p-1 text-ink-400 transition-colors hover:bg-paper-200/80 hover:text-ink-700"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
         </button>
       )}
     </div>
