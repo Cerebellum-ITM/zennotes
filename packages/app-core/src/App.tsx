@@ -716,6 +716,17 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:add-comment'))
         return
       }
+      // Note history (unbound by default; reassignable in the shortcut editor)
+      if (matchesShortcut(e, overrides, 'global.toggleHistoryPanel')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:toggle-history'))
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.takeSnapshot')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:take-snapshot'))
+        return
+      }
       // Pane-focus shortcuts (⌥h/j/k/l by default) are handled by a separate
       // capture-phase listener so a remap onto an editor key still wins over
       // CodeMirror — see focusPaneHandler below. (#124)

@@ -778,7 +778,7 @@ export const Preview = memo(function Preview({
       if (code.closest("pre")) return; // only inline code, not fenced blocks
       const parsed = parseLangIconDirective(code.textContent ?? "");
       if (!parsed) return;
-      const ref = resolveLangIconRef(parsed.lang, customByName, iconRules);
+      const ref = resolveLangIconRef(parsed.lang, customByName, iconRules, vaultSettings?.langIcons);
       if (!ref) return;
       const iconEl = renderIconToDOM(ref, customByName, 14);
       if (!iconEl) return;

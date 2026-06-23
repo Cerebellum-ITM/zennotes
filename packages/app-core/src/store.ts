@@ -7,6 +7,7 @@ import type {
   DateNotePatternSettings,
   DeletedAsset,
   FolderEntry,
+  HistorySnapshot,
   LocalVaultEntry,
   NoteComment,
   NoteCommentInput,
@@ -279,12 +280,13 @@ export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
 const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
-export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
+export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar' | 'history'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
   calendar: number
+  history: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
 export const MAX_RIGHT_PANEL_WIDTH = 640
@@ -292,7 +294,8 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
-  calendar: 280
+  calendar: 280,
+  history: 360
 }
 
 function clampPanelWidth(px: number): number {
@@ -307,7 +310,8 @@ function normalizePanelWidths(value: unknown): PanelWidths {
     outline: pick('outline'),
     connections: pick('connections'),
     comments: pick('comments'),
-    calendar: pick('calendar')
+    calendar: pick('calendar'),
+    history: pick('history')
   }
 }
 
@@ -1944,6 +1948,22 @@ interface Store {
 
   setVault: (v: VaultInfo | null) => void
   setVaultSettings: (next: VaultSettings) => Promise<void>
+  /** When set, the editor shows this note snapshot read-only instead of the live
+   *  buffer (history "viewing" mode). Cleared by `setHistoryPreview(null)`. */
+  historyPreview: { path: string; oid: string; shortOid: string } | null
+  setHistoryPreview: (preview: { path: string; oid: string; shortOid: string } | null) => void
+  /** True when the note at `path` has git-backed version history enabled. */
+  isNoteHistoryEnabled: (path: string | null | undefined) => boolean
+  /** Turn on per-note history (opt-in) and persist; takes a baseline snapshot. */
+  enableNoteHistory: (path: string) => Promise<void>
+  /** Turn off per-note history (keeps existing snapshots in the repo). */
+  disableNoteHistory: (path: string) => Promise<void>
+  /** Commit the note's current content. Returns the new snapshot, or null when
+   *  there was nothing to snapshot. */
+  takeHistorySnapshot: (path: string, message: string) => Promise<HistorySnapshot | null>
+  /** Non-destructive restore: bring back the content from `oid` as a new forward
+   *  snapshot and refresh the open buffer. */
+  restoreHistorySnapshot: (path: string, oid: string) => Promise<void>
   /**
    * Toggle a favorite (a note path or a `folder:subpath` key) and persist it.
    * Favorites pin to the top of the sidebar.
@@ -3304,6 +3324,7 @@ export const useStore = create<Store>((set, get) => {
   noteDirty: {},
   noteComments: {},
   activeCommentId: null,
+  historyPreview: null,
 
   setVault: (v) =>
     set((s) => {
@@ -3324,6 +3345,75 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshRootContentHidden()
     } catch (err) {
       console.error('setVaultSettings failed', err)
+    }
+  },
+  setHistoryPreview: (preview) => {
+    set({ historyPreview: preview })
+  },
+  isNoteHistoryEnabled: (path) => {
+    if (!path) return false
+    return get().vaultSettings.enabledHistoryPaths.includes(path)
+  },
+  enableNoteHistory: async (path) => {
+    if (!path) return
+    try {
+      const settings = normalizeVaultSettings(await window.zen.enableNoteHistory(path))
+      set({ vaultSettings: settings })
+    } catch (err) {
+      console.error('enableNoteHistory failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
+    }
+  },
+  disableNoteHistory: async (path) => {
+    if (!path) return
+    try {
+      const settings = normalizeVaultSettings(await window.zen.disableNoteHistory(path))
+      set({ vaultSettings: settings })
+    } catch (err) {
+      console.error('disableNoteHistory failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
+    }
+  },
+  takeHistorySnapshot: async (path, message) => {
+    if (!path) return null
+    try {
+      const snapshot = await window.zen.takeHistorySnapshot(path, message)
+      window.dispatchEvent(new Event('zen:history-changed'))
+      return snapshot
+    } catch (err) {
+      console.error('takeHistorySnapshot failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
+      return null
+    }
+  },
+  restoreHistorySnapshot: async (path, oid) => {
+    if (!path) return
+    try {
+      const { meta } = await window.zen.restoreHistorySnapshot(path, oid)
+      void meta
+      // Leave viewing mode — the restored content is now the live buffer.
+      set({ historyPreview: null })
+      // Refresh the open buffer so the editor shows the restored content and
+      // drops the dirty flag (mirrors the watcher's external-change handling).
+      try {
+        const content = await window.zen.readNote(path)
+        set((s) => {
+          if (!s.noteContents[path]) return s
+          const contents = { ...s.noteContents, [path]: content }
+          const dirty = { ...s.noteDirty, [path]: false }
+          return {
+            noteContents: contents,
+            noteDirty: dirty,
+            ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+          }
+        })
+      } catch {
+        /* note may have moved; the watcher will reconcile */
+      }
+      window.dispatchEvent(new Event('zen:history-changed'))
+    } catch (err) {
+      console.error('restoreHistorySnapshot failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
     }
   },
   applyFavorites: async (nextFavorites) => {

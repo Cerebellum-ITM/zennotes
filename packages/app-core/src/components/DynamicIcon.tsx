@@ -28,7 +28,11 @@ export function DynamicIcon({
     () =>
       // Sanitize FIRST (security), then normalize so large-intrinsic-size SVGs
       // scale to the sized container in preview and in sidebar/header/tabs.
-      resolved?.kind === 'custom' ? normalizeIconSvg(sanitizeIconSvg(resolved.icon.svg)) : '',
+      resolved?.kind === 'custom'
+        ? normalizeIconSvg(sanitizeIconSvg(resolved.icon.svg))
+        : resolved?.kind === 'lang'
+          ? normalizeIconSvg(sanitizeIconSvg(resolved.svg))
+          : '',
     [resolved]
   )
 

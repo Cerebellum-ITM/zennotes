@@ -7,6 +7,8 @@ import type {
   DeletedAsset,
   ExternalFileContent,
   FolderEntry,
+  HistorySnapshot,
+  HistoryWorkingState,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -23,6 +25,7 @@ import type {
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
+  RestoreHistoryResult,
   ServerCapabilities,
   ServerSessionStatus,
   VaultSettings,
@@ -133,6 +136,25 @@ export interface ZenBridge {
   importCustomIcon(input: ImportCustomIconInput): Promise<CustomIcon>
   /** Remove the custom icon named `name` (`.zennotes/icons/<name>.svg`). */
   deleteCustomIcon(name: string): Promise<void>
+
+  // --- Per-note git history (desktop only; web stubs throw) ---
+  /** Turn on history for a note: init the repo (if needed) and add the path to
+   *  `enabledHistoryPaths`, taking a baseline snapshot when the file has content. */
+  enableNoteHistory(relPath: string): Promise<VaultSettings>
+  /** Stop tracking a note (keeps existing snapshots in the repo, reversible). */
+  disableNoteHistory(relPath: string): Promise<VaultSettings>
+  /** Commit the note's current content. Resolves to null when there are no
+   *  changes since the latest snapshot (no empty commit is created). */
+  takeHistorySnapshot(relPath: string, message: string): Promise<HistorySnapshot | null>
+  /** Linear history for a note, newest snapshot first. `[]` when untracked. */
+  listHistorySnapshots(relPath: string): Promise<HistorySnapshot[]>
+  /** Whether the note's file on disk differs from its latest snapshot. */
+  getHistoryWorkingState(relPath: string): Promise<HistoryWorkingState>
+  /** Raw note body stored in snapshot `oid`. */
+  getHistorySnapshotContent(relPath: string, oid: string): Promise<string>
+  /** Non-destructive restore: write the content from `oid` back to disk and
+   *  create a new forward commit. Posterior snapshots are preserved. */
+  restoreHistorySnapshot(relPath: string, oid: string): Promise<RestoreHistoryResult>
   getVaultTextSearchCapabilities(
     paths?: VaultTextSearchToolPaths
   ): Promise<VaultTextSearchCapabilities>

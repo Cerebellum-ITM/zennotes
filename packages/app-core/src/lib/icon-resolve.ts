@@ -1,6 +1,12 @@
 import type { CustomIcon, FolderIconId, IconRule, NoteMeta, VaultSettings } from '@shared/ipc'
 import { noteFolderSubpath } from './vault-layout'
 import { resolveByRules } from './icon-rules'
+import {
+  DEFAULT_LANG_ICONS,
+  LANG_ICON_PREFIX,
+  langIconSvg,
+  normalizeLangToken
+} from './lang-icons'
 
 const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
   'folder',
@@ -41,6 +47,7 @@ function isFolderIconId(value: string): value is FolderIconId {
 export type ResolvedIcon =
   | { kind: 'builtin'; id: FolderIconId }
   | { kind: 'custom'; icon: CustomIcon }
+  | { kind: 'lang'; token: string; svg: string }
 
 /**
  * Index custom icons by their unique `id` (the section-aware key,
@@ -127,6 +134,12 @@ export function resolveIcon(
   if (ref.startsWith('builtin:')) {
     const id = ref.slice('builtin:'.length)
     return isFolderIconId(id) ? { kind: 'builtin', id } : null
+  }
+
+  if (ref.startsWith(LANG_ICON_PREFIX)) {
+    const token = normalizeLangToken(ref.slice(LANG_ICON_PREFIX.length))
+    const svg = langIconSvg(token)
+    return svg ? { kind: 'lang', token, svg } : null
   }
 
   // Bare ref: a custom icon (by unique stem / id) shadows a same-named built-in.
@@ -233,12 +246,31 @@ export function resolveFileIconRefByRules(
  * matched against each rule's `nameRegex`. Returns `null` when no rule matches
  * or the matched ref can't be resolved (caller leaves the directive as text).
  */
+/**
+ * Resolve the icon ref for a `{lang icon}` directive. Order:
+ *   1. user override in `langIcons[token]` (Settings → Code language icons),
+ *   2. an existing `target:'lang'` icon rule (manual, unchanged behavior),
+ *   3. the bundled `lang:<token>` default logo,
+ *   4. else `null` (the directive stays literal — unknown language).
+ * Tokens are canonicalized via {@link normalizeLangToken} so aliases (js, py,
+ * c++…) match overrides and defaults.
+ */
 export function resolveLangIconRef(
   lang: string,
   customByName: Map<string, CustomIcon>,
-  iconRules: IconRule[] | undefined | null
+  iconRules: IconRule[] | undefined | null,
+  langIcons?: Record<string, string> | null
 ): string | null {
+  const token = normalizeLangToken(lang)
+
+  const override = langIcons?.[token]
+  if (override && resolveIcon(override, customByName)) return override
+
   const ruleRef = resolveByRules('lang', { subpath: '', name: lang }, iconRules)
   if (ruleRef && resolveIcon(ruleRef, customByName)) return ruleRef
+
+  const fallback = DEFAULT_LANG_ICONS[token]
+  if (fallback && resolveIcon(fallback, customByName)) return fallback
+
   return null
 }

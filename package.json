@@ -33,6 +33,7 @@
     "dist:linux": "npm run dist:linux --workspace @zennotes/desktop"
   },
   "devDependencies": {
+    "devicon": "^2.17.0",
     "turbo": "^2.5.8"
   }
 }

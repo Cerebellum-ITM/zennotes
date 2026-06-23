@@ -43,7 +43,9 @@ export function renderIconToDOM(
   const markup =
     resolved.kind === 'custom'
       ? normalizeIconSvg(sanitizeIconSvg(resolved.icon.svg))
-      : renderToStaticMarkup(iconOptionById(resolved.id).icon)
+      : resolved.kind === 'lang'
+        ? normalizeIconSvg(sanitizeIconSvg(resolved.svg))
+        : renderToStaticMarkup(iconOptionById(resolved.id).icon)
   span.innerHTML = markup
 
   const svg = span.firstElementChild as HTMLElement | null

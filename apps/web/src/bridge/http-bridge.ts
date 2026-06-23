@@ -34,6 +34,8 @@ import type {
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
+  HistorySnapshot,
+  HistoryWorkingState,
   ImportCustomIconInput,
   ImportedAsset,
   LocalVaultEntry,
@@ -48,6 +50,7 @@ import type {
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
+  RestoreHistoryResult,
   ServerCapabilities,
   ServerSessionStatus,
   VaultSettings,
@@ -946,6 +949,30 @@ function deleteCustomIcon(_name: string): Promise<void> {
   throw new Error('Custom icons are not supported in the web client yet')
 }
 
+// Per-note git history is desktop-only (git repo on the local filesystem).
+const HISTORY_DESKTOP_ONLY = 'Note history is only available in the desktop app'
+function enableNoteHistory(_relPath: string): Promise<VaultSettings> {
+  throw new Error(HISTORY_DESKTOP_ONLY)
+}
+function disableNoteHistory(_relPath: string): Promise<VaultSettings> {
+  throw new Error(HISTORY_DESKTOP_ONLY)
+}
+function takeHistorySnapshot(_relPath: string, _message: string): Promise<HistorySnapshot | null> {
+  throw new Error(HISTORY_DESKTOP_ONLY)
+}
+function listHistorySnapshots(_relPath: string): Promise<HistorySnapshot[]> {
+  return Promise.resolve([])
+}
+function getHistoryWorkingState(_relPath: string): Promise<HistoryWorkingState> {
+  return Promise.resolve({ dirty: false })
+}
+function getHistorySnapshotContent(_relPath: string, _oid: string): Promise<string> {
+  throw new Error(HISTORY_DESKTOP_ONLY)
+}
+function restoreHistorySnapshot(_relPath: string, _oid: string): Promise<RestoreHistoryResult> {
+  throw new Error(HISTORY_DESKTOP_ONLY)
+}
+
 // --------------------------------------------------------------------
 // Assets (uploads, zen-asset URL resolution)
 // --------------------------------------------------------------------
@@ -1457,6 +1484,13 @@ export const httpBridge: ZenBridge = {
   listCustomIcons,
   importCustomIcon,
   deleteCustomIcon,
+  enableNoteHistory,
+  disableNoteHistory,
+  takeHistorySnapshot,
+  listHistorySnapshots,
+  getHistoryWorkingState,
+  getHistorySnapshotContent,
+  restoreHistorySnapshot,
   readTemplate,
   writeTemplate,
   deleteTemplate,

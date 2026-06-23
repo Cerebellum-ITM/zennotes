@@ -403,6 +403,9 @@ export function Sidebar(): JSX.Element {
   const refreshCustomIcons = useStore((s) => s.refreshCustomIcons);
   const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter);
   const setNoteIcon = useStore((s) => s.setNoteIcon);
+  const enableNoteHistory = useStore((s) => s.enableNoteHistory);
+  const disableNoteHistory = useStore((s) => s.disableNoteHistory);
+  const enabledHistoryPaths = useStore((s) => s.vaultSettings.enabledHistoryPaths);
   const rootContentHiddenByInboxMode = useStore((s) => s.rootContentHiddenByInboxMode);
   const rootContentBannerDismissed = useStore((s) => s.rootContentBannerDismissed);
   const dismissRootContentBanner = useStore((s) => s.dismissRootContentBanner);
@@ -2275,6 +2278,28 @@ export function Sidebar(): JSX.Element {
           },
         });
       }
+      if (enabledHistoryPaths.includes(n.path)) {
+        items.push({
+          label: "Show history",
+          onSelect: async () => {
+            await selectNote(n.path);
+            window.dispatchEvent(new Event("zen:toggle-history"));
+          },
+        });
+        items.push({
+          label: "Disable history",
+          onSelect: async () => {
+            await disableNoteHistory(n.path);
+          },
+        });
+      } else {
+        items.push({
+          label: "Enable history",
+          onSelect: async () => {
+            await enableNoteHistory(n.path);
+          },
+        });
+      }
     }
     items.push({ kind: "separator" });
     if (n.folder === "inbox" || n.folder === "quick") {
@@ -2365,6 +2390,10 @@ export function Sidebar(): JSX.Element {
     folderLabels.trash,
     openNoteIconPicker,
     setNoteIcon,
+    enabledHistoryPaths,
+    enableNoteHistory,
+    disableNoteHistory,
+    selectNote,
   ]);
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {

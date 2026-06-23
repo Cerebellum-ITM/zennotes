@@ -126,7 +126,7 @@ function computeDecorations(view: EditorView): DecorationSet {
   const state = view.state
   const store = useStore.getState()
   const rules = store.vaultSettings?.iconRules
-  const hasRules = !!rules && rules.length > 0
+  const langIcons = store.vaultSettings?.langIcons
   const customByName = buildCustomIconIndex(store.customIcons)
 
   const pending: { from: number; to: number; deco: Decoration }[] = []
@@ -149,8 +149,8 @@ function computeDecorations(view: EditorView): DecorationSet {
         // 1) `{lang icon}…` → chip with the icon and (when the token is a known
         // language) the rest syntax-highlighted, matching the preview.
         const iconParsed = parseLangIconDirective(content)
-        if (iconParsed && hasRules) {
-          const ref = resolveLangIconRef(iconParsed.lang, customByName, rules)
+        if (iconParsed) {
+          const ref = resolveLangIconRef(iconParsed.lang, customByName, rules, langIcons)
           if (ref) {
             pending.push({
               from: contentFrom,

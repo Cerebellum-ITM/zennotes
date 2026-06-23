@@ -71,6 +71,7 @@ import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
 import { FolderIconPickerModal } from './FolderIconPickerModal'
 import { DynamicIcon } from './DynamicIcon'
+import { LANG_ICON_LIST, DEFAULT_LANG_ICONS } from '../lib/lang-icons'
 import { normalizeIconRules } from '../lib/vault-layout'
 import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palette'
 
@@ -278,6 +279,7 @@ export function SettingsModal(): JSX.Element {
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const persistVaultSettings = useStore((s) => s.setVaultSettings)
+  const disableNoteHistory = useStore((s) => s.disableNoteHistory)
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const connectRemoteWorkspaceProfile = useStore((s) => s.connectRemoteWorkspaceProfile)
@@ -1808,6 +1810,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Tasks label',
           description: 'Display name for the vault-wide Tasks view.',
           keywords: ['system folders', 'tasks', 'todos', 'goals', 'rename']
+        },
+        {
+          id: 'note-history-enabled',
+          title: 'Note history',
+          description: 'Notes with git-backed version history enabled (stored locally on this Mac).',
+          keywords: ['history', 'versions', 'snapshots', 'git', 'restore', 'revert', 'timeline']
         }
       ],
       content: (
@@ -2368,6 +2376,38 @@ export function SettingsModal(): JSX.Element {
             </InlineNote>
           </Section>
 
+          <Section
+            title="Note history"
+            description="Notes with git-backed version history enabled. Snapshots are stored locally on this Mac, outside the vault."
+          >
+            <div className="px-5 py-4" {...settingsSearchTargetProps('note-history-enabled')}>
+              {(vaultSettings.enabledHistoryPaths ?? []).length === 0 ? (
+                <InlineNote>
+                  No notes have history enabled. Turn it on from a note&rsquo;s context menu or the
+                  history panel.
+                </InlineNote>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {(vaultSettings.enabledHistoryPaths ?? []).map((p) => (
+                    <li
+                      key={p}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-paper-300/60 bg-paper-100/60 px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate font-mono text-xs text-ink-800">{p}</span>
+                      <button
+                        type="button"
+                        onClick={() => void disableNoteHistory(p)}
+                        className="shrink-0 rounded-md border border-paper-300/70 px-2 py-1 text-2xs text-ink-600 transition-colors hover:border-danger hover:text-danger"
+                      >
+                        Disable
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Section>
+
         </div>
       )
     },
@@ -2390,6 +2430,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['rule', 'rules', 'glob', 'regex', 'frontmatter', 'auto', 'assign']
         },
         {
+          id: 'lang-icons',
+          title: 'Code language icons',
+          description: 'Default logos for the `{lang icon}` directive, overridable per language.',
+          keywords: ['language', 'lang', 'code', 'icon', 'logo', 'devicon', 'python', 'javascript', 'override']
+        },
+        {
           id: 'icon-picker-filter',
           title: 'Icon picker filter',
           description: 'Search all icons at once, or filter each custom section separately.',
@@ -2400,6 +2446,7 @@ export function SettingsModal(): JSX.Element {
         <div className="space-y-6">
           <CustomIconsSection settingId="custom-icons" />
           <IconRulesSection settingId="icon-rules" />
+          <LangIconsSection settingId="lang-icons" />
           <Section
             title="Icon picker"
             description="How the icon picker's search behaves when choosing icons."
@@ -4044,6 +4091,174 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
             setIconPickerRuleId(null)
           }}
           onCancel={() => setIconPickerRuleId(null)}
+        />
+      )}
+    </section>
+  )
+}
+
+/**
+ * Settings panel for per-language `{lang icon}` overrides. Lists the built-in
+ * languages (each shipping a default logo); choosing an icon writes
+ * `langIcons[token]`, Reset removes it (falls back to the default). Resolution
+ * order at render time is: override → `target:'lang'` rule → bundled default.
+ */
+function LangIconsSection({ settingId }: { settingId?: string }): JSX.Element {
+  const vaultSettings = useStore((s) => s.vaultSettings)
+  const persistVaultSettings = useStore((s) => s.setVaultSettings)
+  const customIcons = useStore((s) => s.customIcons)
+  const importCustomIcon = useStore((s) => s.importCustomIcon)
+  const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
+  const langIcons = vaultSettings.langIcons ?? {}
+
+  const [pickerToken, setPickerToken] = useState<string | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const commit = useCallback(
+    (next: Record<string, string>) => {
+      void persistVaultSettings({ ...vaultSettings, langIcons: next })
+    },
+    [persistVaultSettings, vaultSettings]
+  )
+
+  const setLangIcon = useCallback(
+    (token: string, ref: string) => {
+      commit({ ...langIcons, [token]: ref })
+    },
+    [commit, langIcons]
+  )
+
+  const resetLang = useCallback(
+    (token: string) => {
+      const next = { ...langIcons }
+      delete next[token]
+      commit(next)
+    },
+    [commit, langIcons]
+  )
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return LANG_ICON_LIST
+    return LANG_ICON_LIST.filter(
+      (e) =>
+        e.token.includes(q) ||
+        e.label.toLowerCase().includes(q) ||
+        e.aliases.some((a) => a.includes(q))
+    )
+  }, [query])
+
+  const pickerCurrentRef = pickerToken
+    ? (langIcons[pickerToken] ?? DEFAULT_LANG_ICONS[pickerToken] ?? '')
+    : ''
+
+  return (
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
+          Code language icons
+        </div>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">
+          The inline <code className="font-mono text-ink-700">{'`{lang icon}…`'}</code> directive
+          shows a language logo. Each language below ships a default; pick another icon to override
+          it, or Reset to restore the default.
+        </p>
+
+        <div className="mt-2 overflow-hidden rounded-xl border border-paper-300/60 bg-paper-50/45">
+          <button
+            type="button"
+            onClick={() => setHelpOpen((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-ink-700 transition-colors hover:text-ink-900"
+            aria-expanded={helpOpen}
+          >
+            <span
+              className={['inline-block text-ink-400 transition-transform', helpOpen ? 'rotate-90' : ''].join(' ')}
+              aria-hidden
+            >
+              ▶
+            </span>
+            How language icons resolve
+          </button>
+          {helpOpen && (
+            <div className="border-t border-paper-300/45 px-4 py-3 text-sm leading-6 text-ink-600">
+              Precedence: <span className="font-medium text-ink-800">your override here</span> → a{' '}
+              <code className="font-mono text-ink-700">target: &apos;lang&apos;</code> icon rule →
+              the bundled default logo. Aliases (e.g. <code className="font-mono">js</code>,{' '}
+              <code className="font-mono">py</code>, <code className="font-mono">c++</code>) map to
+              their canonical language. Power users can still add a manual{' '}
+              <code className="font-mono">lang</code> rule under Icon rules.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Filter languages…"
+        className="w-full rounded-md border border-paper-300/60 bg-paper-100 px-3 py-1.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/60"
+      />
+
+      <div className="max-h-96 space-y-1 overflow-y-auto rounded-xl border border-paper-300/60 bg-paper-50/45 p-2">
+        {filtered.map((entry) => {
+          const overridden = Object.prototype.hasOwnProperty.call(langIcons, entry.token)
+          const ref = overridden ? langIcons[entry.token] : DEFAULT_LANG_ICONS[entry.token]
+          return (
+            <div
+              key={entry.token}
+              className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-paper-200/40"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white">
+                {ref ? <DynamicIcon iconRef={ref} customIcons={customIcons} size={18} /> : null}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-ink-900">{entry.label}</span>
+                <span className="block font-mono text-2xs text-ink-400">
+                  {entry.token}
+                  {overridden ? ' · custom' : ''}
+                </span>
+              </span>
+              {overridden && (
+                <button
+                  type="button"
+                  onClick={() => resetLang(entry.token)}
+                  className="shrink-0 rounded-md border border-paper-300/60 px-2 py-1 text-2xs text-ink-500 hover:text-ink-900"
+                >
+                  Reset
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPickerToken(entry.token)}
+                className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2.5 py-1 text-2xs font-medium text-ink-800 hover:bg-paper-200"
+              >
+                Change…
+              </button>
+            </div>
+          )
+        })}
+        {filtered.length === 0 && (
+          <div className="px-2 py-4 text-center text-xs text-ink-400">No languages match.</div>
+        )}
+      </div>
+
+      {pickerToken && (
+        <FolderIconPickerModal
+          targetLabel={`the ${pickerToken} icon`}
+          currentIconRef={pickerCurrentRef}
+          customIcons={customIcons}
+          perSectionFilter={iconPickerPerSectionFilter}
+          onSelect={(iconRef) => {
+            setLangIcon(pickerToken, iconRef)
+            setPickerToken(null)
+          }}
+          onImport={async ({ name, svg, section }) => {
+            const icon = await importCustomIcon({ name, svg, ...(section ? { section } : {}) })
+            setLangIcon(pickerToken, `custom:${icon.id}`)
+            setPickerToken(null)
+          }}
+          onCancel={() => setPickerToken(null)}
         />
       )}
     </section>

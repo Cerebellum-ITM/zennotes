@@ -45,7 +45,8 @@ function settings(dailyDirectory: string, weeklyDirectory: string): VaultSetting
     weeklyNotes: { enabled: true, directory: weeklyDirectory },
     folderIcons: {},
     folderColors: {},
-    favorites: []
+    favorites: [],
+    enabledHistoryPaths: []
   }
 }
 
@@ -84,7 +85,8 @@ describe('classifyDateNote', () => {
         },
         folderIcons: {},
         folderColors: {},
-        favorites: []
+        favorites: [],
+        enabledHistoryPaths: []
       } as VaultSettings
     )
 
@@ -106,7 +108,8 @@ describe('classifyDateNote', () => {
         weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
         folderIcons: {},
         folderColors: {},
-        favorites: []
+        favorites: [],
+        enabledHistoryPaths: []
       } as VaultSettings
     )
 
@@ -141,7 +144,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -162,7 +166,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     expect(dailyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -191,7 +196,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -212,7 +218,8 @@ describe('classifyDateNote', () => {
       },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -233,7 +240,8 @@ describe('classifyDateNote', () => {
       },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -254,7 +262,8 @@ describe('classifyDateNote', () => {
       },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -275,7 +284,8 @@ describe('classifyDateNote', () => {
       },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     expect(weeklyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -303,7 +313,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -327,7 +338,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     const info = classifyDateNote(note('inbox/2026/06-09.md', '06-09'), vaultSettings)
@@ -348,7 +360,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     // ISO week 24 falls entirely in June, so a July folder cannot round-trip.
@@ -375,7 +388,8 @@ describe('classifyDateNote', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -402,7 +416,8 @@ describe('classifyDateNote', () => {
       },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -445,7 +460,8 @@ describe('dateNoteFolderMayBelongToDatePattern', () => {
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     } as VaultSettings
 
     expect(dateNoteFolderMayBelongToDatePattern('2026/Jun-Jun', vaultSettings)).toBe(true)
@@ -599,5 +615,28 @@ describe('legacy dailyNotes.pathFormat migration', () => {
     } as unknown as VaultSettings)
     expect(settings.dailyNotes.directory).toBe('Daily notes')
     expect(settings.dailyNotes.titlePattern).toBe('yyyy-MM-dd')
+  })
+
+  it('normalizes enabledHistoryPaths (dedupe, posix, drop non-strings)', () => {
+    const settings = normalizeVaultSettings({
+      primaryNotesLocation: 'inbox',
+      enabledHistoryPaths: [
+        'inbox/A.md',
+        'inbox\\B.md',
+        '/inbox/A.md',
+        'inbox/A.md',
+        42,
+        '',
+        null
+      ]
+    } as unknown as VaultSettings)
+    expect(settings.enabledHistoryPaths).toEqual(['inbox/A.md', 'inbox/B.md'])
+  })
+
+  it('defaults enabledHistoryPaths to an empty array', () => {
+    const settings = normalizeVaultSettings({
+      primaryNotesLocation: 'inbox'
+    } as unknown as VaultSettings)
+    expect(settings.enabledHistoryPaths).toEqual([])
   })
 })
