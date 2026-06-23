@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@shared/ipc'
+import {
+  DEFAULT_DAILY_NOTE_LOCALE,
+  DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+  DEFAULT_DAILY_NOTES_DIRECTORY,
+  DEFAULT_WEEKLY_NOTE_LOCALE,
+  DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+  DEFAULT_WEEKLY_NOTES_DIRECTORY
+} from '@shared/ipc'
 import type {
   AppUpdateState,
   CliInstallStatus,
@@ -39,9 +46,11 @@ import {
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
 import {
+  normalizeDailyNoteLocale,
   normalizeDailyNotesDirectory,
-  normalizeDailyPathFormat,
-  normalizeLocale,
+  normalizeDailyNoteTitlePattern,
+  normalizeWeeklyNoteLocale,
+  normalizeWeeklyNoteTitlePattern,
   normalizeWeeklyNotesDirectory
 } from '../lib/vault-layout'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
@@ -57,6 +66,7 @@ import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
+import { isImeComposing } from '../lib/ime'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
 import { FolderIconPickerModal } from './FolderIconPickerModal'
@@ -240,6 +250,8 @@ export function SettingsModal(): JSX.Element {
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const markdownSnippets = useStore((s) => s.markdownSnippets)
+  const setMarkdownSnippets = useStore((s) => s.setMarkdownSnippets)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
@@ -377,6 +389,8 @@ export function SettingsModal(): JSX.Element {
   const setCodeBackground = useStore((s) => s.setCodeBackground)
   const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
   const setCodeBackgroundColor = useStore((s) => s.setCodeBackgroundColor)
+  const lineNumberPosition = useStore((s) => s.lineNumberPosition)
+  const setLineNumberPosition = useStore((s) => s.setLineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const setInterfaceFont = useStore((s) => s.setInterfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -541,6 +555,7 @@ export function SettingsModal(): JSX.Element {
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
       { id: 'tokyo-night', label: 'Tokyo Night' },
+      { id: 'kanagawa', label: 'Kanagawa' },
       { id: 'black-metal', label: 'Black Metal' }
     ],
     []
@@ -621,6 +636,7 @@ export function SettingsModal(): JSX.Element {
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
       'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
+      kanagawa: { light: 'kanagawa-lotus', dark: 'kanagawa-wave' },
       'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
     const targetId = preferred[family][effectiveMode]
@@ -982,6 +998,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['preview', 'markdown']
         },
         {
+          id: 'markdown-snippets',
+          title: 'Markdown snippets',
+          description: 'Auto-close markdown delimiters as you type (** then Space, ``` then Enter).',
+          keywords: ['snippets', 'auto close', 'autoclose', 'auto-pair', 'brackets', 'markdown', 'completion']
+        },
+        {
           id: 'note-tabs',
           title: 'Note tabs',
           description: 'Open notes in tabs and allow split-friendly tab workflows.',
@@ -1200,6 +1222,13 @@ export function SettingsModal(): JSX.Element {
               onChange={setLivePreview}
             />
             <ToggleRow
+              label="Markdown snippets"
+              description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. In Vim mode this only applies in insert mode."
+              value={markdownSnippets}
+              settingId="markdown-snippets"
+              onChange={setMarkdownSnippets}
+            />
+            <ToggleRow
               label="Note tabs"
               description="Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior."
               value={tabsEnabled}
@@ -1354,6 +1383,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Line numbers',
           description: 'Show editor gutter numbers.',
           keywords: ['numbers', 'gutter', 'relative', 'absolute']
+        },
+        {
+          id: 'line-number-position',
+          title: 'Line number position',
+          description: 'Place the line-number gutter next to the text or at the editor edge.',
+          keywords: ['numbers', 'gutter', 'position', 'edge', 'text', 'align']
         }
       ],
       content: (
@@ -1459,6 +1494,19 @@ export function SettingsModal(): JSX.Element {
               ]}
               onChange={(next) => setLineNumberMode(next)}
             />
+            {lineNumberMode !== 'off' && (
+              <SegmentedRow
+                label="Line number position"
+                description="With centered content, keep the numbers next to the text column or pin them to the editor's left edge."
+                value={lineNumberPosition}
+                settingId="line-number-position"
+                options={[
+                  { value: 'text', label: 'Next to text' },
+                  { value: 'edge', label: 'Editor edge' }
+                ]}
+                onChange={(next) => setLineNumberPosition(next)}
+              />
+            )}
           </Section>
         </div>
       )
@@ -1619,9 +1667,33 @@ export function SettingsModal(): JSX.Element {
         },
         {
           id: 'daily-notes-directory',
-          title: 'Daily notes directory',
+          title: 'Daily notes directory pattern',
           description: 'Stored inside your primary notes area.',
-          keywords: ['daily notes', 'directory', 'folder']
+          keywords: ['daily notes', 'directory', 'folder', 'pattern', 'date']
+        },
+        {
+          id: 'daily-note-title-pattern',
+          title: 'Daily note naming pattern',
+          description: 'Used as the daily note title and filename.',
+          keywords: ['daily notes', 'title', 'filename', 'pattern', 'date']
+        },
+        {
+          id: 'daily-note-locale',
+          title: 'Daily note locale',
+          description: 'Used for localized month and weekday names in daily note patterns.',
+          keywords: ['daily notes', 'locale', 'month', 'weekday', 'pattern']
+        },
+        {
+          id: 'daily-note-pattern-support',
+          title: 'Supported date note pattern tokens',
+          description: 'Reference for supported date tokens, quoted literals, and example outputs.',
+          keywords: ['daily notes', 'weekly notes', 'pattern', 'tokens', 'format', 'yyyy', 'mmm', 'weekday', 'week']
+        },
+        {
+          id: 'daily-note-pattern-reset',
+          title: 'Reset daily note patterns to defaults',
+          description: 'Restore the daily directory, naming, and locale patterns to their defaults.',
+          keywords: ['daily notes', 'reset', 'default', 'defaults', 'restore', 'pattern']
         },
         {
           id: 'open-todays-daily-note',
@@ -1643,9 +1715,33 @@ export function SettingsModal(): JSX.Element {
         },
         {
           id: 'weekly-notes-directory',
-          title: 'Weekly notes directory',
+          title: 'Weekly notes directory pattern',
           description: 'Stored inside your primary notes area.',
-          keywords: ['weekly notes', 'directory', 'folder']
+          keywords: ['weekly notes', 'directory', 'folder', 'pattern', 'date', 'week']
+        },
+        {
+          id: 'weekly-note-title-pattern',
+          title: 'Weekly note naming pattern',
+          description: 'Used as the weekly note title and filename.',
+          keywords: ['weekly notes', 'title', 'filename', 'pattern', 'date', 'week']
+        },
+        {
+          id: 'weekly-note-locale',
+          title: 'Weekly note locale',
+          description: 'Used for localized month and weekday names in weekly note patterns.',
+          keywords: ['weekly notes', 'locale', 'month', 'weekday', 'pattern']
+        },
+        {
+          id: 'weekly-note-pattern-support',
+          title: 'Supported date note pattern tokens',
+          description: 'Reference for supported date tokens, ISO week tokens, quoted literals, and example outputs.',
+          keywords: ['weekly notes', 'pattern', 'tokens', 'format', 'yyyy', 'ww', 'iso week']
+        },
+        {
+          id: 'weekly-note-pattern-reset',
+          title: 'Reset weekly note patterns to defaults',
+          description: 'Restore the weekly directory, naming, and locale patterns to their defaults.',
+          keywords: ['weekly notes', 'reset', 'default', 'defaults', 'restore', 'pattern']
         },
         {
           id: 'weekly-notes-template',
@@ -1706,6 +1802,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Icon rules',
           description: 'Auto-assign icons to notes and folders by path, name, or frontmatter.',
           keywords: ['icon rules', 'icons', 'auto icon', 'glob', 'regex', 'frontmatter', 'daily presets']
+        },
+        {
+          id: 'tasks-label',
+          title: 'Tasks label',
+          description: 'Display name for the vault-wide Tasks view.',
+          keywords: ['system folders', 'tasks', 'todos', 'goals', 'rename']
         }
       ],
       content: (
@@ -1892,11 +1994,12 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Daily notes directory"
+              label="Daily notes directory pattern"
               description="Stored inside your primary notes area. The default is `Daily Notes`."
               value={vaultSettings.dailyNotes.directory}
               placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
               settingId="daily-notes-directory"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -1908,37 +2011,62 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Daily note path format"
-              description="Optional. Pattern relative to the directory; use / for subfolders. Empty = YYYY-MM-DD. Tokens: YYYY YY MMMM MMM MM M DD D."
-              value={vaultSettings.dailyNotes.pathFormat ?? ''}
-              placeholder="YYYY/MM-MMMM/DD-MM-YYYY"
-              settingId="daily-notes-path-format"
+              label="Daily note naming pattern"
+              description="Used as the daily note title and filename. The default is `yyyy-MM-dd`."
+              value={vaultSettings.dailyNotes.titlePattern ?? DEFAULT_DAILY_NOTE_TITLE_PATTERN}
+              placeholder={DEFAULT_DAILY_NOTE_TITLE_PATTERN}
+              settingId="daily-note-title-pattern"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
                   dailyNotes: {
                     ...vaultSettings.dailyNotes,
-                    pathFormat: normalizeDailyPathFormat(next)
+                    titlePattern: normalizeDailyNoteTitlePattern(next)
                   }
                 })
               }
             />
             <TextInputRow
-              label="Date locale"
-              description="Optional BCP-47 locale for month names (MMMM/MMM), e.g. `es`. Empty uses the system locale."
-              value={vaultSettings.dailyNotes.locale ?? ''}
-              placeholder="es"
-              settingId="daily-notes-locale"
+              label="Daily note locale"
+              description="Used for localized month and weekday names. Use `system`, `en-US`, or `pt-BR`."
+              value={vaultSettings.dailyNotes.locale ?? DEFAULT_DAILY_NOTE_LOCALE}
+              placeholder={DEFAULT_DAILY_NOTE_LOCALE}
+              settingId="daily-note-locale"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
                   dailyNotes: {
                     ...vaultSettings.dailyNotes,
-                    locale: normalizeLocale(next)
+                    locale: normalizeDailyNoteLocale(next)
                   }
                 })
               }
             />
+            <DateNotePatternResetRow
+              kind="daily"
+              settingId="daily-note-pattern-reset"
+              isDefault={
+                vaultSettings.dailyNotes.directory === DEFAULT_DAILY_NOTES_DIRECTORY &&
+                (vaultSettings.dailyNotes.titlePattern ?? DEFAULT_DAILY_NOTE_TITLE_PATTERN) ===
+                  DEFAULT_DAILY_NOTE_TITLE_PATTERN &&
+                (vaultSettings.dailyNotes.locale ?? DEFAULT_DAILY_NOTE_LOCALE) ===
+                  DEFAULT_DAILY_NOTE_LOCALE
+              }
+              onReset={() =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    directory: DEFAULT_DAILY_NOTES_DIRECTORY,
+                    titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+                    locale: DEFAULT_DAILY_NOTE_LOCALE
+                  }
+                })
+              }
+            />
+            <DateNotePatternSupportRow kind="daily" settingId="daily-note-pattern-support" />
             <div
               className="flex items-center justify-between gap-4 px-5 py-4"
               {...settingsSearchTargetProps('daily-notes-obsidian-preset')}
@@ -1946,7 +2074,7 @@ export function SettingsModal(): JSX.Element {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">Use Obsidian scheme</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Sets directory “Daily notes”, format `YYYY/MM-MMMM/DD-MM-YYYY` and locale
+                  Sets directory “Daily notes/yyyy/MM-MMMM”, pattern `dd-MM-yyyy` and locale
                   `es` (e.g. `Daily notes/2026/05-mayo/22-05-2026`).
                 </div>
               </div>
@@ -1958,8 +2086,8 @@ export function SettingsModal(): JSX.Element {
                     dailyNotes: {
                       ...vaultSettings.dailyNotes,
                       enabled: true,
-                      directory: 'Daily notes',
-                      pathFormat: 'YYYY/MM-MMMM/DD-MM-YYYY',
+                      directory: 'Daily notes/yyyy/MM-MMMM',
+                      titlePattern: 'dd-MM-yyyy',
                       locale: 'es'
                     }
                   })
@@ -1979,6 +2107,30 @@ export function SettingsModal(): JSX.Element {
                 void persistVaultSettings({
                   ...vaultSettings,
                   dailyNotes: { ...vaultSettings.dailyNotes, templateId }
+                })
+              }
+            />
+            <ToggleRow
+              label="Tasks are due on the note's date"
+              description="A task written inside a daily note appears on the calendar for that day automatically — no need to type a due date. An explicit `due:YYYY-MM-DD` still wins."
+              value={vaultSettings.dailyNotes.tasksDueOnNoteDate !== false}
+              settingId="daily-notes-tasks-due-on-date"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, tasksDueOnNoteDate: on }
+                })
+              }
+            />
+            <ToggleRow
+              label="Roll over unfinished tasks to today"
+              description="When today's daily note opens, move every unchecked task from previous daily notes into it. Checked tasks stay where they are."
+              value={vaultSettings.dailyNotes.rolloverUnfinishedTasks === true}
+              settingId="daily-notes-rollover"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, rolloverUnfinishedTasks: on }
                 })
               }
             />
@@ -2011,7 +2163,7 @@ export function SettingsModal(): JSX.Element {
 
           <Section
             title="Weekly Notes"
-            description="Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory."
+            description="Create one note per ISO week with a configurable title and keep it in a dedicated directory."
           >
             <ToggleRow
               label="Enable weekly notes"
@@ -2029,11 +2181,12 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Weekly notes directory"
+              label="Weekly notes directory pattern"
               description="Stored inside your primary notes area. The default is `Weekly Notes`."
               value={vaultSettings.weeklyNotes.directory}
               placeholder={DEFAULT_WEEKLY_NOTES_DIRECTORY}
               settingId="weekly-notes-directory"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -2044,6 +2197,63 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+            <TextInputRow
+              label="Weekly note naming pattern"
+              description="Used as the weekly note title and filename. The default is `yyyy-'W'ww`."
+              value={vaultSettings.weeklyNotes.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN}
+              placeholder={DEFAULT_WEEKLY_NOTE_TITLE_PATTERN}
+              settingId="weekly-note-title-pattern"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    titlePattern: normalizeWeeklyNoteTitlePattern(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Weekly note locale"
+              description="Used for localized month and weekday names. Use `system`, `en-US`, or `pt-BR`."
+              value={vaultSettings.weeklyNotes.locale ?? DEFAULT_WEEKLY_NOTE_LOCALE}
+              placeholder={DEFAULT_WEEKLY_NOTE_LOCALE}
+              settingId="weekly-note-locale"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    locale: normalizeWeeklyNoteLocale(next)
+                  }
+                })
+              }
+            />
+            <DateNotePatternResetRow
+              kind="weekly"
+              settingId="weekly-note-pattern-reset"
+              isDefault={
+                vaultSettings.weeklyNotes.directory === DEFAULT_WEEKLY_NOTES_DIRECTORY &&
+                (vaultSettings.weeklyNotes.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN) ===
+                  DEFAULT_WEEKLY_NOTE_TITLE_PATTERN &&
+                (vaultSettings.weeklyNotes.locale ?? DEFAULT_WEEKLY_NOTE_LOCALE) ===
+                  DEFAULT_WEEKLY_NOTE_LOCALE
+              }
+              onReset={() =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY,
+                    titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+                    locale: DEFAULT_WEEKLY_NOTE_LOCALE
+                  }
+                })
+              }
+            />
+            <DateNotePatternSupportRow kind="weekly" settingId="weekly-note-pattern-support" />
             <TemplateSelectRow
               label="Weekly note template"
               description="Applied when a weekly note is created. None creates a blank note."
@@ -2064,7 +2274,7 @@ export function SettingsModal(): JSX.Element {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">Open this week's note</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.
+                  Opens this week's note if it exists, otherwise creates it with the configured weekly title pattern.
                 </div>
               </div>
               <button
@@ -2111,7 +2321,7 @@ export function SettingsModal(): JSX.Element {
 
           <Section
             title="System Folders"
-            description="Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
+            description="Customize how the built-in folders and the Tasks view are named in the UI. This changes labels only — the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
           >
             <TextInputRow
               label="Inbox label"
@@ -2145,8 +2355,16 @@ export function SettingsModal(): JSX.Element {
               settingId="trash-label"
               onChange={(next) => setSystemFolderLabel('trash', next)}
             />
+            <TextInputRow
+              label="Tasks label"
+              description="Display name for the vault-wide Tasks view — sidebar, tab, title bar, and command palette."
+              value={systemFolderLabels.tasks ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.tasks}
+              settingId="tasks-label"
+              onChange={(next) => setSystemFolderLabel('tasks', next)}
+            />
             <InlineNote>
-              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
+              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, {getSystemFolderLabel('trash', systemFolderLabels)}, and {getSystemFolderLabel('tasks', systemFolderLabels)}.
             </InlineNote>
           </Section>
 
@@ -3832,6 +4050,119 @@ function IconRulesSection({ settingId }: { settingId?: string }): JSX.Element {
   )
 }
 
+const DATE_NOTE_PATTERN_TOKENS = [
+  { token: 'yyyy', output: '2026', meaning: 'year; ISO week-year for weekly notes' },
+  { token: 'yy', output: '26', meaning: '2-digit year' },
+  { token: 'M', output: '6', meaning: 'month' },
+  { token: 'MM', output: '06', meaning: 'padded month' },
+  { token: 'MMM', output: 'Jun', meaning: 'short month name' },
+  { token: 'MMMM', output: 'June', meaning: 'full month name' },
+  { token: 'd', output: '9', meaning: 'day of month' },
+  { token: 'dd', output: '09', meaning: 'padded day of month' },
+  { token: 'EEE', output: 'Tue', meaning: 'short weekday name' },
+  { token: 'EEEE', output: 'Tuesday', meaning: 'full weekday name' },
+  { token: 'w', output: '24', meaning: 'ISO week number' },
+  { token: 'ww', output: '24', meaning: 'padded ISO week number' }
+]
+
+function DateNotePatternSupportRow({
+  kind,
+  settingId
+}: {
+  kind: 'daily' | 'weekly'
+  settingId?: string
+}): JSX.Element {
+  const example =
+    kind === 'daily' ? (
+      <>
+        <code className="font-mono text-ink-700">yyyy/MM-MMM</code> +{' '}
+        <code className="font-mono text-ink-700">yyyy-MM-dd-EEE</code> creates{' '}
+        <code className="font-mono text-ink-700">2026/06-Jun/2026-06-09-Tue.md</code>.
+      </>
+    ) : (
+      <>
+        <code className="font-mono text-ink-700">yyyy/MM-MMM</code> +{' '}
+        <code className="font-mono text-ink-700">yyyy-'W'ww-EEE</code> creates{' '}
+        <code className="font-mono text-ink-700">2026/06-Jun/2026-W24-Mon.md</code>.
+      </>
+    )
+
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Supported pattern tokens</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        Directory and naming patterns support these tokens. Weekly notes render date tokens from
+        the ISO week’s Monday. Wrap literal words in single quotes, for example{' '}
+        <code className="font-mono text-ink-700">'Daily Notes'/yyyy/MM-MMM</code>.
+      </div>
+      <dl className="mt-4 grid grid-cols-1 gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+        {DATE_NOTE_PATTERN_TOKENS.map((item) => (
+          <div key={item.token} className="grid grid-cols-[5rem_4.5rem_1fr] items-baseline gap-3">
+            <dt className="font-mono text-ink-900">{item.token}</dt>
+            <dd className="font-mono text-ink-600">{item.output}</dd>
+            <dd className="text-ink-500">{item.meaning}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-4 space-y-1 text-xs leading-5 text-ink-500">
+        <div>
+          <span className="font-medium text-ink-700">Example:</span> {example}
+        </div>
+        <div>
+          Localized names use the note locale:{' '}
+          <code className="font-mono text-ink-700">system</code>,{' '}
+          <code className="font-mono text-ink-700">en-US</code>,{' '}
+          <code className="font-mono text-ink-700">pt-BR</code>, or another BCP 47 locale.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DateNotePatternResetRow({
+  kind,
+  isDefault,
+  onReset,
+  settingId
+}: {
+  kind: 'daily' | 'weekly'
+  isDefault: boolean
+  onReset: () => void
+  settingId?: string
+}): JSX.Element {
+  const directory =
+    kind === 'daily' ? DEFAULT_DAILY_NOTES_DIRECTORY : DEFAULT_WEEKLY_NOTES_DIRECTORY
+  const naming =
+    kind === 'daily' ? DEFAULT_DAILY_NOTE_TITLE_PATTERN : DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
+  const locale = kind === 'daily' ? DEFAULT_DAILY_NOTE_LOCALE : DEFAULT_WEEKLY_NOTE_LOCALE
+  return (
+    <div
+      className="flex items-center justify-between gap-4 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">Reset to defaults</div>
+        <div className="mt-1 text-xs leading-5 text-ink-500">
+          Restore the directory, naming, and locale to{' '}
+          <code className="font-mono text-ink-700">{directory}</code>,{' '}
+          <code className="font-mono text-ink-700">{naming}</code>, and{' '}
+          <code className="font-mono text-ink-700">{locale}</code>. Notes created with the
+          current pattern stay recognized.
+        </div>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={isDefault}
+        onClick={onReset}
+        className="shrink-0"
+      >
+        Reset to defaults
+      </Button>
+    </div>
+  )
+}
+
 const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'
 
 function toElectronAccelerator(binding: string): string {
@@ -4006,6 +4337,7 @@ function TextInputRow({
   value,
   placeholder,
   settingId,
+  commitOnBlur = false,
   onChange
 }: {
   label: string
@@ -4013,25 +4345,56 @@ function TextInputRow({
   value: string
   placeholder?: string
   settingId?: string
+  commitOnBlur?: boolean
   onChange: (next: string | null) => void
 }): JSX.Element {
+  const [draft, setDraft] = useState(value)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!commitOnBlur || !focused) setDraft(value)
+  }, [commitOnBlur, focused, value])
+
+  const commit = (raw: string): void => {
+    const next = raw.trim()
+    if (commitOnBlur && next === value) return
+    onChange(next ? next : null)
+  }
+
   return (
     <div
       className="flex items-center justify-between gap-5 px-5 py-4"
       {...settingsSearchTargetProps(settingId)}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
       <input
-        value={value}
+        value={commitOnBlur ? draft : value}
+        onFocus={() => setFocused(true)}
         onChange={(e) => {
-          const next = e.target.value.trim()
-          onChange(next ? next : null)
+          if (commitOnBlur) {
+            setDraft(e.target.value)
+            return
+          }
+          commit(e.target.value)
+        }}
+        onBlur={(e) => {
+          if (!commitOnBlur) return
+          setFocused(false)
+          commit(e.target.value)
+        }}
+        onKeyDown={(e) => {
+          if (!commitOnBlur) return
+          if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setDraft(value)
+            e.currentTarget.blur()
+          }
         }}
         placeholder={placeholder}
-        className="w-[23rem] max-w-[50vw] rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+        className="w-[23rem] max-w-[50vw] shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
       />
     </div>
   )
@@ -4191,6 +4554,8 @@ function FontRow({
   }
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActiveIdx((i) => (i + 1 >= items.length ? items.length - 1 : i + 1))

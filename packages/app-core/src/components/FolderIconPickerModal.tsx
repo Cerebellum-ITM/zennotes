@@ -28,6 +28,7 @@ export function FolderIconPickerModal({
   perSectionFilter = false,
   onSelect,
   onImport,
+  onReset,
   onCancel
 }: {
   targetLabel: string
@@ -47,6 +48,8 @@ export function FolderIconPickerModal({
    * `section` (optional) targets a subfolder under `.zennotes/icons/`.
    */
   onImport?: (input: { name: string; svg: string; section?: string }) => void | Promise<void>
+  /** When provided, shows a "Reset icon" button that clears the stored icon. */
+  onReset?: () => void
   onCancel: () => void
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -463,6 +466,11 @@ export function FolderIconPickerModal({
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
+        {onReset && currentIconRef && (
+          <Button variant="ghost" onClick={onReset}>
+            Reset icon
+          </Button>
+        )}
       </Modal.Footer>
     </Modal>
   )

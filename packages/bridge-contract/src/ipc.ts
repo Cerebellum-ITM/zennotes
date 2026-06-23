@@ -18,6 +18,7 @@ export const IPC = {
   VAULT_GET_CURRENT: 'vault:get-current',
   VAULT_GET_SETTINGS: 'vault:get-settings',
   VAULT_SET_SETTINGS: 'vault:set-settings',
+  VAULT_ROOT_CONTENT_HIDDEN: 'vault:root-content-hidden',
   VAULT_LIST_NOTES: 'vault:list-notes',
   VAULT_LIST_NOTES_STREAM: 'vault:list-notes-stream',
   VAULT_LIST_FOLDERS: 'vault:list-folders',
@@ -40,6 +41,7 @@ export const IPC = {
   VAULT_WRITE_NOTE: 'vault:write-note',
   VAULT_APPEND_NOTE: 'vault:append-note',
   VAULT_CREATE_NOTE: 'vault:create-note',
+  VAULT_CREATE_EXCALIDRAW: 'vault:create-excalidraw',
   VAULT_RENAME_NOTE: 'vault:rename-note',
   VAULT_DELETE_NOTE: 'vault:delete-note',
   VAULT_MOVE_TO_TRASH: 'vault:move-to-trash',
@@ -72,6 +74,7 @@ export const IPC = {
   VAULT_WRITE_DATABASE_ROWS: 'vault:write-database-rows',
   VAULT_WRITE_DATABASE_SCHEMA: 'vault:write-database-schema',
   VAULT_CREATE_DATABASE: 'vault:create-database',
+  VAULT_RENAME_DATABASE: 'vault:rename-database',
   VAULT_CREATE_RECORD_PAGE: 'vault:create-record-page',
   VAULT_LIST_DATABASES: 'vault:list-databases',
   APP_LIST_FONTS: 'app:list-fonts',
@@ -293,30 +296,62 @@ export interface ImportCustomIconInput {
   section?: string
 }
 
+/** Preset folder accent colors (tints the folder's sidebar icon). */
+export type FolderColorId =
+  | 'red'
+  | 'orange'
+  | 'amber'
+  | 'green'
+  | 'teal'
+  | 'sky'
+  | 'blue'
+  | 'indigo'
+  | 'violet'
+  | 'pink'
+
+export interface DateNotePatternSettings {
+  /** Directory or date-based directory pattern inside the primary notes area. */
+  directory: string
+  /** Date-based title/filename pattern. */
+  titlePattern?: string
+  /** BCP 47 locale used for localized pattern tokens. `system` = OS/browser locale. */
+  locale?: string
+}
+
 export interface DailyNotesSettings {
   enabled: boolean
+  /** Directory or date-based directory pattern inside the primary notes area. */
   directory: string
+  /** Date-based title/filename pattern for new daily notes. */
+  titlePattern?: string
+  /** BCP 47 locale used for localized pattern tokens. `system` = OS/browser locale. */
+  locale?: string
+  /** Prior patterns used only to recognize existing daily notes after settings changes. */
+  legacyPatterns?: DateNotePatternSettings[]
   /** Template applied to new daily notes. Empty/undefined = blank note. */
   templateId?: string
   /**
-   * Optional moment-style pattern, relative to `directory`, used to build and
-   * recognize the daily note's subfolders + filename. May contain `/` for
-   * nested folders and ends with the filename (no extension). Empty/undefined =
-   * legacy flat ISO `YYYY-MM-DD` directly inside `directory`.
-   * Tokens: `YYYY YY MMMM MMM MM M DD D` (see `formatDate`). Example:
-   * `YYYY/MM-MMMM/DD-MM-YYYY` -> `2026/05-mayo/22-05-2026`.
+   * Treat a task written inside a daily note as due on that note's date, so it
+   * shows up on the calendar without typing `due:`. The line is left untouched —
+   * the due date is derived. An explicit `due:` token still wins. Default `true`.
    */
-  pathFormat?: string
+  tasksDueOnNoteDate?: boolean
   /**
-   * BCP-47 locale used for name tokens (`MMMM`/`MMM`) in `pathFormat`, both when
-   * generating and when matching existing notes. Undefined = system locale.
-   */
-  locale?: string
+   * When today's daily note opens, move every unfinished task from previous
+   * daily notes into it (Obsidian-style). Off by default. */
+  rolloverUnfinishedTasks?: boolean
 }
 
 export interface WeeklyNotesSettings {
   enabled: boolean
+  /** Directory or date-based directory pattern inside the primary notes area. */
   directory: string
+  /** Date-based title/filename pattern for new weekly notes. */
+  titlePattern?: string
+  /** BCP 47 locale used for localized pattern tokens. `system` = OS/browser locale. */
+  locale?: string
+  /** Prior patterns used only to recognize existing weekly notes after settings changes. */
+  legacyPatterns?: DateNotePatternSettings[]
   /** Template applied to new weekly notes. Empty/undefined = blank note. */
   templateId?: string
 }
@@ -357,22 +392,44 @@ export interface VaultSettings {
   folderIcons: Record<string, IconRef>
   /** Ordered icon-assignment rules. Array order = match priority. */
   iconRules?: IconRule[]
+  /** Per-folder accent color, keyed by `folder:subpath` (same key as folderIcons). */
+  folderColors: Record<string, FolderColorId>
+  /**
+   * Favorited notes and folders, pinned to the top of the sidebar. Each entry is
+   * either a note's vault-relative path (e.g. `inbox/Idea.md`) or a folder key
+   * `folder:subpath` (e.g. `inbox:Projects`). Folder keys always contain a `:`;
+   * note paths never do (`:` is a forbidden filename char), so the two are
+   * distinguishable. Order is the display order in the Favorites section.
+   */
+  favorites: string[]
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
+export const DEFAULT_DAILY_NOTE_TITLE_PATTERN = 'yyyy-MM-dd'
+export const DEFAULT_DAILY_NOTE_LOCALE = 'system'
 export const DEFAULT_WEEKLY_NOTES_DIRECTORY = 'Weekly Notes'
+export const DEFAULT_WEEKLY_NOTE_TITLE_PATTERN = "yyyy-'W'ww"
+export const DEFAULT_WEEKLY_NOTE_LOCALE = 'system'
 
 export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
     enabled: false,
-    directory: DEFAULT_DAILY_NOTES_DIRECTORY
+    directory: DEFAULT_DAILY_NOTES_DIRECTORY,
+    titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+    locale: DEFAULT_DAILY_NOTE_LOCALE,
+    tasksDueOnNoteDate: true,
+    rolloverUnfinishedTasks: false
   },
   weeklyNotes: {
     enabled: false,
-    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
+    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY,
+    titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+    locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
-  folderIcons: {}
+  folderIcons: {},
+  folderColors: {},
+  favorites: []
 }
 
 export interface NoteMeta {
@@ -390,6 +447,9 @@ export interface NoteMeta {
   tags: string[]
   /** Outbound [[wikilink]] targets (note titles), unique. */
   wikilinks: string[]
+  /** Outbound asset-embed targets (`![[asset]]` / `![](asset)`), unique. Used to
+   *  show which notes use a given asset in the Assets view. */
+  assetEmbeds: string[]
   /** True when the body references at least one local non-text asset
    *  (PDF, image, audio, video, generic file). Surfaced in the sidebar
    *  as a small paperclip hint so attachments are discoverable. */

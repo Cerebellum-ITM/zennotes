@@ -222,6 +222,7 @@ describe('resolveNoteIconRef — precedence (explicit > rule > default)', () => 
       tags: [],
       wikilinks: [],
       hasAttachments: false,
+      assetEmbeds: [],
       excerpt: '',
       ...partial
     }

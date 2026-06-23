@@ -25,3 +25,9 @@ data/
 
 # Local commitcraft config (personal tooling — not for upstream)
 /.commitcraft.toml
+
+# Nix build outputs
+result
+result-*
+# Release notes / launch copy are kept local only, never committed.
+docs/releases/
