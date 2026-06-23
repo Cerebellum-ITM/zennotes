@@ -7,6 +7,7 @@ import {
   dailyNoteLocationForDate,
   dateNoteFolderMayBelongToDatePattern,
   dateNoteDirectoryDisplayLabel,
+  dateNoteDirectoryBase,
   favoriteFolderKey,
   folderForVaultRelativePath,
   isFavoriteFolderKey,
@@ -554,5 +555,49 @@ describe('favorites', () => {
   it('defaults favorites to an empty array', () => {
     const settings = normalizeVaultSettings({} as unknown as VaultSettings)
     expect(settings.favorites).toEqual([])
+  })
+})
+
+describe('dateNoteDirectoryBase', () => {
+  it('returns the literal prefix before the first date token', () => {
+    expect(dateNoteDirectoryBase('Daily notes/yyyy/MM-MMMM')).toBe('Daily notes')
+    expect(dateNoteDirectoryBase('Journal/yyyy')).toBe('Journal')
+  })
+
+  it('returns a plain (token-free) directory unchanged', () => {
+    expect(dateNoteDirectoryBase('Daily Notes')).toBe('Daily Notes')
+    expect(dateNoteDirectoryBase('A/B')).toBe('A/B')
+  })
+})
+
+describe('legacy dailyNotes.pathFormat migration', () => {
+  it('translates pathFormat into directory + titlePattern so existing paths are preserved', () => {
+    const settings = normalizeVaultSettings({
+      primaryNotesLocation: 'root',
+      dailyNotes: {
+        enabled: true,
+        directory: 'Daily notes',
+        pathFormat: 'YYYY/MM-MMMM/DD-MM-YYYY',
+        locale: 'es'
+      }
+    } as unknown as VaultSettings)
+    expect(settings.dailyNotes.directory).toBe('Daily notes/yyyy/MM-MMMM')
+    expect(settings.dailyNotes.titlePattern).toBe('dd-MM-yyyy')
+    expect(settings.dailyNotes.locale).toBe('es')
+    // The date-nav must recover the real base folder for icon/rule lookups.
+    expect(dateNoteDirectoryBase(settings.dailyNotes.directory)).toBe('Daily notes')
+  })
+
+  it('keeps an explicit titlePattern (does not re-run the legacy migration)', () => {
+    const settings = normalizeVaultSettings({
+      primaryNotesLocation: 'root',
+      dailyNotes: {
+        enabled: true,
+        directory: 'Daily notes',
+        titlePattern: 'yyyy-MM-dd'
+      }
+    } as unknown as VaultSettings)
+    expect(settings.dailyNotes.directory).toBe('Daily notes')
+    expect(settings.dailyNotes.titlePattern).toBe('yyyy-MM-dd')
   })
 })

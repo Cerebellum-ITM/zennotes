@@ -541,6 +541,24 @@ export function dateNoteDirectoryDisplayLabel(
   return fallbackLabel
 }
 
+/**
+ * The literal directory prefix of a date-note `directory` pattern: the leading
+ * path segments that contain no date tokens (e.g. `Daily notes/yyyy/MM-MMMM` ->
+ * `Daily notes`). Used to map a configured date-pattern directory back to the
+ * real base folder for sidebar icon/rule lookups. A plain directory (no tokens)
+ * is returned unchanged.
+ */
+export function dateNoteDirectoryBase(pattern: string): string {
+  if (!shouldFormatDirectoryPattern(pattern)) return pattern
+  const base: string[] = []
+  for (const segment of pattern.split('/')) {
+    const parts = parseDateNotePattern(segment)
+    if (parts.some((part) => part.kind === 'token')) break
+    base.push(segment)
+  }
+  return base.join('/') || pattern
+}
+
 const DATE_PATTERN_MATCH_KEYS: Array<keyof DateNotePatternMatch> = [
   'year',
   'month',

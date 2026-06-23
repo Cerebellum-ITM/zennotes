@@ -54,6 +54,7 @@ import {
   classifyDateNote,
   dateNoteFolderMayBelongToDatePattern,
   dateNoteDirectoryDisplayLabel,
+  dateNoteDirectoryBase,
   favoriteFolderKey,
   folderIconKey,
   isFavoriteFolderKey,
@@ -1236,8 +1237,11 @@ export function Sidebar(): JSX.Element {
   // day, weekly by year → week, all newest-first.
   const dateNav = useMemo(() => {
     const s = normalizeVaultSettings(vaultSettings);
-    const dailyDir = s.dailyNotes.directory;
-    const weeklyDir = s.weeklyNotes.directory;
+    // Use the literal base folder (e.g. `Daily notes` from `Daily notes/yyyy/MM-MMMM`)
+    // so the date-nav root icon, year-folder derivation, and folder icon-rules
+    // resolve against the real on-disk subpaths rather than the date pattern.
+    const dailyDir = dateNoteDirectoryBase(s.dailyNotes.directory);
+    const weeklyDir = dateNoteDirectoryBase(s.weeklyNotes.directory);
     // The real folder one level above a month folder, relative to dailyDir
     // (e.g. "Daily notes/2024/01-Enero" → "Daily notes/2024"). Used so folder
     // icon rules can target the year folder of nested daily-note layouts.
