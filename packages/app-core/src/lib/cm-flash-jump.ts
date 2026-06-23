@@ -110,13 +110,23 @@ export function computeFlashTargets(
 /**
  * Resolve the selection produced by jumping to `targetFrom`. Normal mode places
  * a bare cursor; visual mode keeps the original anchor and moves the head.
+ *
+ * Vim char-wise visual is **inclusive**: the character the jump lands on is part
+ * of the selection. CodeMirror ranges are exclusive on the head side, so we grow
+ * the leading edge by one (forward → head+1, backward → anchor+1) to include
+ * that char — matching how `f`/`t`/search motions behave in vim visual. The
+ * `docLength` clamp keeps the grown edge inside the document.
  */
 export function flashSelection(
   mode: FlashMode,
   anchor: number,
-  targetFrom: number
+  targetFrom: number,
+  docLength = Number.MAX_SAFE_INTEGER
 ): { anchor: number; head: number } {
-  if (mode === 'visual') return { anchor, head: targetFrom }
+  if (mode === 'visual') {
+    if (targetFrom >= anchor) return { anchor, head: Math.min(targetFrom + 1, docLength) }
+    return { anchor: Math.min(anchor + 1, docLength), head: targetFrom }
+  }
   return { anchor: targetFrom, head: targetFrom }
 }
 
@@ -273,13 +283,70 @@ function endFlash(view: EditorView): void {
   view.focus()
 }
 
+/** Minimal view of the vim plugin's per-editor state we read/sync here. */
+interface VimSelState {
+  visualMode?: boolean
+  visualLine?: boolean
+  sel?: { anchor: { line: number; ch: number }; head: { line: number; ch: number } }
+}
+
+function vimStateOf(view: EditorView): VimSelState | null {
+  const cm = getCM(view) as unknown as { state?: { vim?: VimSelState } } | null
+  return cm?.state?.vim ?? null
+}
+
+function offsetToPos(view: EditorView, off: number): { line: number; ch: number } {
+  const line = view.state.doc.lineAt(off)
+  return { line: line.number - 1, ch: off - line.from }
+}
+
+function posToOffset(view: EditorView, pos: { line: number; ch: number }): number {
+  const doc = view.state.doc
+  const line = doc.line(Math.min(Math.max(pos.line + 1, 1), doc.lines))
+  return Math.min(line.from + Math.max(0, pos.ch), line.to)
+}
+
 function commitJump(view: EditorView, target: FlashTarget, state: FlashState): void {
-  const sel = flashSelection(state.mode, state.anchor, target.from)
-  view.dispatch({
-    effects: setFlash.of(null),
-    selection: EditorSelection.range(sel.anchor, sel.head),
-    scrollIntoView: true
-  })
+  if (state.mode !== 'visual') {
+    view.dispatch({
+      effects: setFlash.of(null),
+      selection: EditorSelection.cursor(target.from),
+      scrollIntoView: true
+    })
+    view.focus()
+    return
+  }
+
+  const vim = vimStateOf(view)
+  const doc = view.state.doc
+  // Vim's tracked visual anchor is authoritative; fall back to the anchor we
+  // captured when flash started (covers the non-vim path).
+  const anchorIdx = vim?.sel?.anchor ? posToOffset(view, vim.sel.anchor) : state.anchor
+
+  let selection
+  if (vim?.visualLine) {
+    // Line-wise visual (`V`): extend whole lines from the anchor line to the
+    // target line, keeping the head on the target side.
+    const anchorLine = doc.lineAt(anchorIdx)
+    const targetLine = doc.lineAt(target.from)
+    selection =
+      targetLine.number >= anchorLine.number
+        ? EditorSelection.range(anchorLine.from, targetLine.to)
+        : EditorSelection.range(anchorLine.to, targetLine.from)
+  } else {
+    const sel = flashSelection('visual', anchorIdx, target.from, doc.length)
+    selection = EditorSelection.range(sel.anchor, sel.head)
+  }
+
+  // Keep vim's own selection model in sync so it stays in visual mode and the
+  // next motion (arrows/hjkl) extends from the landing point instead of dropping
+  // out of visual. The vim plugin re-derives `sel` from this dispatched
+  // selection via its external-selection handler; we set it too as a guard.
+  if (vim?.visualMode) {
+    vim.sel = { anchor: offsetToPos(view, anchorIdx), head: offsetToPos(view, target.from) }
+  }
+
+  view.dispatch({ effects: setFlash.of(null), selection, scrollIntoView: true })
   view.focus()
 }
 
