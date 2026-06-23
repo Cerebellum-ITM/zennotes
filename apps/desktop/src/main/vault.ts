@@ -25,6 +25,8 @@ import {
   type IconRule,
   type ImportCustomIconInput,
   type FolderColorId,
+  type HistorySnapshot,
+  type RestoreHistoryResult,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -59,6 +61,12 @@ import {
 import { extractNoteFrontmatter } from '@shared/template-files'
 import { isExcalidrawPath, emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
+import {
+  listNoteSnapshots,
+  noteWorkingState,
+  readSnapshotContent,
+  snapshotNote
+} from './vault-history'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
@@ -300,7 +308,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   folderIcons: {},
   iconRules: [],
   folderColors: {},
-  favorites: []
+  favorites: [],
+  enabledHistoryPaths: []
 }
 
 interface VaultTextSearchCandidate {
@@ -858,7 +867,8 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       ...(rule.frontmatter ? { frontmatter: { ...rule.frontmatter } } : {})
     })),
     folderColors: { ...settings.folderColors },
-    favorites: [...settings.favorites]
+    favorites: [...settings.favorites],
+    enabledHistoryPaths: [...settings.enabledHistoryPaths]
   }
 }
 
@@ -1001,7 +1011,8 @@ function normalizeVaultSettings(
       folderIcons: {},
       iconRules: [],
       folderColors: {},
-      favorites: []
+      favorites: [],
+      enabledHistoryPaths: []
     }
   }
   const candidate = value as {
@@ -1028,6 +1039,7 @@ function normalizeVaultSettings(
     iconRules?: unknown
     folderColors?: Record<string, unknown> | null
     favorites?: unknown
+    enabledHistoryPaths?: unknown
   }
   const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -1074,8 +1086,23 @@ function normalizeVaultSettings(
     folderIcons,
     iconRules: normalizeIconRules(candidate.iconRules),
     folderColors: normalizeFolderColors(candidate.folderColors),
-    favorites: normalizeFavorites(candidate.favorites)
+    favorites: normalizeFavorites(candidate.favorites),
+    enabledHistoryPaths: normalizeEnabledHistoryPaths(candidate.enabledHistoryPaths)
   }
+}
+
+function normalizeEnabledHistoryPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const rel = toPosix(entry).replace(/^\/+/, '')
+    if (!rel || seen.has(rel)) continue
+    seen.add(rel)
+    out.push(rel)
+  }
+  return out
 }
 
 function normalizeFavorites(value: unknown): string[] {
@@ -1259,6 +1286,131 @@ export async function setVaultSettings(
     await fs.mkdir(path.join(root, 'inbox'), { recursive: true })
   }
   return cloneVaultSettings(normalized)
+}
+
+// --- Per-note git history -----------------------------------------------------
+// Git primitives live in `vault-history.ts` (git-dir outside the vault). The
+// functions here compose them with settings persistence + the vault write path.
+
+/** Mutate `enabledHistoryPaths` and persist, returning the saved settings. */
+async function updateEnabledHistoryPaths(
+  root: string,
+  mutate: (paths: string[]) => string[]
+): Promise<VaultSettings> {
+  const current = await getVaultSettings(root)
+  const next: VaultSettings = { ...current, enabledHistoryPaths: mutate(current.enabledHistoryPaths) }
+  return await setVaultSettings(root, next)
+}
+
+/** Turn on history for a note: add it to the opt-in list and take a baseline
+ *  snapshot when the file already has content. */
+export async function enableNoteHistory(root: string, rel: string): Promise<VaultSettings> {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  const settings = await updateEnabledHistoryPaths(root, (paths) =>
+    paths.includes(relPath) ? paths : [...paths, relPath]
+  )
+  try {
+    await snapshotNote(root, relPath, 'Enable history')
+  } catch (err) {
+    console.error('enableNoteHistory: baseline snapshot failed for', relPath, err)
+  }
+  return settings
+}
+
+/** Stop tracking a note. Existing snapshots stay in the repo (reversible). */
+export async function disableNoteHistory(root: string, rel: string): Promise<VaultSettings> {
+  const relPath = toPosix(rel)
+  return await updateEnabledHistoryPaths(root, (paths) => paths.filter((p) => p !== relPath))
+}
+
+/** Keep the opt-in list in sync when a tracked note changes path. The git log
+ *  follows the current path; snapshots under the old path remain in the repo
+ *  but are not surfaced after the move (known MVP limitation). */
+export async function remapEnabledHistoryPath(
+  root: string,
+  oldRel: string,
+  newRel: string
+): Promise<void> {
+  const from = toPosix(oldRel)
+  const to = toPosix(newRel)
+  if (from === to) return
+  try {
+    const current = await getVaultSettings(root)
+    if (!current.enabledHistoryPaths.includes(from)) return
+    await setVaultSettings(root, {
+      ...current,
+      enabledHistoryPaths: current.enabledHistoryPaths
+        .filter((p) => p !== to)
+        .map((p) => (p === from ? to : p))
+    })
+  } catch (err) {
+    console.error('remapEnabledHistoryPath failed', oldRel, '→', newRel, err)
+  }
+}
+
+/** Drop a note from the opt-in list (e.g. on delete). */
+export async function forgetNoteHistory(root: string, rel: string): Promise<void> {
+  const relPath = toPosix(rel)
+  try {
+    const current = await getVaultSettings(root)
+    if (!current.enabledHistoryPaths.includes(relPath)) return
+    await setVaultSettings(root, {
+      ...current,
+      enabledHistoryPaths: current.enabledHistoryPaths.filter((p) => p !== relPath)
+    })
+  } catch (err) {
+    console.error('forgetNoteHistory failed', rel, err)
+  }
+}
+
+export async function takeHistorySnapshot(
+  root: string,
+  rel: string,
+  message: string
+): Promise<HistorySnapshot | null> {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  return await snapshotNote(root, relPath, message)
+}
+
+export async function listHistorySnapshots(root: string, rel: string): Promise<HistorySnapshot[]> {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  return await listNoteSnapshots(root, relPath)
+}
+
+export async function getHistoryWorkingState(root: string, rel: string) {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  return await noteWorkingState(root, relPath)
+}
+
+export async function getHistorySnapshotContent(
+  root: string,
+  rel: string,
+  oid: string
+): Promise<string> {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  return await readSnapshotContent(root, relPath, oid)
+}
+
+/** Non-destructive restore: write the content from `oid` back to disk and take a
+ *  new forward snapshot. Posterior snapshots are preserved. */
+export async function restoreHistorySnapshot(
+  root: string,
+  rel: string,
+  oid: string
+): Promise<RestoreHistoryResult> {
+  const relPath = toPosix(rel)
+  resolveSafe(root, relPath)
+  const content = await readSnapshotContent(root, relPath, oid)
+  const meta = await writeNote(root, relPath, content)
+  const created = await snapshotNote(root, relPath, `Restore to ${oid.slice(0, 7)}`)
+  const snapshot = created ?? (await listNoteSnapshots(root, relPath))[0]
+  if (!snapshot) throw new Error(`Restore produced no snapshot for ${relPath}`)
+  return { meta, snapshot }
 }
 
 // --- Custom SVG icons (stored as `.zennotes/icons/<name>.svg`) ---------------
@@ -3322,6 +3474,7 @@ export async function renameNote(
   invalidateVaultTextSearchCache(root)
   if (willRename) {
     await updateInboundWikilinks(root, notesBefore, rel, meta.title)
+    await remapEnabledHistoryPath(root, rel, meta.path)
   }
   return meta
 }
@@ -3399,6 +3552,7 @@ async function moveBetweenFolders(
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
+  await remapEnabledHistoryPath(root, rel, meta.path)
   return meta
 }
 
@@ -3439,6 +3593,7 @@ export async function deleteNote(root: string, rel: string): Promise<void> {
   await removeNoteComments(root, rel)
   invalidateNoteMetaCache(root, rel)
   invalidateVaultTextSearchCache(root)
+  await forgetNoteHistory(root, rel)
 }
 
 export async function renameAsset(
@@ -3856,6 +4011,7 @@ export async function moveNote(
   invalidateNoteMetaCache(root, oldRel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
+  await remapEnabledHistoryPath(root, oldRel, meta.path)
   return meta
 }
 

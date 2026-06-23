@@ -21,6 +21,8 @@ import type {
   ExternalFileContent,
   ImportCustomIconInput,
   FolderEntry,
+  HistorySnapshot,
+  HistoryWorkingState,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -36,6 +38,7 @@ import type {
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
+  RestoreHistoryResult,
   ServerCapabilities,
   ServerSessionStatus,
   VaultChangeEvent,
@@ -291,6 +294,20 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_IMPORT_CUSTOM_ICON, input),
   deleteCustomIcon: (name: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_DELETE_CUSTOM_ICON, name),
+  enableNoteHistory: (relPath: string): Promise<VaultSettings> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_ENABLE, relPath),
+  disableNoteHistory: (relPath: string): Promise<VaultSettings> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_DISABLE, relPath),
+  takeHistorySnapshot: (relPath: string, message: string): Promise<HistorySnapshot | null> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_SNAPSHOT, relPath, message),
+  listHistorySnapshots: (relPath: string): Promise<HistorySnapshot[]> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_LIST, relPath),
+  getHistoryWorkingState: (relPath: string): Promise<HistoryWorkingState> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_WORKING_STATE, relPath),
+  getHistorySnapshotContent: (relPath: string, oid: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_CONTENT, relPath, oid),
+  restoreHistorySnapshot: (relPath: string, oid: string): Promise<RestoreHistoryResult> =>
+    ipcRenderer.invoke(IPC.VAULT_HISTORY_RESTORE, relPath, oid),
   getVaultTextSearchCapabilities: (
     paths: VaultTextSearchToolPaths = {}
   ): Promise<VaultTextSearchCapabilities> =>

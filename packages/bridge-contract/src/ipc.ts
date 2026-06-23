@@ -33,6 +33,13 @@ export const IPC = {
   VAULT_LIST_CUSTOM_ICONS: 'vault:list-custom-icons',
   VAULT_IMPORT_CUSTOM_ICON: 'vault:import-custom-icon',
   VAULT_DELETE_CUSTOM_ICON: 'vault:delete-custom-icon',
+  VAULT_HISTORY_ENABLE: 'vault:history-enable',
+  VAULT_HISTORY_DISABLE: 'vault:history-disable',
+  VAULT_HISTORY_SNAPSHOT: 'vault:history-snapshot',
+  VAULT_HISTORY_LIST: 'vault:history-list',
+  VAULT_HISTORY_WORKING_STATE: 'vault:history-working-state',
+  VAULT_HISTORY_CONTENT: 'vault:history-content',
+  VAULT_HISTORY_RESTORE: 'vault:history-restore',
   VAULT_TEXT_SEARCH_CAPABILITIES: 'vault:text-search-capabilities',
   VAULT_SEARCH_TEXT: 'vault:search-text',
   VAULT_READ_NOTE: 'vault:read-note',
@@ -402,6 +409,44 @@ export interface VaultSettings {
    * distinguishable. Order is the display order in the Favorites section.
    */
   favorites: string[]
+  /**
+   * Vault-relative note paths (POSIX) that have git-backed version history
+   * enabled (opt-in per note). Snapshots for these notes live in a git repo
+   * stored OUTSIDE the vault (desktop only); see `vault-history.ts`. Empty by
+   * default. Other notes are never tracked.
+   */
+  enabledHistoryPaths: string[]
+}
+
+/** Author identity recorded on a history snapshot (commit). */
+export interface HistoryAuthor {
+  name: string
+  email: string
+}
+
+/** A single git snapshot (commit) in a note's linear history. */
+export interface HistorySnapshot {
+  /** Full commit oid. */
+  oid: string
+  /** First 7 chars of the oid, for display. */
+  shortOid: string
+  message: string
+  author: HistoryAuthor | null
+  /** Committer time in epoch seconds. */
+  timestamp: number
+  /** First parent oid, or null for the root snapshot. */
+  parentOid: string | null
+}
+
+/** Whether the note's file on disk differs from its latest snapshot. */
+export interface HistoryWorkingState {
+  dirty: boolean
+}
+
+/** Result of a non-destructive restore: the new forward commit + note meta. */
+export interface RestoreHistoryResult {
+  meta: NoteMeta
+  snapshot: HistorySnapshot
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -429,7 +474,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   },
   folderIcons: {},
   folderColors: {},
-  favorites: []
+  favorites: [],
+  enabledHistoryPaths: []
 }
 
 export interface NoteMeta {

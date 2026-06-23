@@ -640,6 +640,17 @@ export function normalizeVaultSettings(
       normalizedFavorites.push(entry)
     }
   }
+  const normalizedHistoryPaths: string[] = []
+  if (Array.isArray(settings?.enabledHistoryPaths)) {
+    const seen = new Set<string>()
+    for (const entry of settings.enabledHistoryPaths) {
+      if (typeof entry !== 'string') continue
+      const rel = entry.replace(/\\/g, '/').replace(/^\/+/, '')
+      if (!rel || seen.has(rel)) continue
+      seen.add(rel)
+      normalizedHistoryPaths.push(rel)
+    }
+  }
   const primaryNotesLocation =
     settings?.primaryNotesLocation === 'root'
       ? 'root'
@@ -695,7 +706,8 @@ export function normalizeVaultSettings(
     folderIcons: normalizedFolderIcons,
     iconRules: normalizeIconRules(settings?.iconRules),
     folderColors: normalizedFolderColors,
-    favorites: normalizedFavorites
+    favorites: normalizedFavorites,
+    enabledHistoryPaths: normalizedHistoryPaths
   }
 }
 

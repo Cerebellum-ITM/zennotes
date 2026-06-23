@@ -278,6 +278,7 @@ export function SettingsModal(): JSX.Element {
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const persistVaultSettings = useStore((s) => s.setVaultSettings)
+  const disableNoteHistory = useStore((s) => s.disableNoteHistory)
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const connectRemoteWorkspaceProfile = useStore((s) => s.connectRemoteWorkspaceProfile)
@@ -1808,6 +1809,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Tasks label',
           description: 'Display name for the vault-wide Tasks view.',
           keywords: ['system folders', 'tasks', 'todos', 'goals', 'rename']
+        },
+        {
+          id: 'note-history-enabled',
+          title: 'Note history',
+          description: 'Notes with git-backed version history enabled (stored locally on this Mac).',
+          keywords: ['history', 'versions', 'snapshots', 'git', 'restore', 'revert', 'timeline']
         }
       ],
       content: (
@@ -2366,6 +2373,38 @@ export function SettingsModal(): JSX.Element {
             <InlineNote>
               Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, {getSystemFolderLabel('trash', systemFolderLabels)}, and {getSystemFolderLabel('tasks', systemFolderLabels)}.
             </InlineNote>
+          </Section>
+
+          <Section
+            title="Note history"
+            description="Notes with git-backed version history enabled. Snapshots are stored locally on this Mac, outside the vault."
+          >
+            <div className="px-5 py-4" {...settingsSearchTargetProps('note-history-enabled')}>
+              {(vaultSettings.enabledHistoryPaths ?? []).length === 0 ? (
+                <InlineNote>
+                  No notes have history enabled. Turn it on from a note&rsquo;s context menu or the
+                  history panel.
+                </InlineNote>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {(vaultSettings.enabledHistoryPaths ?? []).map((p) => (
+                    <li
+                      key={p}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-paper-300/60 bg-paper-100/60 px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate font-mono text-xs text-ink-800">{p}</span>
+                      <button
+                        type="button"
+                        onClick={() => void disableNoteHistory(p)}
+                        className="shrink-0 rounded-md border border-paper-300/70 px-2 py-1 text-2xs text-ink-600 transition-colors hover:border-danger hover:text-danger"
+                      >
+                        Disable
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </Section>
 
         </div>

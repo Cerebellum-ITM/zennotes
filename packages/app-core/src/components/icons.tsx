@@ -191,6 +191,14 @@ export const CalendarIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const HistoryIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M3 3v5h5" />
+    <path d="M3.05 13a9 9 0 1 0 2.13-5.66L3 8" />
+    <path d="M12 7v5l4 2" />
+  </I>
+)
+
 export const KanbanIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="4" width="5" height="16" rx="1" />

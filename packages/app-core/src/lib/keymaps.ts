@@ -18,6 +18,8 @@ export type KeymapId =
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
   | "global.toggleCommentsPanel"
+  | "global.toggleHistoryPanel"
+  | "global.takeSnapshot"
   | "global.addComment"
   | "global.focusPaneLeft"
   | "global.focusPaneRight"
@@ -190,6 +192,24 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Toggle comments panel",
     description: "Toggle the comments panel in the active pane.",
     defaultBinding: "Mod+Shift+C",
+  },
+  {
+    id: "global.toggleHistoryPanel",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Toggle history panel",
+    description: "Show/hide the version-history timeline for the active note.",
+    defaultBinding: "",
+  },
+  {
+    id: "global.takeSnapshot",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Take history snapshot",
+    description: "Capture a git snapshot of the active note (history must be enabled).",
+    defaultBinding: "",
   },
   {
     id: "global.addComment",

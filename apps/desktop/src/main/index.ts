@@ -64,6 +64,13 @@ import {
   listCustomIcons,
   importCustomIcon,
   deleteCustomIcon,
+  enableNoteHistory,
+  disableNoteHistory,
+  takeHistorySnapshot,
+  listHistorySnapshots,
+  getHistoryWorkingState,
+  getHistorySnapshotContent,
+  restoreHistorySnapshot,
   importExternalNote,
   importFiles,
   importPastedImage,
@@ -2195,6 +2202,48 @@ function registerIpc(): void {
     }
     const v = requireVault()
     return await deleteCustomIcon(v.root, name)
+  })
+
+  const requireLocalVaultForHistory = (): { root: string } => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Note history requires a local vault')
+    }
+    return requireVault()
+  }
+
+  handle(IPC.VAULT_HISTORY_ENABLE, async (_e, relPath: string) => {
+    const v = requireLocalVaultForHistory()
+    return await enableNoteHistory(v.root, relPath)
+  })
+
+  handle(IPC.VAULT_HISTORY_DISABLE, async (_e, relPath: string) => {
+    const v = requireLocalVaultForHistory()
+    return await disableNoteHistory(v.root, relPath)
+  })
+
+  handle(IPC.VAULT_HISTORY_SNAPSHOT, async (_e, relPath: string, message: string) => {
+    const v = requireLocalVaultForHistory()
+    return await takeHistorySnapshot(v.root, relPath, message)
+  })
+
+  handle(IPC.VAULT_HISTORY_LIST, async (_e, relPath: string) => {
+    const v = requireLocalVaultForHistory()
+    return await listHistorySnapshots(v.root, relPath)
+  })
+
+  handle(IPC.VAULT_HISTORY_WORKING_STATE, async (_e, relPath: string) => {
+    const v = requireLocalVaultForHistory()
+    return await getHistoryWorkingState(v.root, relPath)
+  })
+
+  handle(IPC.VAULT_HISTORY_CONTENT, async (_e, relPath: string, oid: string) => {
+    const v = requireLocalVaultForHistory()
+    return await getHistorySnapshotContent(v.root, relPath, oid)
+  })
+
+  handle(IPC.VAULT_HISTORY_RESTORE, async (_e, relPath: string, oid: string) => {
+    const v = requireLocalVaultForHistory()
+    return await restoreHistorySnapshot(v.root, relPath, oid)
   })
 
   handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {

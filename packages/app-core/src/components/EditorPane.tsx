@@ -98,6 +98,7 @@ import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
+import { HistoryTimelinePane } from './HistoryTimelinePane'
 import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -162,6 +163,7 @@ import {
   CalendarIcon,
   CheckSquareIcon,
   CloseIcon,
+  HistoryIcon,
   PaperclipIcon,
   DocumentIcon,
   FileDownIcon,
@@ -738,6 +740,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   // The calendar panel is a date navigator. It auto-opens while the pane shows
   // a daily/weekly note, but stays available (Obsidian-style) on any note as
   // long as the daily or weekly feature is enabled.
@@ -896,6 +899,40 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCalendarOpen((open) => !open)
   }, [])
 
+  const toggleHistoryPanel = useCallback(() => {
+    setHistoryOpen((open) => !open)
+  }, [])
+
+  // `zen:toggle-history` — routed only to the active pane, like the panels above.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      toggleHistoryPanel()
+    }
+    window.addEventListener('zen:toggle-history', handler)
+    return () => window.removeEventListener('zen:toggle-history', handler)
+  }, [isActive, toggleHistoryPanel])
+
+  // `zen:take-snapshot` — snapshot the active pane's note, opening the panel so
+  // the result is visible.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      const path = content?.path
+      if (!path) return
+      if (!useStore.getState().isNoteHistoryEnabled(path)) {
+        setHistoryOpen(true)
+        return
+      }
+      setHistoryOpen(true)
+      void useStore
+        .getState()
+        .takeHistorySnapshot(path, 'Snapshot')
+    }
+    window.addEventListener('zen:take-snapshot', handler)
+    return () => window.removeEventListener('zen:take-snapshot', handler)
+  }, [isActive, content?.path])
+
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
     setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
@@ -950,6 +987,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setOutlineOpen(false)
       setCommentsOpen(false)
       setCalendarOpen(false)
+      setHistoryOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
       if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
@@ -2838,6 +2876,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 <CalendarIcon />
               </IconBtn>
             )}
+            <IconBtn
+              title={historyOpen ? 'Hide history' : 'Show history'}
+              active={historyOpen}
+              onClick={toggleHistoryPanel}
+            >
+              <HistoryIcon />
+            </IconBtn>
             <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
               <FileDownIcon />
             </IconBtn>
@@ -3421,6 +3466,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         {content && calendarOpen && calendarAvailable && !zenMode && (
           <CalendarPanel note={content} />
         )}
+        {content && historyOpen && !zenMode && <HistoryTimelinePane note={content} />}
       </div>
       {content &&
         showEditor &&

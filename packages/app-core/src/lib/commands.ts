@@ -573,6 +573,59 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'view.history-panel',
+      title: 'Toggle History Panel',
+      category: 'View',
+      shortcut: shortcut('global.toggleHistoryPanel'),
+      keywords: 'history versions snapshots timeline git restore revert',
+      when: () => !!getState().activeNote,
+      run: () => {
+        window.dispatchEvent(new Event('zen:toggle-history'))
+      }
+    },
+    {
+      id: 'note.history.snapshot',
+      title: 'Take History Snapshot',
+      category: 'Note',
+      shortcut: shortcut('global.takeSnapshot'),
+      keywords: 'snapshot history version save point commit backup git',
+      when: () => {
+        const s = getState()
+        return !!s.activeNote && s.isNoteHistoryEnabled(s.activeNote.path)
+      },
+      run: () => {
+        window.dispatchEvent(new Event('zen:take-snapshot'))
+      }
+    },
+    {
+      id: 'note.history.enable',
+      title: 'Enable History for Note',
+      category: 'Note',
+      keywords: 'history versions enable track snapshots git',
+      when: () => {
+        const s = getState()
+        return !!s.activeNote && !s.isNoteHistoryEnabled(s.activeNote.path)
+      },
+      run: () => {
+        const s = getState()
+        if (s.activeNote) void s.enableNoteHistory(s.activeNote.path)
+      }
+    },
+    {
+      id: 'note.history.disable',
+      title: 'Disable History for Note',
+      category: 'Note',
+      keywords: 'history versions disable stop tracking snapshots git',
+      when: () => {
+        const s = getState()
+        return !!s.activeNote && s.isNoteHistoryEnabled(s.activeNote.path)
+      },
+      run: () => {
+        const s = getState()
+        if (s.activeNote) void s.disableNoteHistory(s.activeNote.path)
+      }
+    },
+    {
       id: 'view.close-right-panel',
       title: 'Close Right Panel',
       category: 'View',
