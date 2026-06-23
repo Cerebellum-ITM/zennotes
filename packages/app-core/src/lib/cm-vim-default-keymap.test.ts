@@ -28,7 +28,22 @@ describe('vimAwareDefaultKeymap', () => {
     expect(vim.some((b) => b.key === 'Enter')).toBe(true)
   })
 
-  it('removes exactly the 13 documented emacs chords, nothing more', () => {
-    expect(vimAwareDefaultKeymap(false).length - vimAwareDefaultKeymap(true).length).toBe(13)
+  it('strips the 13 emacs chords and prepends 4 visual-arrow bindings in Vim mode', () => {
+    // Net delta: -13 stripped emacs chords, +4 arrow interceptors = -9.
+    expect(vimAwareDefaultKeymap(false).length - vimAwareDefaultKeymap(true).length).toBe(9)
+  })
+
+  it('prepends visual-mode arrow interceptors ahead of the default arrow bindings', () => {
+    const vim = vimAwareDefaultKeymap(true)
+    const arrows = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight']
+    // The first four bindings are our interceptors (each carries a `run`), so
+    // they take precedence over defaultKeymap's own arrow bindings.
+    expect(vim.slice(0, 4).map((b) => b.key)).toEqual(arrows)
+    expect(vim.slice(0, 4).every((b) => typeof b.run === 'function')).toBe(true)
+    // The default arrow bindings still exist behind them (fallback for normal /
+    // insert / non-visual).
+    for (const key of arrows) {
+      expect(vim.filter((b) => b.key === key).length).toBeGreaterThanOrEqual(2)
+    }
   })
 })

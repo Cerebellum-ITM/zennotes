@@ -1,5 +1,6 @@
 import { defaultKeymap } from '@codemirror/commands'
-import type { KeyBinding } from '@codemirror/view'
+import type { EditorView, KeyBinding } from '@codemirror/view'
+import { Vim, getCM } from '@replit/codemirror-vim'
 
 /**
  * macOS-only Vim keymap conflict (`Ctrl-d` deletes instead of half-page-down).
@@ -49,10 +50,44 @@ const defaultKeymapWithoutMacEmacs: readonly KeyBinding[] = defaultKeymap.filter
 )
 
 /**
- * CodeMirror's `defaultKeymap`, made Vim-aware: in Vim mode the macOS
- * emacs-style control chords are stripped so Vim's `<C-d>`/`<C-a>`/`<C-v>`/…
- * bindings work; with Vim off the full keymap (including those chords) is used.
+ * In Vim **visual** mode the arrow keys must extend the selection just like
+ * `h`/`j`/`k`/`l` — not collapse it. CodeMirror's `defaultKeymap` binds the
+ * arrows to `cursorLine*`/`cursorChar*`, and (per the note above) that keymap
+ * runs at higher precedence than the Vim plugin's key handler, so without this
+ * the arrows drop a bare cursor and fall out of visual mode (whereas `hjkl`,
+ * which the default keymap leaves alone, work). We intercept the four arrows
+ * *before* the default arrow bindings and, only while a visual mode is active,
+ * forward them to Vim (which maps `<Up>/<Down>/<Left>/<Right>` → `k/j/h/l`).
+ *
+ * Returning `false` in every other case is deliberate and important: in normal
+ * mode the default arrows already move the cursor as expected, and in **insert**
+ * mode Vim ignores arrows entirely (its bindings are context-gated), so letting
+ * the default keymap handle them keeps cursor movement working there.
+ */
+function forwardArrowToVisualVim(vimKey: string): (view: EditorView) => boolean {
+  return (view) => {
+    const cm = getCM(view)
+    const vim = (cm?.state as { vim?: { visualMode?: boolean; insertMode?: boolean } } | undefined)
+      ?.vim
+    if (!cm || !vim?.visualMode || vim.insertMode) return false
+    Vim.handleKey(cm, vimKey, 'user')
+    return true
+  }
+}
+
+const visualArrowKeymap: readonly KeyBinding[] = [
+  { key: 'ArrowDown', run: forwardArrowToVisualVim('<Down>') },
+  { key: 'ArrowUp', run: forwardArrowToVisualVim('<Up>') },
+  { key: 'ArrowLeft', run: forwardArrowToVisualVim('<Left>') },
+  { key: 'ArrowRight', run: forwardArrowToVisualVim('<Right>') }
+]
+
+/**
+ * CodeMirror's `defaultKeymap`, made Vim-aware: in Vim mode the arrow keys are
+ * routed to Vim while in visual mode (so they extend the selection), and the
+ * macOS emacs-style control chords are stripped so Vim's `<C-d>`/`<C-a>`/… work.
+ * With Vim off the full keymap (including those chords) is used unchanged.
  */
 export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
-  return vimMode ? defaultKeymapWithoutMacEmacs : defaultKeymap
+  return vimMode ? [...visualArrowKeymap, ...defaultKeymapWithoutMacEmacs] : defaultKeymap
 }
