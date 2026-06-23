@@ -105,7 +105,10 @@ describe('getPendingHints — prefix', () => {
   it('shows the g-prefix menu with next keys', () => {
     const hints = getPendingHints({ kind: 'prefix', prefix: 'g', buffer: '' })
     expect(hints.title).toBe('g')
-    expect(hints.groups.flatMap((g) => g.items.map((i) => i.keys))).toContain('d')
+    const keys = hints.groups.flatMap((g) => g.items.map((i) => i.keys))
+    expect(keys).toContain('d')
+    // Document top (gg) and end (gG) are both surfaced.
+    expect(keys).toEqual(expect.arrayContaining(['g', 'G']))
   })
 
   it('shows the z-prefix folding menu', () => {

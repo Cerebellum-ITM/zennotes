@@ -72,7 +72,15 @@ describe('flashSelection', () => {
     expect(flashSelection('normal', 3, 10)).toEqual({ anchor: 10, head: 10 })
   })
 
-  it('keeps the anchor and moves the head in visual mode', () => {
-    expect(flashSelection('visual', 3, 10)).toEqual({ anchor: 3, head: 10 })
+  it('includes the landing char in visual mode (forward, inclusive)', () => {
+    expect(flashSelection('visual', 3, 10)).toEqual({ anchor: 3, head: 11 })
+  })
+
+  it('includes the landing char in visual mode (backward)', () => {
+    expect(flashSelection('visual', 10, 3)).toEqual({ anchor: 11, head: 3 })
+  })
+
+  it('clamps the grown edge to the document length', () => {
+    expect(flashSelection('visual', 3, 10, 10)).toEqual({ anchor: 3, head: 10 })
   })
 })

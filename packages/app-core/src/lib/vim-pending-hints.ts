@@ -176,6 +176,7 @@ const VISUAL_OPERATORS: HintItem[] = [
 
 const PREFIX_G: HintItem[] = [
   { keys: 'g', label: 'document top (gg)' },
+  { keys: 'G', label: 'document end (gG)' },
   { keys: 'd', label: 'follow link / definition' },
   { keys: 'u', label: 'lowercase' },
   { keys: 'U', label: 'uppercase' },

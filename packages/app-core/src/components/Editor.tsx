@@ -377,6 +377,12 @@ function registerVimCommands(): void {
   // Mirror yanks to the system clipboard (toggle-gated, synced from the store).
   setupVimYankClipboard()
 
+  // `gG` → end of document, the mirror of `gg` → top (surfaced in the `g`
+  // which-key panel). Vim has no default `gG`; remap it to `G` so it inherits
+  // `G`'s exact motion (linewise, jumplist) in both normal and visual mode.
+  Vim.map('gG', 'G', 'normal')
+  Vim.map('gG', 'G', 'visual')
+
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
   })
