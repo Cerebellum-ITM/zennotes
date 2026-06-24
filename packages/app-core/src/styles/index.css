@@ -2434,6 +2434,17 @@ textarea,
   border-radius: 4px;
   color: theme("colors.ink.800");
 }
+/* White pill behind the inline `{lang icon}` glyph, so dark or monochrome
+ * icons (e.g. a file/`__manifest__.py` glyph) stay legible on the dark
+ * inline-code chip. The glyph keeps its 14px size — the pill grows outside it
+ * (content-box) — and the code after it renders unchanged. Editor and preview
+ * share the `code-lang-icon` class. */
+.code-lang-icon {
+  box-sizing: content-box;
+  background: #aeb6bc;
+  padding: 2px;
+  border-radius: 4px;
+}
 .prose-zen pre {
   background: theme("colors.paper.200");
   border: 1px solid theme("colors.paper.300");

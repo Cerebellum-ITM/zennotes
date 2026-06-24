@@ -105,7 +105,12 @@ class InlineCodeChipWidget extends WidgetType {
     chip.className = 'cm-code-lang-chip cm-inline-hl tok-monospace'
     if (this.iconRef) {
       const icon = renderIconToDOM(this.iconRef, this.customByName, 14)
-      if (icon) chip.appendChild(icon)
+      if (icon) {
+        // Share the preview's class so the white icon pill (legible on the
+        // dark inline-code chip) is styled the same in both surfaces.
+        icon.classList.add('code-lang-icon')
+        chip.appendChild(icon)
+      }
     }
     if (this.tokHtml != null) {
       const codeSpan = document.createElement('span')
