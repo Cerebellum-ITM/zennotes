@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getPendingHints, isRegisterPendingCommand, panelStyleFor } from './vim-pending-hints'
+import {
+  formatMarkSnippet,
+  getPendingHints,
+  isMarkCommand,
+  isRegisterPendingCommand,
+  panelStyleFor
+} from './vim-pending-hints'
 
 describe('getPendingHints — operator top level', () => {
   it('shows next-key choices (text object + motion), not full sequences', () => {
@@ -101,6 +107,57 @@ describe('getPendingHints — literal (awaiting one key)', () => {
     const hints = getPendingHints({ kind: 'literal', buffer: '?' })
     expect(hints.title).toBe('?')
     expect(hints.groups[0].items[0].label).toBe('type a character')
+  })
+})
+
+describe('getPendingHints — mark hints (U24)', () => {
+  it('lists existing marks with letter + snippet under a Marks group', () => {
+    const hints = getPendingHints({
+      kind: 'literal',
+      buffer: '`',
+      marks: [
+        { name: 'a', text: 'first heading' },
+        { name: 'b', text: 'L12' }
+      ]
+    })
+    expect(hints.title).toBe('Go to mark')
+    const marks = hints.groups.find((g) => g.title === 'Marks')
+    expect(marks?.items).toEqual([
+      { keys: 'a', label: 'first heading' },
+      { keys: 'b', label: 'L12' }
+    ])
+    // The generic Input hint is still present.
+    expect(hints.groups[0].title).toBe('Input')
+  })
+
+  it('omits the Marks group when there are no marks', () => {
+    const hints = getPendingHints({ kind: 'literal', buffer: 'm' })
+    expect(hints.groups.some((g) => g.title === 'Marks')).toBe(false)
+    expect(hints.groups[0].title).toBe('Input')
+  })
+})
+
+describe('formatMarkSnippet', () => {
+  it('trims line text', () => {
+    expect(formatMarkSnippet('   hello world  ', 4)).toBe('hello world')
+  })
+
+  it('falls back to L<n> (1-based) for a blank line', () => {
+    expect(formatMarkSnippet('   ', 11)).toBe('L12')
+    expect(formatMarkSnippet('', 0)).toBe('L1')
+  })
+
+  it('truncates long lines with an ellipsis', () => {
+    const out = formatMarkSnippet('x'.repeat(50), 0)
+    expect(out.endsWith('…')).toBe(true)
+    expect(out.length).toBe(29) // 28 chars + ellipsis
+  })
+})
+
+describe('isMarkCommand', () => {
+  it('is true for m / ` / \' and false otherwise', () => {
+    for (const k of ['m', '`', "'"]) expect(isMarkCommand(k)).toBe(true)
+    for (const k of ['r', 'f', '"']) expect(isMarkCommand(k)).toBe(false)
   })
 })
 

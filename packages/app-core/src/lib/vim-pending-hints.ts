@@ -12,6 +12,12 @@ export type VimPendingKind = 'operator' | 'visual' | 'prefix' | 'literal'
 
 export type VisualKind = 'char' | 'line' | 'block'
 
+/** An existing vim mark: its name + a snippet of the line it points to. */
+export interface VimMarkHint {
+  name: string
+  text: string
+}
+
 export interface VimPendingState {
   kind: VimPendingKind
   /** Raw operator name from `vim.inputState.operator` (operator kind). */
@@ -20,6 +26,8 @@ export interface VimPendingState {
   prefix?: 'g' | 'z'
   /** Keys typed after the trigger, e.g. '' (just `c`), 'i' (`ci`), 'a' (`ca`). */
   buffer: string
+  /** Existing marks, only populated for the mark commands (m, `, '). */
+  marks?: VimMarkHint[]
 }
 
 export interface HintItem {
@@ -217,9 +225,26 @@ const LITERAL_COMMANDS: Record<string, { title: string; hint: string }> = {
 /** Mark/macro commands that wait for a register key (no `expectLiteralNext`). */
 const REGISTER_PENDING_COMMANDS = new Set(['m', '`', "'", '"', '@', 'q'])
 
+/** Commands that operate on a named mark (set with `m`, jump with ` / '). */
+const MARK_COMMANDS = new Set(['m', '`', "'"])
+
 /** True when `cmd` is a single-key command waiting for a register/mark key. */
 export function isRegisterPendingCommand(cmd: string): boolean {
   return REGISTER_PENDING_COMMANDS.has(cmd)
+}
+
+/** True when `cmd` sets or jumps to a mark (m / ` / '). */
+export function isMarkCommand(cmd: string): boolean {
+  return MARK_COMMANDS.has(cmd)
+}
+
+const MARK_SNIPPET_MAX = 28
+
+/** One-line preview of a mark's target: trimmed line text, or `L<n>` if blank. */
+export function formatMarkSnippet(lineText: string, lineIndex: number): string {
+  const trimmed = lineText.trim()
+  if (!trimmed) return `L${lineIndex + 1}`
+  return trimmed.length > MARK_SNIPPET_MAX ? `${trimmed.slice(0, MARK_SNIPPET_MAX)}…` : trimmed
 }
 
 function headerFor(state: VimPendingState): string {
@@ -236,7 +261,14 @@ export function getPendingHints(state: VimPendingState): PendingHints {
     const info = LITERAL_COMMANDS[state.buffer]
     const title = info?.title ?? state.buffer
     const label = info?.hint ?? 'type a character'
-    return { title, groups: [{ title: 'Input', items: [{ keys: '·', label }] }] }
+    const groups: HintGroup[] = [{ title: 'Input', items: [{ keys: '·', label }] }]
+    if (state.marks && state.marks.length) {
+      groups.push({
+        title: 'Marks',
+        items: state.marks.map((m) => ({ keys: m.name, label: m.text }))
+      })
+    }
+    return { title, groups }
   }
 
   // Drill-down: a pending `i`/`a` selects the text-object target next.
