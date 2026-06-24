@@ -6,6 +6,7 @@ import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
 import { resolveWikilinkTarget, wikilinkHeadingAnchor } from "../lib/wikilinks";
 import { openWikilinkHeading } from "../lib/wikilink-navigation";
+import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
 import {
   buildCustomIconIndex,
@@ -381,7 +382,12 @@ export const Preview = memo(function Preview({
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const customIcons = useStore((s) => s.customIcons);
+  const folders = useStore((s) => s.folders);
   const vaultSettings = useStore((s) => s.vaultSettings);
+  const databaseTargets = useMemo(
+    () => listDatabaseLinkTargets(folders, vaultSettings),
+    [folders, vaultSettings],
+  );
   const assetFiles = useStore((s) => s.assetFiles);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
@@ -552,6 +558,8 @@ export const Preview = memo(function Preview({
           const headingAnchor = wikilinkHeadingAnchor(anchor.dataset.wikilink ?? "");
           if (headingAnchor) void openWikilinkHeading(path, headingAnchor);
           else void selectNoteRef.current(path);
+        } else if (anchor.dataset.databaseCsv) {
+          void useStore.getState().openDatabase(anchor.dataset.databaseCsv);
         }
         return;
       }
@@ -745,9 +753,18 @@ export const Preview = memo(function Preview({
         a.classList.remove("broken");
         a.dataset.resolvedPath = resolved.path;
         prependNoteIcon(a, resolved);
+        delete a.dataset.databaseCsv;
+        return;
+      }
+      delete a.dataset.resolvedPath;
+      // Not a note — a `.base` database link is still valid (#238).
+      const db = resolveDatabaseWikilink(databaseTargets, target);
+      if (db) {
+        a.classList.remove("broken");
+        a.dataset.databaseCsv = db.csvPath;
       } else {
         a.classList.add("broken");
-        delete a.dataset.resolvedPath;
+        delete a.dataset.databaseCsv;
       }
     });
 
@@ -866,6 +883,7 @@ export const Preview = memo(function Preview({
     assetFilesKey,
     customIcons,
     effectiveMode,
+    databaseTargets,
     html,
     notePath,
     notes,
