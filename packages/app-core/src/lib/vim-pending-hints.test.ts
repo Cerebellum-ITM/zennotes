@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getPendingHints, panelStyleFor } from './vim-pending-hints'
+import { getPendingHints, isRegisterPendingCommand, panelStyleFor } from './vim-pending-hints'
 
 describe('getPendingHints — operator top level', () => {
   it('shows next-key choices (text object + motion), not full sequences', () => {
@@ -71,6 +71,50 @@ describe('getPendingHints — visual top level', () => {
   it('titles each visual kind', () => {
     expect(getPendingHints({ kind: 'visual', visualKind: 'line', buffer: '' }).title).toBe('Visual Line')
     expect(getPendingHints({ kind: 'visual', visualKind: 'block', buffer: '' }).title).toBe('Visual Block')
+  })
+})
+
+describe('getPendingHints — literal (awaiting one key)', () => {
+  it('`r` shows the replace hint', () => {
+    const hints = getPendingHints({ kind: 'literal', buffer: 'r' })
+    expect(hints.title).toBe('Replace')
+    expect(hints.groups).toHaveLength(1)
+    expect(hints.groups[0].title).toBe('Input')
+    expect(hints.groups[0].items[0]).toMatchObject({
+      keys: '·',
+      label: 'type a character to replace'
+    })
+  })
+
+  it('find/till/mark/register each get their own title + hint', () => {
+    expect(getPendingHints({ kind: 'literal', buffer: 'f' }).title).toBe('Find')
+    expect(getPendingHints({ kind: 'literal', buffer: 't' }).groups[0].items[0].label).toMatch(
+      /stop before/
+    )
+    expect(getPendingHints({ kind: 'literal', buffer: 'm' }).title).toBe('Set mark')
+    expect(getPendingHints({ kind: 'literal', buffer: '"' }).groups[0].items[0].label).toMatch(
+      /register/
+    )
+  })
+
+  it('falls back gracefully for an unknown command', () => {
+    const hints = getPendingHints({ kind: 'literal', buffer: '?' })
+    expect(hints.title).toBe('?')
+    expect(hints.groups[0].items[0].label).toBe('type a character')
+  })
+})
+
+describe('isRegisterPendingCommand', () => {
+  it('is true for mark/macro register commands', () => {
+    for (const k of ['m', '`', "'", '"', '@', 'q']) {
+      expect(isRegisterPendingCommand(k)).toBe(true)
+    }
+  })
+
+  it('is false for character commands and plain keys', () => {
+    for (const k of ['r', 'f', 'x', '']) {
+      expect(isRegisterPendingCommand(k)).toBe(false)
+    }
   })
 })
 

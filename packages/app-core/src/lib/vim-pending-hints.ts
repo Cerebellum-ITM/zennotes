@@ -8,7 +8,7 @@
  * CodeMirror — so it is unit-tested directly.
  */
 
-export type VimPendingKind = 'operator' | 'visual' | 'prefix'
+export type VimPendingKind = 'operator' | 'visual' | 'prefix' | 'literal'
 
 export type VisualKind = 'char' | 'line' | 'block'
 
@@ -192,6 +192,36 @@ const PREFIX_Z: HintItem[] = [
   { keys: 'R', label: 'unfold all' }
 ]
 
+/**
+ * Single-key commands that wait for one more literal key before acting:
+ * `<character>` commands (r f F t T [ ]) flagged by `vim.expectLiteralNext`,
+ * plus `<register>` mark/macro commands (m ` ' " @ q) which the library leaves
+ * as a retained partial without that flag. Title + hint shown in the panel.
+ */
+const LITERAL_COMMANDS: Record<string, { title: string; hint: string }> = {
+  r: { title: 'Replace', hint: 'type a character to replace' },
+  f: { title: 'Find', hint: 'type a character to jump forward to' },
+  F: { title: 'Find back', hint: 'type a character to jump back to' },
+  t: { title: 'Till', hint: 'type a character to stop before' },
+  T: { title: 'Till back', hint: 'type a character to stop after' },
+  '[': { title: 'Jump back', hint: 'type a bracket/symbol to jump to' },
+  ']': { title: 'Jump', hint: 'type a bracket/symbol to jump to' },
+  m: { title: 'Set mark', hint: 'type a letter to name the mark' },
+  '`': { title: 'Go to mark', hint: 'type the mark letter' },
+  "'": { title: 'Go to mark line', hint: 'type the mark letter' },
+  '"': { title: 'Register', hint: 'type a register letter' },
+  '@': { title: 'Replay macro', hint: 'type the macro register' },
+  q: { title: 'Record macro', hint: 'type a register to record into' }
+}
+
+/** Mark/macro commands that wait for a register key (no `expectLiteralNext`). */
+const REGISTER_PENDING_COMMANDS = new Set(['m', '`', "'", '"', '@', 'q'])
+
+/** True when `cmd` is a single-key command waiting for a register/mark key. */
+export function isRegisterPendingCommand(cmd: string): boolean {
+  return REGISTER_PENDING_COMMANDS.has(cmd)
+}
+
 function headerFor(state: VimPendingState): string {
   if (state.kind === 'operator') return OPERATOR_LABELS[state.operator ?? ''] ?? 'Operator'
   if (state.kind === 'visual') return VISUAL_TITLES[state.visualKind ?? 'char']
@@ -200,6 +230,14 @@ function headerFor(state: VimPendingState): string {
 
 export function getPendingHints(state: VimPendingState): PendingHints {
   const header = headerFor(state)
+
+  // A single-key command awaiting one literal/register key (r, f, m, …).
+  if (state.kind === 'literal') {
+    const info = LITERAL_COMMANDS[state.buffer]
+    const title = info?.title ?? state.buffer
+    const label = info?.hint ?? 'type a character'
+    return { title, groups: [{ title: 'Input', items: [{ keys: '·', label }] }] }
+  }
 
   // Drill-down: a pending `i`/`a` selects the text-object target next.
   if (state.kind !== 'prefix' && (state.buffer === 'i' || state.buffer === 'a')) {

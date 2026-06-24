@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view'
 import { getCM } from '@replit/codemirror-vim'
 import type { VimPendingState, VisualKind } from './vim-pending-hints'
+import { isRegisterPendingCommand } from './vim-pending-hints'
 
 /**
  * Read the current "pending" vim state from an editor view, for the motion hint
@@ -21,6 +22,7 @@ export function readVimPendingState(view: EditorView | null): VimPendingState | 
             visualLine?: boolean
             visualBlock?: boolean
             status?: string
+            expectLiteralNext?: boolean
             inputState?: { operator?: string | null; keyBuffer?: string[] }
           }
         }
@@ -40,6 +42,13 @@ export function readVimPendingState(view: EditorView | null): VimPendingState | 
   if (vim.visualMode) {
     const visualKind: VisualKind = vim.visualBlock ? 'block' : vim.visualLine ? 'line' : 'char'
     return { kind: 'visual', visualKind, buffer }
+  }
+
+  // Single-key command awaiting one literal/register key (r, f, m, …). The
+  // count prefix (3r → r) is stripped so the command is identified by itself.
+  const literalCmd = buffer.replace(/^\d+/, '')
+  if (vim.expectLiteralNext || isRegisterPendingCommand(literalCmd)) {
+    return { kind: 'literal', buffer: literalCmd }
   }
 
   // `g` / `z` command prefixes buffer a single key while awaiting completion.
