@@ -94,6 +94,7 @@ export const THEMES: ThemeOption[] = [
   // --- Tokyo Night (enkia) --------------------------------------------
   { id: 'tokyo-night-day', label: 'Day', family: 'tokyo-night', mode: 'light' },
   { id: 'tokyo-night-storm', label: 'Storm', family: 'tokyo-night', mode: 'dark' },
+  { id: 'tokyo-night-black', label: 'Black', family: 'tokyo-night', mode: 'dark', variant: 'black' },
 
   // --- Kanagawa (rebelot/kanagawa.nvim) -------------------------------
   // Inspired by Hokusai's "The Great Wave off Kanagawa". Wave is the warm

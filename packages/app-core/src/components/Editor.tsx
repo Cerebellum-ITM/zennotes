@@ -137,6 +137,18 @@ function toVimEditorKey(binding: string): string | null {
   return toVimSequence(normalized)
 }
 
+/**
+ * Resolve a tab-navigation binding (Shift+H / Shift+L) to a Vim mapping. A
+ * `Shift+<letter>` token must reach Vim as the bare uppercase letter (`H`/`L`) —
+ * in Vim a shifted letter *is* the uppercase key — not as `<S-h>`, which the
+ * library does not resolve back to the capital letter. A bare letter or any
+ * other binding passes straight through `toVimSequence`.
+ */
+function toVimTabNavKey(binding: string): string | null {
+  const shifted = /^Shift\+([A-Za-z])$/.exec(binding.trim())
+  return toVimSequence(shifted ? shifted[1].toUpperCase() : binding)
+}
+
 function paneMapBindings(overrides: KeymapOverrides, actionId: KeymapId): string[] {
   const prefixBinding = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))
   const actionBinding = toVimSequence(getKeymapBinding(overrides, actionId))
@@ -259,6 +271,23 @@ function syncVimKeymaps(overrides: KeymapOverrides, flashJumpEnabled: boolean): 
       id: 'vim.tabNext',
       action: 'nextBuffer',
       bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.tabNext'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      // Shift+H / Shift+L cycle tabs (Neovim/LazyVim style). Normal mode only,
+      // so H/L stay as motions in visual mode; clearing the binding restores
+      // the native H/L viewport motions.
+      id: 'vim.tabPreviousAlt',
+      action: 'previousBuffer',
+      bindings: [toVimTabNavKey(getKeymapBinding(overrides, 'vim.tabPreviousAlt'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.tabNextAlt',
+      action: 'nextBuffer',
+      bindings: [toVimTabNavKey(getKeymapBinding(overrides, 'vim.tabNextAlt'))].filter(
         (binding): binding is string => !!binding
       )
     },

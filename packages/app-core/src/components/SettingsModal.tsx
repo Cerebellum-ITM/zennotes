@@ -606,9 +606,14 @@ export function SettingsModal(): JSX.Element {
   )
 
   const visibleVariants = useMemo(() => {
-    if (themeFamily === 'gruvbox') {
+    // Families whose variants split unevenly across light/dark (Gruvbox
+    // contrasts; Tokyo Night's single Day vs. Storm + Black) filter by the
+    // active mode, so the picker only offers same-mode variants. In Light
+    // mode Tokyo Night has a single variant (Day), so the picker hides
+    // itself (it renders only when length > 1).
+    if (themeFamily === 'gruvbox' || themeFamily === 'tokyo-night') {
       return THEMES.filter(
-        (t) => t.family === 'gruvbox' && t.mode === effectiveMode
+        (t) => t.family === themeFamily && t.mode === effectiveMode
       )
     }
     // Families with only a light/dark pair don't need a variant picker —
@@ -618,7 +623,6 @@ export function SettingsModal(): JSX.Element {
       'solarized',
       'one',
       'nord',
-      'tokyo-night',
       'black-metal'
     ]
     if (simpleFamilies.includes(themeFamily)) return []

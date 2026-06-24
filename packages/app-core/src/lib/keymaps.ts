@@ -68,6 +68,8 @@ export type KeymapId =
   | "vim.bufferNext"
   | "vim.tabPrevious"
   | "vim.tabNext"
+  | "vim.tabPreviousAlt"
+  | "vim.tabNextAlt"
   | "vim.hintMode"
   | "vim.goToDefinition"
   | "vim.flashJump"
@@ -704,6 +706,30 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBinding: "g t",
     vimOnly: true,
     maxTokens: 2,
+  },
+  {
+    id: "vim.tabPreviousAlt",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Previous tab (Shift+H)",
+    description:
+      "Go to the previous tab with Shift+H (Neovim/LazyVim style). Overrides the native H motion in normal mode; clear to restore it.",
+    defaultBinding: "Shift+H",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.tabNextAlt",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Next tab (Shift+L)",
+    description:
+      "Go to the next tab with Shift+L (Neovim/LazyVim style). Overrides the native L motion in normal mode; clear to restore it.",
+    defaultBinding: "Shift+L",
+    vimOnly: true,
+    maxTokens: 1,
   },
   {
     id: "vim.hintMode",
