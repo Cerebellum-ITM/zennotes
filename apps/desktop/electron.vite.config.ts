@@ -11,9 +11,17 @@ const INTERNAL_WORKSPACE_PACKAGES = [
 
 export const PACKAGED_CLI_RUNTIME_PACKAGES = ['@modelcontextprotocol/sdk']
 
+// Bundled INTO the main chunk instead of externalized to node_modules. Pure-JS
+// packages whose transitive deps don't survive electron-builder's node_modules
+// collection under npm-workspace hoisting (e.g. isomorphic-git → sha.js →
+// call-bind-apply-helpers went missing from app.asar). Bundling makes the main
+// process self-contained.
+const MAIN_BUNDLED_RUNTIME_PACKAGES = ['isomorphic-git']
+
 const MAIN_EXTERNALIZE_EXCLUSIONS = [
   ...INTERNAL_WORKSPACE_PACKAGES,
-  ...PACKAGED_CLI_RUNTIME_PACKAGES
+  ...PACKAGED_CLI_RUNTIME_PACKAGES,
+  ...MAIN_BUNDLED_RUNTIME_PACKAGES
 ]
 
 function rendererManualChunk(id: string): string | undefined {
