@@ -870,6 +870,7 @@ export function Sidebar(): JSX.Element {
       return;
     }
     if (payload.kind === "asset") return;
+    if (payload.kind === "task") return;
     // Folder drop — cross-top-folder moves aren't supported (folders
     // can't move between inbox/archive/trash). Same-top-folder moves
     // reparent the subfolder.

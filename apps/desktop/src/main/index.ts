@@ -106,6 +106,14 @@ import {
   writeNote
 } from './vault'
 import {
+  initAppConfig,
+  getPortableConfigSnapshot,
+  setPortableConfig,
+  getConfigFilePath,
+  ensureConfigFile
+} from './app-config'
+import type { AppConfigPortable } from '@shared/app-config'
+import {
   listCustomTemplates,
   readCustomTemplate,
   writeCustomTemplate,
@@ -1058,20 +1066,29 @@ async function ensureMainWindow(): Promise<void> {
   await creatingMainWindow
 }
 
-async function openVaultInNewWindow(parentWindow?: BrowserWindow | null): Promise<VaultInfo | null> {
-  const options: Electron.OpenDialogOptions = {
-    title: 'Open Vault in New Window',
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Open Vault'
+async function openVaultInNewWindow(
+  parentWindow?: BrowserWindow | null,
+  root?: string | null
+): Promise<VaultInfo | null> {
+  // A known vault root opens directly in a new window; otherwise fall back to
+  // the folder picker (the "Browse for a folder…" path). (#244)
+  let target = typeof root === 'string' && root.trim() ? root.trim() : null
+  if (!target) {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Open Vault in New Window',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Open Vault'
+    }
+    const result =
+      parentWindow && !parentWindow.isDestroyed()
+        ? await dialog.showOpenDialog(parentWindow, options)
+        : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return null
+    target = result.filePaths[0]
   }
-  const result =
-    parentWindow && !parentWindow.isDestroyed()
-      ? await dialog.showOpenDialog(parentWindow, options)
-      : await dialog.showOpenDialog(options)
-  if (result.canceled || result.filePaths.length === 0) return null
 
   const win = await createWindow({
-    initialVaultRoot: result.filePaths[0],
+    initialVaultRoot: target,
     persistInitialVault: true
   })
   if (parentWindow && !parentWindow.isDestroyed()) {
@@ -2686,8 +2703,11 @@ function registerIpc(): void {
     openFloatingNoteWindow(relPath)
   })
 
-  handle(IPC.WINDOW_OPEN_VAULT, async (event) => {
-    return await openVaultInNewWindow(BrowserWindow.fromWebContents(event.sender))
+  handle(IPC.WINDOW_OPEN_VAULT, async (event, root?: string | null) => {
+    return await openVaultInNewWindow(
+      BrowserWindow.fromWebContents(event.sender),
+      typeof root === 'string' ? root : null
+    )
   })
 
   handle(IPC.APP_READ_EXTERNAL_FILE, async (event): Promise<ExternalFileContent> => {
@@ -2812,6 +2832,35 @@ function registerIpc(): void {
   handle(IPC.CLI_UNINSTALL, async () => await uninstallCli())
   handle(IPC.RAYCAST_GET_STATUS, async () => await getRaycastExtensionStatus())
   handle(IPC.RAYCAST_INSTALL, async () => await installRaycastExtension())
+
+  // Synchronous getter so the preload can hydrate the renderer's prefs store
+  // at startup without an async round-trip. Registered directly (not via the
+  // `on` helper) because it must set `event.returnValue` and doesn't need the
+  // window async-context the helper establishes.
+  ipcMain.on(IPC.CONFIG_GET_SYNC, (event) => {
+    try {
+      assertTrustedIpcEvent(event)
+      event.returnValue = getPortableConfigSnapshot()
+    } catch {
+      event.returnValue = null
+    }
+  })
+  handle(IPC.CONFIG_SET, async (_event, next: AppConfigPortable) => {
+    await setPortableConfig(next ?? {})
+  })
+  handle(IPC.CONFIG_GET_PATH, () => getConfigFilePath())
+  handle(IPC.CONFIG_REVEAL, async () => {
+    const file = await ensureConfigFile()
+    shell.showItemInFolder(file)
+  })
+}
+
+/** Push an externally-changed config (synced dotfile / hand-edit) to every
+ *  open renderer so live-reload applies it without a restart. */
+function broadcastConfigChange(next: AppConfigPortable): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(IPC.CONFIG_ON_CHANGE, next)
+  }
 }
 
 /**
@@ -3396,6 +3445,10 @@ app.whenReady().then(async () => {
       console.error('Failed to set dock icon', err)
     }
   }
+
+  // Load the portable config from disk before any window opens so the
+  // preload's synchronous getConfigSync() returns real data on first paint.
+  await initAppConfig(broadcastConfigChange)
 
   installAppMenu()
   registerIpc()

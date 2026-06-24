@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractUncheckedTaskBlocks,
+  moveTaskLine,
   removeTaskAtIndex,
   takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
@@ -209,5 +210,44 @@ describe('takeTaskLineAtIndex', () => {
     const { line, body } = takeTaskLineAtIndex('- [ ] only', 9)
     expect(line).toBeNull()
     expect(body).toBe('- [ ] only')
+  })
+})
+
+describe('moveTaskLine', () => {
+  it('moves a task down past the next task (after)', () => {
+    const md = ['- [ ] a', '- [ ] b', '- [ ] c'].join('\n')
+    // move task 0 (a) to after task 1 (b)
+    expect(moveTaskLine(md, 0, 1, 'after')).toBe(['- [ ] b', '- [ ] a', '- [ ] c'].join('\n'))
+  })
+
+  it('moves a task up before the previous task (before)', () => {
+    const md = ['- [ ] a', '- [ ] b', '- [ ] c'].join('\n')
+    // move task 2 (c) to before task 1 (b)
+    expect(moveTaskLine(md, 2, 1, 'before')).toBe(['- [ ] a', '- [ ] c', '- [ ] b'].join('\n'))
+  })
+
+  it('keeps non-task lines in place when swapping across them', () => {
+    // a (task0), checked b (task1), c (task2); move a to after c
+    const md = ['- [ ] a', '- [x] b', '- [ ] c'].join('\n')
+    expect(moveTaskLine(md, 0, 2, 'after')).toBe(['- [x] b', '- [ ] c', '- [ ] a'].join('\n'))
+  })
+
+  it('preserves the full line (indent + metadata)', () => {
+    const md = ['  - [ ] a !high #x', '- [ ] b'].join('\n')
+    expect(moveTaskLine(md, 0, 1, 'after')).toBe(['- [ ] b', '  - [ ] a !high #x'].join('\n'))
+  })
+
+  it('ignores tasks inside fenced code when counting', () => {
+    const md = ['- [ ] a', '```', '- [ ] inside', '```', '- [ ] b'].join('\n')
+    // task 0 = a, task 1 = b (inside fence skipped); move a after b
+    expect(moveTaskLine(md, 0, 1, 'after')).toBe(
+      ['```', '- [ ] inside', '```', '- [ ] b', '- [ ] a'].join('\n')
+    )
+  })
+
+  it('is a no-op for out-of-range or same index', () => {
+    const md = ['- [ ] a', '- [ ] b'].join('\n')
+    expect(moveTaskLine(md, 0, 0, 'after')).toBe(md)
+    expect(moveTaskLine(md, 9, 0, 'after')).toBe(md)
   })
 })

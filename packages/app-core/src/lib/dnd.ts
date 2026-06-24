@@ -13,6 +13,7 @@ export type DragPayload =
     }
   | { kind: 'asset'; path: string }
   | { kind: 'folder'; folder: 'inbox' | 'quick' | 'archive' | 'trash'; subpath: string }
+  | { kind: 'task'; id: string }
   | {
       kind: 'multi'
       items: Array<
@@ -53,9 +54,11 @@ export function setDragPayload(e: React.DragEvent, payload: DragPayload): void {
       ? payload.path
       : payload.kind === 'folder'
         ? `${payload.folder}/${payload.subpath}`
-        : payload.items
-            .map((item) => (item.kind === 'note' ? item.path : `${item.folder}/${item.subpath}`))
-            .join('\n')
+        : payload.kind === 'task'
+          ? payload.id
+          : payload.items
+              .map((item) => (item.kind === 'note' ? item.path : `${item.folder}/${item.subpath}`))
+              .join('\n')
   )
   e.dataTransfer.effectAllowed = 'move'
 }

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { Vim, getCM } from '@replit/codemirror-vim'
+import { moveLineDown, moveLineUp } from '@codemirror/commands'
 import { foldAll, unfoldAll, foldCode, unfoldCode } from '@codemirror/language'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
@@ -45,7 +46,6 @@ import {
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { flashModeFor, startFlashJump } from '../lib/cm-flash-jump'
-import { setVimYankClipboardEnabled, setupVimYankClipboard } from '../lib/cm-vim-yank-clipboard'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 
 let vimCommandsRegistered = false
@@ -403,14 +403,27 @@ function registerVimCommands(): void {
   }
   clearKnownVimMappings()
 
-  // Mirror yanks to the system clipboard (toggle-gated, synced from the store).
-  setupVimYankClipboard()
-
   // `gG` → end of document, the mirror of `gg` → top (surfaced in the `g`
   // which-key panel). Vim has no default `gG`; remap it to `G` so it inherits
   // `G`'s exact motion (linewise, jumplist) in both normal and visual mode.
   Vim.map('gG', 'G', 'normal')
   Vim.map('gG', 'G', 'visual')
+
+  // Visual-line reorder: select line(s) with Shift+V, then Shift+J / Shift+K
+  // move the selection down / up — the well-known Vim "move selected lines"
+  // mapping. Overrides J/K in *visual* mode only; normal-mode join (J) and
+  // keyword-lookup (K) are left untouched. moveLineDown/Up act on every line
+  // the selection spans and keep it selected.
+  Vim.defineAction('zenMoveSelectionDown', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (view) moveLineDown(view)
+  })
+  Vim.defineAction('zenMoveSelectionUp', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (view) moveLineUp(view)
+  })
+  Vim.mapCommand('J', 'action', 'zenMoveSelectionDown', {}, { context: 'visual' })
+  Vim.mapCommand('K', 'action', 'zenMoveSelectionUp', {}, { context: 'visual' })
 
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
@@ -1375,7 +1388,6 @@ export function Editor(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const flashJumpEnabled = useStore((s) => s.flashJumpEnabled)
-  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
 
@@ -1388,9 +1400,6 @@ export function Editor(): JSX.Element {
     syncVimKeymaps(keymapOverrides, flashJumpEnabled)
   }, [keymapOverrides, flashJumpEnabled])
 
-  useEffect(() => {
-    setVimYankClipboardEnabled(vimYankToClipboard)
-  }, [vimYankToClipboard])
 
   useEffect(() => {
     applyVimInsertEscape(vimInsertEscape)

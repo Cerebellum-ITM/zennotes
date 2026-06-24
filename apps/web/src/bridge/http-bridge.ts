@@ -1266,7 +1266,7 @@ async function openNoteWindow(relPath: string): Promise<void> {
   window.open(url, '_blank', 'noopener')
 }
 
-async function openVaultWindow(): Promise<VaultInfo | null> {
+async function openVaultWindow(_root?: string): Promise<VaultInfo | null> {
   return null
 }
 
@@ -1576,7 +1576,15 @@ export const httpBridge: ZenBridge = {
   raycastGetStatus,
   raycastInstall,
   clipboardWriteText,
-  clipboardReadText
+  clipboardReadText,
+
+  // Plain-text config file is a desktop-only feature (needs ~/.config access).
+  // On web, the renderer falls back to localStorage when getConfigSync is null.
+  getConfigSync: () => null,
+  setConfig: async () => {},
+  getConfigPath: async () => null,
+  revealConfigFile: async () => {},
+  onConfigChange: () => () => {}
 }
 
 export function installBridge(): void {

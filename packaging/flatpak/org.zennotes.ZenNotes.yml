@@ -1,4 +1,4 @@
-app-id: com.adibhanna.zennotes
+app-id: org.zennotes.ZenNotes
 runtime: org.freedesktop.Platform
 runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
@@ -30,7 +30,7 @@ modules:
       - |
         for s in 16 24 32 48 64 128 256 512; do
           install -Dm644 "squashfs-root/usr/share/icons/hicolor/${s}x${s}/apps/ZenNotes.png" \
-            "/app/share/icons/hicolor/${s}x${s}/apps/com.adibhanna.zennotes.png"
+            "/app/share/icons/hicolor/${s}x${s}/apps/org.zennotes.ZenNotes.png"
         done
       # Copy the unpacked Electron app into /app, dropping AppImage-only bits.
       - mkdir -p /app/zennotes
@@ -41,19 +41,19 @@ modules:
       - rm -f /app/zennotes/chrome-sandbox
       - chmod -R a+rX /app/zennotes
       - install -Dm755 zennotes.sh /app/bin/zennotes
-      - install -Dm644 com.adibhanna.zennotes.desktop
-          /app/share/applications/com.adibhanna.zennotes.desktop
-      - install -Dm644 com.adibhanna.zennotes.metainfo.xml
-          /app/share/metainfo/com.adibhanna.zennotes.metainfo.xml
+      - install -Dm644 org.zennotes.ZenNotes.desktop
+          /app/share/applications/org.zennotes.ZenNotes.desktop
+      - install -Dm644 org.zennotes.ZenNotes.metainfo.xml
+          /app/share/metainfo/org.zennotes.ZenNotes.metainfo.xml
     sources:
       # Bump `url` + `sha256` on each release (see README.md).
       - type: file
-        url: https://github.com/ZenNotes/zennotes/releases/download/v2.4.0/ZenNotes-2.4.0-linux-x86_64.AppImage
-        sha256: 57bbbea3b3d043c765771f7230640d58dc4ace8b169bca20efb93d0fbb8215ad
+        url: https://github.com/ZenNotes/zennotes/releases/download/v2.5.0/ZenNotes-2.5.0-linux-x86_64.AppImage
+        sha256: 8a45df0b12edcf6ce272625e89edc9a7a5fa855b04d9bf4f1dcdd18efde8fb49
         dest-filename: ZenNotes.AppImage
       - type: file
         path: zennotes.sh
       - type: file
-        path: com.adibhanna.zennotes.desktop
+        path: org.zennotes.ZenNotes.desktop
       - type: file
-        path: com.adibhanna.zennotes.metainfo.xml
+        path: org.zennotes.ZenNotes.metainfo.xml

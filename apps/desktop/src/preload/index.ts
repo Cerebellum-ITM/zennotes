@@ -11,6 +11,7 @@ import type {
   WriteTemplateInput
 } from '@zennotes/bridge-contract/templates'
 import { IPC } from '@shared/ipc'
+import type { AppConfigPortable } from '@shared/app-config'
 import type {
   AppUpdateState,
   AssetMeta,
@@ -465,8 +466,8 @@ const api: ZenBridge = {
   windowToggleMaximize: (): void => ipcRenderer.send(IPC.WINDOW_TOGGLE_MAXIMIZE),
   windowClose: (): void => ipcRenderer.send(IPC.WINDOW_CLOSE),
   openNoteWindow: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath),
-  openVaultWindow: async (): Promise<VaultInfo | null> => {
-    const vault = await ipcRenderer.invoke(IPC.WINDOW_OPEN_VAULT)
+  openVaultWindow: async (root?: string): Promise<VaultInfo | null> => {
+    const vault = await ipcRenderer.invoke(IPC.WINDOW_OPEN_VAULT, root ?? null)
     await refreshRemoteWorkspaceInfo()
     return vault
   },
@@ -510,7 +511,24 @@ const api: ZenBridge = {
   raycastInstall: (): Promise<RaycastExtensionStatus> =>
     ipcRenderer.invoke(IPC.RAYCAST_INSTALL),
   clipboardWriteText: (text: string): void => clipboard.writeText(text),
-  clipboardReadText: (): string => clipboard.readText()
+  clipboardReadText: (): string => clipboard.readText(),
+
+  getConfigSync: (): AppConfigPortable | null => {
+    try {
+      return ipcRenderer.sendSync(IPC.CONFIG_GET_SYNC) as AppConfigPortable | null
+    } catch {
+      return null
+    }
+  },
+  setConfig: (next: AppConfigPortable): Promise<void> =>
+    ipcRenderer.invoke(IPC.CONFIG_SET, next),
+  getConfigPath: (): Promise<string | null> => ipcRenderer.invoke(IPC.CONFIG_GET_PATH),
+  revealConfigFile: (): Promise<void> => ipcRenderer.invoke(IPC.CONFIG_REVEAL),
+  onConfigChange: (cb: (next: AppConfigPortable) => void): (() => void) => {
+    const listener = (_: unknown, next: AppConfigPortable): void => cb(next)
+    ipcRenderer.on(IPC.CONFIG_ON_CHANGE, listener)
+    return () => ipcRenderer.removeListener(IPC.CONFIG_ON_CHANGE, listener)
+  }
 }
 
 export type ZenApi = ZenBridge

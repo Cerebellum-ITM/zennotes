@@ -49,6 +49,7 @@ import {
   FENCE_RE,
   TASK_LINE_RE,
   extractUncheckedTaskBlocks,
+  moveTaskLine,
   removeTaskAtIndex,
   takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
@@ -80,6 +81,11 @@ import {
 } from './lib/move-note'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
+import {
+  PORTABLE_PREF_KEYS,
+  pickPortablePrefs,
+  type AppConfigPortable
+} from '@shared/app-config'
 import {
   type LabelKey,
   type SystemFolderLabels,
@@ -343,6 +349,9 @@ interface Prefs {
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
+  /** Render Markdown tables as interactive WYSIWYG widgets in live preview.
+   *  Off keeps tables as plain editable markdown — full keyboard/Vim editing. */
+  renderTablesInLivePreview: boolean
   /** Auto-close markdown delimiters while typing: `**`+Space → `**|**`,
    *  ```` ``` ````+Enter expands a fenced block. Off restores plain typing. */
   markdownSnippets: boolean
@@ -499,7 +508,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
   return out
 }
 
-const DEFAULT_PREFS: Prefs = {
+export const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
   keymapOverrides: {},
@@ -509,11 +518,12 @@ const DEFAULT_PREFS: Prefs = {
   flashJumpEnabled: true,
   vimPendingHints: true,
   vimPendingHintsPosition: 'top-right',
-  vimYankToClipboard: true,
+  vimYankToClipboard: false,
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
   livePreview: true,
+  renderTablesInLivePreview: true,
   markdownSnippets: true,
   hideBuiltinTemplates: false,
   tabsEnabled: true,
@@ -639,6 +649,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.fzfBinaryPath,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
+    renderTablesInLivePreview:
+      typeof p.renderTablesInLivePreview === 'boolean'
+        ? p.renderTablesInLivePreview
+        : DEFAULT_PREFS.renderTablesInLivePreview,
     markdownSnippets:
       typeof p.markdownSnippets === 'boolean'
         ? p.markdownSnippets
@@ -846,31 +860,106 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.hasCompletedOnboarding
   }
 }
+// --- Portable config file integration (desktop) -----------------------------
+// On desktop, the portable subset of prefs is mirrored to a plain-text
+// config.toml (issue #203) so it can be synced across machines. The file is
+// the source of truth for portable keys; localStorage stays as a fast cache
+// and the web fallback. `getConfigSync()` returns null on web (and when the
+// bridge is absent, e.g. tests) — we then behave exactly as before.
+let cachedInitialPrefs: Prefs | null = null
+// True when a config file is available on this platform (desktop). Gates
+// whether savePrefs mirrors changes out to the file.
+let configFileEnabled = false
+// True when the config file already had content at load — i.e. this isn't a
+// first run, so we must NOT clobber it by seeding from localStorage.
+let configFileHadContent = false
+
+function readConfigFromBridge(): AppConfigPortable | null {
+  try {
+    const bridge = typeof window !== 'undefined' ? window.zen : undefined
+    if (!bridge || typeof bridge.getConfigSync !== 'function') return null
+    return bridge.getConfigSync()
+  } catch {
+    return null
+  }
+}
+
 function loadPrefs(): Prefs {
+  if (cachedInitialPrefs) return cachedInitialPrefs
+
+  let base: Partial<Prefs> = {}
+  let hadLocalStorage = false
   try {
     const raw = localStorage.getItem(PREFS_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<Prefs>
-      const normalized = normalizePrefs(parsed)
-      // Users upgrading from a version that didn't have the onboarding flag
-      // shouldn't be greeted with the wizard on next launch — treat the
-      // presence of an existing prefs blob as evidence they've been here.
-      if (typeof parsed.hasCompletedOnboarding !== 'boolean') {
-        normalized.hasCompletedOnboarding = true
-      }
-      return normalized
+      base = JSON.parse(raw) as Partial<Prefs>
+      hadLocalStorage = true
     }
   } catch {
     /* ignore */
   }
-  return DEFAULT_PREFS
+
+  const fileConfig = readConfigFromBridge()
+  configFileEnabled = fileConfig !== null
+  configFileHadContent = !!fileConfig && Object.keys(fileConfig).length > 0
+
+  // The file wins for portable keys; localStorage supplies machine-local keys.
+  const merged: Partial<Prefs> = configFileHadContent
+    ? { ...base, ...(fileConfig as Partial<Prefs>) }
+    : base
+
+  const normalized = normalizePrefs(merged)
+
+  // Don't greet returning users with the onboarding wizard: an existing prefs
+  // blob or a populated config file both mean they've been here before.
+  if (
+    (hadLocalStorage && typeof base.hasCompletedOnboarding !== 'boolean') ||
+    configFileHadContent
+  ) {
+    normalized.hasCompletedOnboarding = true
+  }
+
+  // When the config file is authoritative, refresh the localStorage cache so
+  // other same-origin renderers (e.g. the quick-capture window) and the next
+  // launch see the synced values immediately.
+  if (configFileHadContent) {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(normalized))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  cachedInitialPrefs = hadLocalStorage || configFileHadContent ? normalized : DEFAULT_PREFS
+  return cachedInitialPrefs
 }
+
+let configPushTimer: ReturnType<typeof setTimeout> | null = null
+const CONFIG_PUSH_DEBOUNCE_MS = 400
+
+function pushPortableConfig(p: Prefs): void {
+  if (!configFileEnabled) return
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.setConfig !== 'function') return
+  if (configPushTimer) clearTimeout(configPushTimer)
+  configPushTimer = setTimeout(() => {
+    configPushTimer = null
+    try {
+      void bridge.setConfig(pickPortablePrefs(p as unknown as Record<string, unknown>))
+    } catch {
+      /* ignore */
+    }
+  }, CONFIG_PUSH_DEBOUNCE_MS)
+}
+
 function savePrefs(p: Prefs): void {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(p))
   } catch {
     /* ignore */
   }
+  cachedInitialPrefs = p
+  pushPortableConfig(p)
 }
 
 function replaceNoteMeta(notes: NoteMeta[], oldPath: string, next: NoteMeta): NoteMeta[] {
@@ -1337,6 +1426,7 @@ function collectPrefs(s: {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  renderTablesInLivePreview: boolean
   markdownSnippets: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
@@ -1409,6 +1499,7 @@ function collectPrefs(s: {
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
+    renderTablesInLivePreview: s.renderTablesInLivePreview,
     markdownSnippets: s.markdownSnippets,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
@@ -1790,6 +1881,7 @@ interface Store {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  renderTablesInLivePreview: boolean
   /** Auto-close markdown delimiters while typing. Persisted. */
   markdownSnippets: boolean
   hideBuiltinTemplates: boolean
@@ -2135,6 +2227,7 @@ interface Store {
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
+  setRenderTablesInLivePreview: (on: boolean) => void
   setMarkdownSnippets: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
@@ -2166,6 +2259,14 @@ interface Store {
     targetPath: string,
     position: 'before' | 'after'
   ) => void
+  /** Reorder a task by moving its markdown line before/after another task's
+   *  line in the same note (the note's line order is the source of truth).
+   *  No-op across notes. */
+  reorderTaskInNote: (
+    task: VaultTask,
+    targetTask: VaultTask,
+    position: 'before' | 'after'
+  ) => Promise<void>
   setGroupByKind: (on: boolean) => void
   setAutoReveal: (on: boolean) => void
   setUnifiedSidebar: (on: boolean) => void
@@ -3244,6 +3345,7 @@ export const useStore = create<Store>((set, get) => {
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
+  renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
   markdownSnippets: loadPrefs().markdownSnippets,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
@@ -5021,6 +5123,10 @@ export const useStore = create<Store>((set, get) => {
     set({ livePreview: on })
     savePrefs(collectPrefs(get()))
   },
+  setRenderTablesInLivePreview: (on) => {
+    set({ renderTablesInLivePreview: on })
+    savePrefs(collectPrefs(get()))
+  },
   setMarkdownSnippets: (on) => {
     set({ markdownSnippets: on })
     savePrefs(collectPrefs(get()))
@@ -5176,6 +5282,46 @@ export const useStore = create<Store>((set, get) => {
     const nextMap = { ...s.manualNoteOrder, [dir]: next }
     set({ manualNoteOrder: nextMap })
     writeManualOrder(s.vault?.root ?? '', nextMap)
+  },
+  reorderTaskInNote: async (task, targetTask, position) => {
+    // Reorder is a within-note line move — tasks in different notes live in
+    // different files, so cross-note moves aren't possible here.
+    if (task.sourcePath !== targetTask.sourcePath || task.taskIndex === targetTask.taskIndex) {
+      return
+    }
+    const path = task.sourcePath
+    const openBuffer = get().noteContents[path]
+    let body: string
+    try {
+      body = openBuffer?.body ?? (await window.zen.readNote(path)).body
+    } catch (err) {
+      console.error('readNote (reorder) failed', err)
+      return
+    }
+    const nextBody = moveTaskLine(body, task.taskIndex, targetTask.taskIndex, position)
+    if (nextBody === body) return
+
+    // Optimistically refresh this note's tasks so the list reorders immediately,
+    // whether the note is open (unsaved buffer) or only on disk.
+    const fresh = parseTasksFromBody(nextBody, {
+      path,
+      title: task.noteTitle,
+      folder: task.noteFolder
+    })
+    set((s) => ({
+      vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== path).concat(fresh)
+    }))
+
+    if (get().noteContents[path]) {
+      get().updateNoteBody(path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(path, nextBody)
+      } catch (err) {
+        console.error('writeNote (reorder) failed', err)
+        void get().rescanTasksForPath(path)
+      }
+    }
   },
   setGroupByKind: (on) => {
     set({ groupByKind: on })
@@ -7271,3 +7417,62 @@ export const useStore = create<Store>((set, get) => {
   }
   }
 })
+
+// --- Portable config file sync (desktop) ------------------------------------
+
+/** Apply an externally-changed portable config (synced dotfile / hand-edit)
+ *  to the live store and the localStorage cache. Uses setState directly so it
+ *  doesn't re-trigger a write back out to the file. */
+function applyPortableConfig(next: AppConfigPortable): void {
+  if (!next || typeof next !== 'object') return
+  const current = collectPrefs(useStore.getState())
+  const merged = normalizePrefs({ ...current, ...(next as Partial<Prefs>) })
+  cachedInitialPrefs = merged
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(merged))
+  } catch {
+    /* ignore */
+  }
+  const patch: Record<string, unknown> = {}
+  const mergedRecord = merged as unknown as Record<string, unknown>
+  for (const key of PORTABLE_PREF_KEYS) {
+    patch[key] = mergedRecord[key]
+  }
+  useStore.setState(patch as Partial<Store>)
+}
+
+let configSyncInitialized = false
+
+/**
+ * Wire up portable-config syncing. Call once on app startup (desktop only —
+ * a no-op on web). Seeds the config file from current prefs on first run so
+ * existing users keep their setup without reconfiguring, then subscribes to
+ * external edits for live reload.
+ */
+export function initConfigSync(): void {
+  if (configSyncInitialized) return
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.getConfigSync !== 'function') return
+  if (!configFileEnabled) return
+  configSyncInitialized = true
+
+  // Migration for existing users: no config file yet → create one from their
+  // current preferences so the dotfile starts as an exact mirror of today's
+  // setup, no reconfiguration needed.
+  if (!configFileHadContent && typeof bridge.setConfig === 'function') {
+    try {
+      const prefs = collectPrefs(useStore.getState())
+      void bridge.setConfig(pickPortablePrefs(prefs as unknown as Record<string, unknown>))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (typeof bridge.onConfigChange === 'function') {
+    try {
+      bridge.onConfigChange((nextCfg) => applyPortableConfig(nextCfg))
+    } catch {
+      /* ignore */
+    }
+  }
+}

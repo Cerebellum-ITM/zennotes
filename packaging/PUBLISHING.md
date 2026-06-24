@@ -160,13 +160,13 @@ The manifest under `packaging/flatpak/` builds and runs locally, but **is not on
 Flathub**, so end users can't `flatpak install` it yet.
 
 - **Keep the local manifest current each release** — in
-  `packaging/flatpak/com.adibhanna.zennotes.yml`:
+  `packaging/flatpak/org.zennotes.ZenNotes.yml`:
   - bump the source `url` to the new `vX.Y.Z` AppImage,
   - update `sha256` — `shasum -a 256` of that uploaded AppImage (same hash you'd
     compute for AUR's old AppImage method),
-  - bump the `<release>` entry in `com.adibhanna.zennotes.metainfo.xml`.
+  - bump the `<release>` entry in `org.zennotes.ZenNotes.metainfo.xml`.
 - **To actually publish to users:** submit to **Flathub** — a PR to the Flathub
-  repo for app-id `com.adibhanna.zennotes`, with screenshots in the AppStream
+  repo for app-id `org.zennotes.ZenNotes`, with screenshots in the AppStream
   metainfo and your sign-off as the app-id owner. Biggest lift of the four;
   currently a planned follow-up.
 

@@ -27,10 +27,10 @@ which makes Chromium's sandbox work inside the Flatpak sandbox without the SUID
 
 Files:
 
-- `com.adibhanna.zennotes.yml` — flatpak-builder manifest
+- `org.zennotes.ZenNotes.yml` — flatpak-builder manifest
 - `zennotes.sh` — launcher that wraps the binary with `zypak-wrapper`
-- `com.adibhanna.zennotes.desktop` — desktop entry (Markdown + `zennotes://` handler)
-- `com.adibhanna.zennotes.metainfo.xml` — AppStream metadata
+- `org.zennotes.ZenNotes.desktop` — desktop entry (Markdown + `zennotes://` handler)
+- `org.zennotes.ZenNotes.metainfo.xml` — AppStream metadata
 
 ## Build & install locally
 
@@ -43,21 +43,21 @@ cd packaging/flatpak
 flatpak install -y flathub org.freedesktop.Platform//25.08 \
   org.freedesktop.Sdk//25.08 org.electronjs.Electron2.BaseApp//25.08
 
-flatpak-builder --user --install --force-clean build-dir com.adibhanna.zennotes.yml
+flatpak-builder --user --install --force-clean build-dir org.zennotes.ZenNotes.yml
 
-flatpak run com.adibhanna.zennotes
+flatpak run org.zennotes.ZenNotes
 ```
 
 ## Updating to a new release
 
 ```sh
 cd packaging/flatpak
-# 1. bump the `url` in com.adibhanna.zennotes.yml to the new release tag
+# 1. bump the `url` in org.zennotes.ZenNotes.yml to the new release tag
 # 2. update the `sha256`:
 curl -L -o /tmp/ZenNotes.AppImage \
   https://github.com/ZenNotes/zennotes/releases/download/v<version>/ZenNotes-<version>-linux-x86_64.AppImage
 sha256sum /tmp/ZenNotes.AppImage
-# 3. bump the <release> entry in com.adibhanna.zennotes.metainfo.xml
+# 3. bump the <release> entry in org.zennotes.ZenNotes.metainfo.xml
 # 4. rebuild and smoke-test (see above)
 ```
 

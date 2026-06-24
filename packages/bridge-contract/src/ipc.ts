@@ -125,7 +125,12 @@ export const IPC = {
   CLI_INSTALL: 'cli:install',
   CLI_UNINSTALL: 'cli:uninstall',
   RAYCAST_GET_STATUS: 'raycast:get-status',
-  RAYCAST_INSTALL: 'raycast:install'
+  RAYCAST_INSTALL: 'raycast:install',
+  CONFIG_GET_SYNC: 'config:get-sync',
+  CONFIG_SET: 'config:set',
+  CONFIG_GET_PATH: 'config:get-path',
+  CONFIG_REVEAL: 'config:reveal',
+  CONFIG_ON_CHANGE: 'config:on-change'
 } as const
 
 export interface TikzRenderResponse {

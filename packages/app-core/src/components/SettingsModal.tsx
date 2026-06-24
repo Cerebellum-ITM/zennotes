@@ -251,6 +251,8 @@ export function SettingsModal(): JSX.Element {
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
+  const setRenderTablesInLivePreview = useStore((s) => s.setRenderTablesInLivePreview)
   const markdownSnippets = useStore((s) => s.markdownSnippets)
   const setMarkdownSnippets = useStore((s) => s.setMarkdownSnippets)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
@@ -1004,6 +1006,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['preview', 'markdown']
         },
         {
+          id: 'render-tables',
+          title: 'Render tables in live preview',
+          description: 'Show Markdown tables as interactive widgets, or keep them as plain editable text.',
+          keywords: ['table', 'tables', 'wysiwyg', 'grid', 'vim', 'plain text', 'source']
+        },
+        {
           id: 'markdown-snippets',
           title: 'Markdown snippets',
           description: 'Auto-close markdown delimiters as you type (** then Space, ``` then Enter).',
@@ -1227,6 +1235,15 @@ export function SettingsModal(): JSX.Element {
               settingId="live-preview"
               onChange={setLivePreview}
             />
+            {livePreview && (
+              <ToggleRow
+                label="Render tables in live preview"
+                description="Show Markdown tables as interactive widgets. Turn off to keep tables as plain markdown text, so you can edit them with the keyboard (and Vim motions) like any other line."
+                value={renderTablesInLivePreview}
+                settingId="render-tables"
+                onChange={setRenderTablesInLivePreview}
+              />
+            )}
             <ToggleRow
               label="Markdown snippets"
               description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. In Vim mode this only applies in insert mode."
@@ -2712,9 +2729,17 @@ export function SettingsModal(): JSX.Element {
           title: 'Lumary Labs',
           description: 'Company and product details.',
           keywords: ['company', 'lumary', 'logo']
+        },
+        {
+          id: 'config-file',
+          title: 'Configuration file',
+          description: 'Locate, copy, or open the plain-text config file you sync across machines.',
+          keywords: ['config', 'toml', 'dotfiles', 'sync', 'stow', 'chezmoi', 'reveal', 'settings file'],
+          available: appInfo.runtime === 'desktop'
         }
       ],
       content: (
+        <div className="space-y-6">
         <Section title="ZenNotes" settingId="zen-notes-version">
           <div className="px-5 py-5">
             <div className="min-w-0 text-sm leading-6 text-ink-600">
@@ -2872,6 +2897,8 @@ export function SettingsModal(): JSX.Element {
             </div>
           </div>
         </Section>
+        {appInfo.runtime === 'desktop' && <ConfigFileSection />}
+        </div>
       )
     }
   ]
@@ -4266,6 +4293,54 @@ function LangIconsSection({ settingId }: { settingId?: string }): JSX.Element {
         />
       )}
     </section>
+  )
+}
+
+/** Desktop-only: surfaces the on-disk config file so users can find, copy, or
+ *  open the plain-text TOML they sync across machines (issue #203). */
+function ConfigFileSection(): JSX.Element {
+  const [configPath, setConfigPath] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    void window.zen.getConfigPath().then((p) => {
+      if (active) setConfigPath(p)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const platform = window.zen.platformSync()
+  const revealLabel =
+    platform === 'darwin' ? 'Finder' : platform === 'win32' ? 'File Explorer' : 'file manager'
+
+  return (
+    <Section
+      title="Configuration file"
+      description="Your preferences — theme, editor, vim, keymaps, and more — are mirrored to a plain-text TOML file. Sync it across machines with git, stow, or chezmoi; edit it by hand and changes apply live."
+      settingId="config-file"
+    >
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => void window.zen.revealConfigFile()}>
+            Reveal in {revealLabel}
+          </Button>
+          {configPath && (
+            <Button variant="ghost" onClick={() => window.zen.clipboardWriteText(configPath)}>
+              Copy path
+            </Button>
+          )}
+        </div>
+        {configPath && (
+          <code
+            className="block truncate rounded-lg border border-paper-300/70 bg-paper-100/70 px-3 py-2 font-mono text-xs text-ink-600"
+            title={configPath}
+          >
+            {configPath}
+          </code>
+        )}
+      </div>
+    </Section>
   )
 }
 

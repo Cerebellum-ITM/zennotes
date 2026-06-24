@@ -217,6 +217,17 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
         .export-note-shell .prose-zen {
           padding: 32px 40px 48px;
         }
+        /* Keep tall (portrait) images within the printable page height so they
+           scale down proportionally instead of overflowing the page and being
+           clipped at the page boundary — a single <img> can't paginate (#231).
+           Letter page height is 11in - 2 * 0.7in margins = 9.6in; cap a touch
+           under that so an image still fits below a heading/caption. */
+        .export-note-shell img {
+          max-width: 100%;
+          height: auto;
+          max-height: 9.3in;
+          object-fit: contain;
+        }
         @media print {
           html,
           body,
@@ -235,6 +246,10 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
             width: 100%;
             padding: 0;
             margin: 0;
+          }
+          .export-note-shell img {
+            max-height: 9.3in;
+            break-inside: avoid;
           }
         }
       `}</style>

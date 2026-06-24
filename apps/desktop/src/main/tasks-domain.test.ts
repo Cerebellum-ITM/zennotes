@@ -56,7 +56,7 @@ describe('bucketTasksByDueDate', () => {
     expect(buckets.get('unscheduled')?.length).toBe(1)
   })
 
-  it('drops checked + waiting tasks', () => {
+  it('drops checked (done) tasks but keeps waiting tasks on their due date (#236)', () => {
     const all = tasks(
       [
         '- [x] done  due:2026-04-30',
@@ -65,7 +65,26 @@ describe('bucketTasksByDueDate', () => {
       ].join('\n')
     )
     const buckets = bucketTasksByDueDate(all)
-    expect(buckets.get('2026-04-30')?.length).toBe(1)
+    const bucket = buckets.get('2026-04-30') ?? []
+    // The done task is dropped; the waiting-with-due task now shows alongside live.
+    expect(bucket.length).toBe(2)
+    expect(bucket.map((t) => t.content)).toEqual(expect.arrayContaining(['waiting', 'live']))
+  })
+
+  it('shows a @waiting + due task on the calendar regardless of token order (#236)', () => {
+    const all = tasks(
+      [
+        '- [ ] Task with wait @waiting',
+        '- [ ] Task with due due:2026-06-27',
+        '- [ ] Task with both @waiting due:2026-06-27',
+        '- [ ] Other layout due:2026-06-27 @waiting'
+      ].join('\n')
+    )
+    const buckets = bucketTasksByDueDate(all)
+    // The three due:2026-06-27 tasks all land on the date (two of them waiting);
+    // the bare @waiting task with no due date is unscheduled.
+    expect(buckets.get('2026-06-27')?.length).toBe(3)
+    expect(buckets.get('unscheduled')?.length).toBe(1)
   })
 })
 
