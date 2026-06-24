@@ -2006,6 +2006,12 @@ textarea,
      inner language tokens (keyword/string/etc.) show their own color
      inside fenced code blocks. */
 }
+/* Plain inline code (no {lang} directive) gets the theme accent so it is
+   visibly "painted" even without a language. Excludes fenced-block lines
+   and the already-highlighted {lang} chip. */
+.cm-editor .cm-line:not(.cm-code-block-line) .tok-monospace:not(.cm-inline-hl) {
+  color: rgb(var(--z-accent));
+}
 
 /* Fenced/indented code-block lines render in the configured monospace font,
    matching inline code and the rendered preview. Covers tokens and the plain
@@ -2432,7 +2438,10 @@ textarea,
   background: theme("colors.paper.200");
   padding: 1px 6px;
   border-radius: 4px;
-  color: theme("colors.ink.800");
+  /* Plain inline code gets the theme accent so it is "painted" even without
+     a {lang} directive. Fenced blocks (.prose-zen pre code) and highlighted
+     inline code (.hljs token spans) override this. */
+  color: rgb(var(--z-accent));
 }
 /* White pill behind the inline `{lang icon}` glyph, so dark or monochrome
  * icons (e.g. a file/`__manifest__.py` glyph) stay legible on the dark
