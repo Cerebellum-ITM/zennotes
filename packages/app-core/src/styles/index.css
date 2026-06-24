@@ -970,6 +970,38 @@
   --z-shadow: 0 0 0;
 }
 
+/* ---- Tokyo Night Black (OLED) ------------------------------------- */
+/* Pure-black canvas with near-black surfaces; keeps the Storm foreground
+ * and the iconic Tokyo Night accents. The elevation ramp is inverted at the
+ * floor: `bg` (editor canvas) is pure black, so `bg-softer` (panels/modals)
+ * sits a touch *lighter* than `bg` to stay visible over the black. */
+:root[data-theme="tokyo-night-black"] {
+  color-scheme: dark;
+  --z-bg: 0 0 0; /* canvas      #000000 — pure black */
+  --z-bg-softer: 10 11 16; /* panels      #0a0b10 */
+  --z-bg-1: 19 20 30; /* surface     #13141e — cards/hover/sidebar */
+  --z-bg-2: 30 32 46; /* border      #1e202e */
+  --z-bg-3: 41 46 66; /* term-black  #292e42 */
+  --z-bg-4: 65 72 104; /* dark3       #414868 */
+  --z-fg: 192 202 245; /* fg          #c0caf5 */
+  --z-fg-1: 169 177 214; /* fg-dark     #a9b1d6 */
+  --z-fg-2: 86 95 137; /* comment     #565f89 */
+  --z-grey-2: 169 177 214;
+  --z-grey-1: 115 122 162; /* dark5       #737aa2 */
+  --z-grey-0: 84 92 126;
+  --z-grey-dim: 65 72 104;
+  --z-accent: 122 162 247; /* blue        #7aa2f7 — iconic */
+  --z-accent-soft: 255 158 100; /* orange      #ff9e64 */
+  --z-accent-muted: 158 206 106; /* green       #9ece6a */
+  --z-red: 247 118 142; /* red         #f7768e */
+  --z-green: 158 206 106;
+  --z-yellow: 224 175 104; /* yellow      #e0af68 */
+  --z-blue: 122 162 247;
+  --z-purple: 187 154 247; /* magenta     #bb9af7 */
+  --z-aqua: 125 207 255; /* cyan        #7dcfff */
+  --z-shadow: 0 0 0;
+}
+
 /* ===========================================================================
  * Kanagawa — https://github.com/rebelot/kanagawa.nvim
  * Inspired by Hokusai's "The Great Wave off Kanagawa". Wave (warm default
