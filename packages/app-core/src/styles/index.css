@@ -2603,17 +2603,17 @@ textarea,
 .prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-header {
   display: flex;
 }
+/* Design D: icon + text, no border/background, subtle until hover. */
 .prose-zen .zen-code-fold-button,
 .prose-zen .zen-code-copy-button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
   height: 22px;
-  min-width: 48px;
-  border: 1px solid rgb(var(--z-bg-3) / 0.6);
+  border: 0;
   border-radius: 6px;
-  background: rgb(var(--z-bg) / 0.6);
-  color: theme("colors.ink.600");
+  background: transparent;
+  color: rgb(var(--z-fg-2) / 0.8);
   font-family: var(
     --z-interface-font,
     -apple-system,
@@ -2624,34 +2624,41 @@ textarea,
     sans-serif
   );
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
-  padding: 0 8px;
+  padding: 0 5px;
   cursor: pointer;
   transition:
     background-color 120ms ease,
-    border-color 120ms ease,
     color 120ms ease;
+}
+.prose-zen .zen-code-btn-icon {
+  display: inline-flex;
+  transition: transform 150ms ease;
+}
+.prose-zen .zen-code-btn-icon svg {
+  width: 13px;
+  height: 13px;
+  display: block;
 }
 .prose-zen .zen-code-fold-button:hover,
 .prose-zen .zen-code-copy-button:hover {
-  background: theme("colors.paper.50");
-  border-color: theme("colors.paper.400");
-  color: theme("colors.ink.900");
+  background: rgb(var(--z-bg-3) / 0.45);
+  color: rgb(var(--z-fg));
 }
 .prose-zen .zen-code-fold-button:focus-visible,
 .prose-zen .zen-code-copy-button:focus-visible {
   outline: 2px solid rgb(var(--z-accent) / 0.45);
   outline-offset: 2px;
 }
+/* Collapsed: flip the fold chevron so it points down (expand affordance). */
+.prose-zen .zen-code-block[data-code-folded="true"] .zen-code-fold-button .zen-code-btn-icon {
+  transform: rotate(180deg);
+}
 .prose-zen .zen-code-copy-button[data-copy-state="copied"] {
-  background: rgb(var(--z-green) / 0.08);
-  border-color: rgb(var(--z-green) / 0.45);
   color: rgb(var(--z-green));
 }
 .prose-zen .zen-code-copy-button[data-copy-state="failed"] {
-  background: rgb(var(--z-red) / 0.08);
-  border-color: rgb(var(--z-red) / 0.45);
   color: rgb(var(--z-red));
 }
 .prose-zen .zen-code-block-summary {

@@ -18,6 +18,35 @@ const CODE_BLOCK_FOLDS_STORAGE_PREFIX = 'zen:code-block-folds:v1'
 export const CODE_COPY_BUTTON_SELECTOR = '.zen-code-copy-button'
 export const CODE_FOLD_BUTTON_SELECTOR = '.zen-code-fold-button'
 
+const BTN_LABEL_CLASS = 'zen-code-btn-label'
+const BTN_ICON_CLASS = 'zen-code-btn-icon'
+// Design D (icon + text). Stroke icons inherit `currentColor`. The fold chevron
+// rotates 180° when the block is collapsed (CSS, via data-code-folded).
+const FOLD_ICON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>'
+const COPY_ICON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+
+/** Build an icon + label button body (the label is updated alone on state change). */
+function setButtonContent(button: HTMLButtonElement, iconSvg: string, label: string): void {
+  const doc = button.ownerDocument
+  const icon = doc.createElement('span')
+  icon.className = BTN_ICON_CLASS
+  icon.setAttribute('aria-hidden', 'true')
+  icon.innerHTML = iconSvg
+  const text = doc.createElement('span')
+  text.className = BTN_LABEL_CLASS
+  text.textContent = label
+  button.replaceChildren(icon, text)
+}
+
+/** Update just the text label, leaving the icon intact. */
+function setButtonLabel(button: HTMLButtonElement, label: string): void {
+  const text = button.querySelector<HTMLElement>(`.${BTN_LABEL_CLASS}`)
+  if (text) text.textContent = label
+  else button.textContent = label
+}
+
 const resetTimers = new WeakMap<HTMLButtonElement, number>()
 
 interface CodeBlockEnhanceOptions {
@@ -129,14 +158,14 @@ function ensureCodeBlockHeader(
     foldButton.setAttribute('aria-label', 'Collapse code block')
     foldButton.setAttribute('aria-expanded', 'true')
     foldButton.title = 'Collapse code block'
-    foldButton.textContent = 'Fold'
+    setButtonContent(foldButton, FOLD_ICON_SVG, 'Fold')
 
     const copyButton = pre.ownerDocument.createElement('button')
     copyButton.type = 'button'
     copyButton.className = CODE_COPY_BUTTON_SELECTOR.slice(1)
     copyButton.setAttribute('aria-label', 'Copy code block')
     copyButton.title = 'Copy code block'
-    copyButton.textContent = 'Copy'
+    setButtonContent(copyButton, COPY_ICON_SVG, 'Copy')
 
     toolbar.append(foldButton, copyButton)
     // Toolbar first, language label LAST (far right) — the label is the rightmost
@@ -275,7 +304,7 @@ function applyCodeBlockFoldState(block: HTMLElement, folded: boolean): void {
 
   const button = block.querySelector<HTMLButtonElement>(CODE_FOLD_BUTTON_SELECTOR)
   if (!button) return
-  button.textContent = folded ? 'Expand' : 'Fold'
+  setButtonLabel(button, folded ? 'Expand' : 'Fold')
   button.setAttribute('aria-expanded', String(!folded))
   button.setAttribute('aria-label', folded ? 'Expand code block' : 'Collapse code block')
   button.title = folded ? 'Expand code block' : 'Collapse code block'
@@ -361,12 +390,12 @@ function setCopyButtonFeedback(
 
   const copied = state === 'copied'
   button.dataset.copyState = state
-  button.textContent = copied ? 'Copied' : 'Failed'
+  setButtonLabel(button, copied ? 'Copied' : 'Failed')
   button.setAttribute('aria-label', copied ? 'Copied code block' : 'Copy failed')
   button.title = copied ? 'Copied code block' : 'Copy failed'
 
   const resetTimer = window.setTimeout(() => {
-    button.textContent = 'Copy'
+    setButtonLabel(button, 'Copy')
     button.setAttribute('aria-label', 'Copy code block')
     button.title = 'Copy code block'
     delete button.dataset.copyState
