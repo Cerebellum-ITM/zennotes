@@ -24,7 +24,7 @@ import {
 } from '@codemirror/view'
 import { parseFenceMeta } from './code-fence-meta'
 import { langAccentTriplet } from './lang-colors'
-import { langIconSvg, normalizeLangToken } from './lang-icons'
+import { langIconSvgOrGeneric, normalizeLangToken } from './lang-icons'
 
 // Opening fence: capture the language (group 1) and the rest — the meta (2).
 const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)[ \t]*(.*)$/
@@ -133,7 +133,7 @@ function buildDecorations(view: EditorView): DecorationSet {
             'data-code-title': meta.title ?? '',
             'data-code-header': ''
           }
-          const iconSvg = language === 'text' ? null : langIconSvg(normalizeLangToken(language))
+          const iconSvg = langIconSvgOrGeneric(normalizeLangToken(language))
           // Expose the icon (as a background-image data-URI) and the per-language
           // accent as CSS vars so the ::before header and the card border can use
           // them — both live outside the text flow (no widget, caret-safe).

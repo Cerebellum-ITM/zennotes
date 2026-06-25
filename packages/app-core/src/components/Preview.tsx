@@ -14,7 +14,7 @@ import {
   resolveNoteIconRef,
 } from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
-import { DEFAULT_LANG_ICONS, normalizeLangToken } from "../lib/lang-icons";
+import { DEFAULT_LANG_ICONS, GENERIC_LANG_ICON_SVG, normalizeLangToken } from "../lib/lang-icons";
 import { langAccentTriplet } from "../lib/lang-colors";
 import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
 import hljs from "highlight.js/lib/common";
@@ -863,10 +863,15 @@ export const Preview = memo(function Preview({
       // Use the bundled language logo (the proposed devicon) directly, NOT the
       // user's saved `langIcons` override — so the block header matches the
       // editor's icon exactly and stays consistent regardless of icon settings.
+      // Languages without a bundled logo fall back to the generic `< >` icon, so
+      // every block gets an icon (matches the editor's fallback).
       const ref = DEFAULT_LANG_ICONS[normalizeLangToken(lang)];
-      if (!ref) return;
-      const iconEl = renderIconToDOM(ref, customByName, 16);
-      if (!iconEl) return;
+      let iconEl = ref ? renderIconToDOM(ref, customByName, 16) : null;
+      if (!iconEl) {
+        iconEl = document.createElement("span");
+        iconEl.setAttribute("aria-hidden", "true");
+        iconEl.innerHTML = GENERIC_LANG_ICON_SVG;
+      }
       iconEl.classList.add("zen-code-block-icon");
       // Into the header's left group (before the title), so the icon stays on
       // the left while the language label sits on the right.
