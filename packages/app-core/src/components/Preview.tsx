@@ -15,6 +15,7 @@ import {
 } from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
 import { DEFAULT_LANG_ICONS, normalizeLangToken } from "../lib/lang-icons";
+import { langAccentTriplet } from "../lib/lang-colors";
 import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
 import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
@@ -855,6 +856,10 @@ export const Preview = memo(function Preview({
         .find((c) => c.startsWith("language-"))
         ?.slice("language-".length);
       if (!lang) return;
+      // Per-language accent for the top strip (read by .zen-code-block's
+      // border-top); falls back to the theme accent in CSS when unset.
+      const accent = langAccentTriplet(lang);
+      if (accent) block.style.setProperty("--zen-code-accent", accent);
       // Use the bundled language logo (the proposed devicon) directly, NOT the
       // user's saved `langIcons` override — so the block header matches the
       // editor's icon exactly and stays consistent regardless of icon settings.

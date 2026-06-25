@@ -2474,9 +2474,10 @@ textarea,
   margin: var(--z-prose-block-gap) 0;
   background: theme("colors.paper.200");
   border: 1px solid theme("colors.paper.300");
-  /* Accent strip across the top of the card, to give the block a distinct
-     colored edge (matches the editor's cm-code-block-begin). */
-  border-top: 2px solid rgb(var(--z-accent));
+  /* Dimmed per-language accent strip across the top of the card (matches the
+     editor's cm-code-block-begin). --zen-code-accent is set per block in
+     Preview.tsx; falls back to the theme accent for uncolored languages. */
+  border-top: 2px solid rgb(var(--zen-code-accent, var(--z-accent)) / 0.55);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -3968,8 +3969,10 @@ textarea,
   padding-right: 16px;
 }
 .cm-wysiwyg .cm-code-block-begin {
-  /* Accent strip across the top of the block (parity with the preview card). */
-  border-top: 2px solid rgb(var(--z-accent));
+  /* Dimmed per-language accent strip across the top of the block (parity with
+     the preview card). --zen-code-accent is set per block by the flair plugin;
+     falls back to the theme accent for languages without a curated color. */
+  border-top: 2px solid rgb(var(--zen-code-accent, var(--z-accent)) / 0.55);
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
 }

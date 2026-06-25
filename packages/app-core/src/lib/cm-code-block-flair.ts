@@ -23,6 +23,7 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { parseFenceMeta } from './code-fence-meta'
+import { langAccentTriplet } from './lang-colors'
 import { langIconSvg, normalizeLangToken } from './lang-icons'
 
 // Opening fence: capture the language (group 1) and the rest — the meta (2).
@@ -99,13 +100,20 @@ function buildDecorations(view: EditorView): DecorationSet {
         const hasClose = endLine.number > beginLine.number && CLOSE_FENCE_RE.test(endLine.text)
         const lastContent = hasClose ? endLine.number - 1 : endLine.number
 
+        // Per-language accent for the top strip (read by .cm-code-block-begin);
+        // falls back to the theme accent in CSS when the language has no color.
+        const accent = langAccentTriplet(language)
+        const accentVar = accent ? `--zen-code-accent: ${accent};` : ''
+
         // Opening fence → header bar (hidden raw text) unless the caret is on it.
         if (selectionTouchesLine(state, beginLine)) {
+          const activeAttrs: Record<string, string> = { 'data-code-lang': language }
+          if (accentVar) activeAttrs.style = accentVar
           items.push({
             from: beginLine.from,
             to: beginLine.from,
             rank: 0,
-            deco: lineDeco({ 'data-code-lang': language })
+            deco: lineDeco(activeAttrs)
           })
         } else {
           const headerAttrs: Record<string, string> = {
@@ -114,10 +122,14 @@ function buildDecorations(view: EditorView): DecorationSet {
             'data-code-header': ''
           }
           const iconSvg = language === 'text' ? null : langIconSvg(normalizeLangToken(language))
-          if (iconSvg) {
-            // Expose the icon as a CSS var so the ::before header can paint it as
-            // a background-image — keeps it out of the text flow (no widget).
-            headerAttrs.style = `--zen-code-icon: url("data:image/svg+xml,${encodeURIComponent(iconSvg)}")`
+          // Expose the icon (as a background-image data-URI) and the per-language
+          // accent as CSS vars so the ::before header and the card border can use
+          // them — both live outside the text flow (no widget, caret-safe).
+          const iconVar = iconSvg
+            ? `--zen-code-icon: url("data:image/svg+xml,${encodeURIComponent(iconSvg)}");`
+            : ''
+          if (iconVar || accentVar) {
+            headerAttrs.style = `${accentVar}${iconVar}`
           }
           items.push({
             from: beginLine.from,
