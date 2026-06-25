@@ -2486,7 +2486,10 @@ textarea,
   border: 0;
   border-radius: 0;
   margin: 0;
-  padding: var(--z-prose-line-gap) 16px;
+  /* Tight vertical padding to match the editor: the old --z-prose-line-gap
+     (~1.7em ≈ 27px) left a big empty band under the header and at the bottom
+     that the WYSIWYG block doesn't have. */
+  padding: 6px 16px;
 }
 .prose-zen .zen-code-block[data-code-folded="true"] pre {
   display: none;
@@ -2498,8 +2501,9 @@ textarea,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 34px;
-  padding: 5px 8px 5px 14px;
+  /* Compact header matching the editor's fence-bar height, not a tall toolbar. */
+  min-height: 30px;
+  padding: 3px 8px 3px 14px;
   background: theme("colors.paper.300");
   border-bottom: 1px solid theme("colors.paper.400");
 }
