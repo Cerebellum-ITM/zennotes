@@ -2479,6 +2479,11 @@ textarea,
   --zen-code-bg: color-mix(in srgb, rgb(var(--z-bg-2)) 55%, rgb(var(--z-bg)) 45%);
   --zen-code-border: color-mix(in srgb, rgb(var(--z-bg-3)) 70%, rgb(var(--z-bg)) 30%);
   --zen-code-divider: color-mix(in srgb, rgb(var(--z-bg-3)) 60%, rgb(var(--z-bg)) 40%);
+  /* Highlighted line ({n}) — shared by the preview and editor so they match
+     exactly. Brighter than the old 0.13 (it was barely visible) for a more neon
+     accent band; the left bar is the full accent. */
+  --zen-code-hl-bg: rgb(var(--z-accent) / 0.24);
+  --zen-code-hl-bar: rgb(var(--z-accent));
 }
 .prose-zen .zen-code-block {
   position: relative;
@@ -2722,8 +2727,8 @@ textarea,
 .prose-zen .zen-code-line.zen-code-line-hl {
   display: inline-block;
   width: 100%;
-  background: rgb(var(--z-accent) / 0.13);
-  box-shadow: inset 3px 0 0 rgb(var(--z-accent));
+  background: var(--zen-code-hl-bg);
+  box-shadow: inset 3px 0 0 var(--zen-code-hl-bar);
 }
 
 /* === Syntax highlighting (highlight.js classes) — theme-aware, mirrors the
@@ -4097,8 +4102,8 @@ textarea,
 }
 /* Highlighted code lines (`{n}` in the fence meta) in the editor. */
 .cm-editor .cm-line.cm-code-line-hl {
-  background: rgb(var(--z-accent) / 0.13);
-  box-shadow: inset 3px 0 0 rgb(var(--z-accent));
+  background: var(--zen-code-hl-bg);
+  box-shadow: inset 3px 0 0 var(--zen-code-hl-bar);
 }
 /* Per-block line numbers in the editor (gated by the same setting as the
    preview). The block-relative number is on each content line's data-code-ln;
