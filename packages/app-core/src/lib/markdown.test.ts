@@ -49,6 +49,15 @@ describe('renderMarkdown', () => {
     expect(html).toContain('graph TD; A--&gt;B')
   })
 
+  it('carries the fence language (data-code-lang), defaulting to text, not the auto-detected one', () => {
+    // No fence language → data-code-lang="text" even though rehype-highlight
+    // (detect: true) auto-detects a language for the coloring. Keeps the header
+    // label/icon in sync with the editor (which shows `text`).
+    const noLang = renderMarkdown('```\n[server]\nport = 8080\nhost = localhost\n```')
+    expect(noLang).toContain('data-code-lang="text"')
+    expect(renderMarkdown('```python\nimport json\n```')).toContain('data-code-lang="python"')
+  })
+
   it('renders Obsidian image embeds as local image nodes', () => {
     const html = renderMarkdown('![[CleanShot 2026-04-13 at 14.31.31@2x.png]]')
 

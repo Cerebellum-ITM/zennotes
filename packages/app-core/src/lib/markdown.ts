@@ -30,6 +30,7 @@ const ALLOWED_RENDERED_URI_RE =
   /^(?:(?:https?|mailto|zen|zen-asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
 const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-callout',
+  'data-code-lang',
   'data-code-title',
   'data-code-hl-lines',
   'data-code-linenums',
@@ -290,15 +291,22 @@ function remarkHighlight() {
 function remarkCodeMeta() {
   return (tree: MdRoot): void => {
     visit(tree, 'code', (node) => {
+      const lang = (node as { lang?: string | null }).lang
       const meta = (node as { meta?: string | null }).meta
-      if (!meta) return
-      const parsed = parseFenceMeta(meta)
       const props: Record<string, string> = {}
-      if (parsed.title) props['data-code-title'] = parsed.title
-      if (parsed.highlightLines.size) props['data-code-hl-lines'] = highlightLinesAttr(parsed)
-      if (parsed.lineNumbers !== undefined)
-        props['data-code-linenums'] = String(parsed.lineNumbers)
-      if (Object.keys(props).length === 0) return
+      // Carry the FENCE language (what was typed; `text` when none) so the header
+      // label + icon reflect the source, not rehype-highlight's auto-detection
+      // (`detect: true`), which would otherwise label an unlabeled block as the
+      // language it guessed (e.g. `ini`) — diverging from the editor's `text`.
+      props['data-code-lang'] = (lang || 'text').toLowerCase()
+      if (meta) {
+        const parsed = parseFenceMeta(meta)
+        if (parsed.title) props['data-code-title'] = parsed.title
+        if (parsed.highlightLines.size)
+          props['data-code-hl-lines'] = highlightLinesAttr(parsed)
+        if (parsed.lineNumbers !== undefined)
+          props['data-code-linenums'] = String(parsed.lineNumbers)
+      }
       const data = ((node as { data?: Record<string, unknown> }).data ??= {}) as {
         hProperties?: Record<string, unknown>
       }

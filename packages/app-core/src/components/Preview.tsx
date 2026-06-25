@@ -852,9 +852,13 @@ export const Preview = memo(function Preview({
       const header = block.querySelector<HTMLElement>(".zen-code-block-header");
       if (!header || header.querySelector(".zen-code-block-icon")) return;
       const code = block.querySelector<HTMLElement>("pre > code");
-      const lang = Array.from(code?.classList ?? [])
-        .find((c) => c.startsWith("language-"))
-        ?.slice("language-".length);
+      // Prefer the fence language (data-code-lang) over rehype-highlight's
+      // auto-detected language-* class, so the icon/accent match the editor.
+      const lang =
+        code?.getAttribute("data-code-lang")?.trim() ||
+        Array.from(code?.classList ?? [])
+          .find((c) => c.startsWith("language-"))
+          ?.slice("language-".length);
       if (!lang) return;
       // Per-language accent for the top strip (read by .zen-code-block's
       // border-top); falls back to the theme accent in CSS when unset.

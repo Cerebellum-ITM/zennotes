@@ -196,10 +196,15 @@ function ensureCodeBlockHeader(
 
 /** Bare language token (e.g. `JS`) for the header label, `''` when unknown. */
 function codeLanguageName(code: HTMLElement): string {
-  const language = Array.from(code.classList)
-    .find((className) => className.startsWith('language-'))
-    ?.slice('language-'.length)
-    .trim()
+  // Prefer the fence language (data-code-lang, set by the markdown pipeline) so
+  // the label matches the editor — not rehype-highlight's auto-detected class.
+  const fence = code.getAttribute('data-code-lang')?.trim()
+  const language =
+    fence ||
+    Array.from(code.classList)
+      .find((className) => className.startsWith('language-'))
+      ?.slice('language-'.length)
+      .trim()
   return language ? language.toUpperCase() : ''
 }
 
