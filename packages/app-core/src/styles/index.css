@@ -2498,10 +2498,11 @@ textarea,
   border: 0;
   border-radius: 0;
   margin: 0;
-  /* Tight vertical padding to match the editor: the old --z-prose-line-gap
-     (~1.7em ≈ 27px) left a big empty band under the header and at the bottom
-     that the WYSIWYG block doesn't have. */
-  padding: 6px 16px;
+  /* Tight vertical padding to match the editor, where the first code line sits
+     right under the header (only the line's own leading) and the bottom is a
+     thin cap. The old --z-prose-line-gap (~1.7em ≈ 27px) and even 6px left a
+     visible band the WYSIWYG block doesn't have. */
+  padding: 1px 16px 5px;
 }
 .prose-zen .zen-code-block[data-code-folded="true"] pre {
   display: none;

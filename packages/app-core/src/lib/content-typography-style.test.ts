@@ -47,7 +47,7 @@ describe('editor and preview typography rhythm', () => {
     // gap) so it stays as compact as the WYSIWYG editor block, which has no such
     // band under the header or at the bottom.
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*6px\s*16px;/s
+      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*1px\s*16px\s*5px;/s
     )
     // The header blends with the block body (no distinct bar) and uses the same
     // shared divider var as the editor's fence header.
