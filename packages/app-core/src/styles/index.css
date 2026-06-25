@@ -2799,6 +2799,22 @@ textarea,
      the same tight values or it reintroduces the big top/bottom band. */
   padding: 1px 16px 5px;
 }
+/* When line numbers are on, the gutter owns the left edge. In palette mode the
+   left padding lives on code.hljs (above), so drop it there too — otherwise the
+   numbers sit ~16px in instead of at the card edge like the editor. Selectors
+   include the palette prefix so they outrank the rule above. */
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre
+  code.hljs,
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])
+  .prose-zen
+  .zen-code-block[data-code-linenums="true"]
+  pre
+  code.hljs {
+  padding-left: 0;
+}
 
 /* Background override (Settings → Code → Background). `app`/`custom` force the
  * block surface for every palette, beating a named theme's own background
