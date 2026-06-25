@@ -2,6 +2,8 @@ import { parseHighlightLinesAttr } from './code-fence-meta'
 
 const CODE_BLOCK_CLASS = 'zen-code-block'
 const CODE_BLOCK_HEADER_CLASS = 'zen-code-block-header'
+const CODE_BLOCK_HEADER_LEFT_CLASS = 'zen-code-block-header-left'
+const CODE_BLOCK_HEADER_RIGHT_CLASS = 'zen-code-block-header-right'
 const CODE_BLOCK_LANG_LABEL_CLASS = 'zen-code-lang-label'
 const CODE_BLOCK_TITLE_CLASS = 'zen-code-block-title'
 const CODE_LINE_HL_CLASS = 'zen-code-line-hl'
@@ -107,6 +109,14 @@ function ensureCodeBlockHeader(
     header = pre.ownerDocument.createElement('div')
     header.className = CODE_BLOCK_HEADER_CLASS
 
+    // Two flex groups: meta on the left (icon + title), language label + toolbar
+    // on the right — so the language label sits on the RIGHT like the editor's,
+    // not wedged next to the title on the left.
+    const left = pre.ownerDocument.createElement('div')
+    left.className = CODE_BLOCK_HEADER_LEFT_CLASS
+    const right = pre.ownerDocument.createElement('div')
+    right.className = CODE_BLOCK_HEADER_RIGHT_CLASS
+
     const label = pre.ownerDocument.createElement('span')
     label.className = CODE_BLOCK_LANG_LABEL_CLASS
 
@@ -129,21 +139,23 @@ function ensureCodeBlockHeader(
     copyButton.textContent = 'Copy'
 
     toolbar.append(foldButton, copyButton)
-    header.append(label, toolbar)
+    right.append(label, toolbar)
+    header.append(left, right)
     wrapper.insertBefore(header, pre)
   }
 
   const label = header.querySelector<HTMLElement>(`.${CODE_BLOCK_LANG_LABEL_CLASS}`)
   if (label) label.textContent = codeLanguageName(code)
 
-  // Optional `title=…` from the fence meta, shown before the language label.
+  // Optional `title=…` from the fence meta, in the left group (after the icon).
+  const left = header.querySelector<HTMLElement>(`.${CODE_BLOCK_HEADER_LEFT_CLASS}`)
   const title = code.getAttribute('data-code-title')?.trim() || ''
   let titleEl = header.querySelector<HTMLElement>(`.${CODE_BLOCK_TITLE_CLASS}`)
   if (title) {
     if (!titleEl) {
       titleEl = pre.ownerDocument.createElement('span')
       titleEl.className = CODE_BLOCK_TITLE_CLASS
-      header.insertBefore(titleEl, label ?? header.firstChild)
+      left?.append(titleEl)
     }
     titleEl.textContent = title
   } else {

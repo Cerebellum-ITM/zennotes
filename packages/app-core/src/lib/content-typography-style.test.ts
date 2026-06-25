@@ -49,8 +49,10 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(
       /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*6px\s*16px;/s
     )
+    // The header blends with the block body (no distinct bar) and uses the same
+    // translucent divider as the editor's fence header.
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block-header\s*\{[^}]*border-bottom:\s*1px solid theme\("colors\.paper\.400"\);/s
+      /\.prose-zen \.zen-code-block-header\s*\{[^}]*border-bottom:\s*1px solid rgb\(var\(--z-bg-3\) \/ 0\.6\);/s
     )
   })
 

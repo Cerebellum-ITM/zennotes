@@ -868,7 +868,10 @@ export const Preview = memo(function Preview({
       const iconEl = renderIconToDOM(ref, customByName, 16);
       if (!iconEl) return;
       iconEl.classList.add("zen-code-block-icon");
-      header.insertBefore(iconEl, header.firstChild);
+      // Into the header's left group (before the title), so the icon stays on
+      // the left while the language label sits on the right.
+      const left = header.querySelector<HTMLElement>(".zen-code-block-header-left");
+      (left ?? header).insertBefore(iconEl, (left ?? header).firstChild);
     });
 
     stage

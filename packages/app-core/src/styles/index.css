@@ -2472,8 +2472,11 @@ textarea,
 .prose-zen .zen-code-block {
   position: relative;
   margin: var(--z-prose-block-gap) 0;
-  background: theme("colors.paper.200");
-  border: 1px solid theme("colors.paper.300");
+  /* Match the editor block exactly (.cm-code-block-line): translucent --z-bg-2
+     body + --z-bg-3 side borders, so the preview and editor read as the same
+     component on the same note background. */
+  background: rgb(var(--z-bg-2) / 0.55);
+  border: 1px solid rgb(var(--z-bg-3) / 0.7);
   /* Dimmed per-language accent strip across the top of the card (matches the
      editor's cm-code-block-begin). --zen-code-accent is set per block in
      Preview.tsx; falls back to the theme accent for uncolored languages. */
@@ -2495,17 +2498,25 @@ textarea,
   display: none;
 }
 
-/* Header bar: language label (left) + Fold/Copy toolbar (right). */
+/* Header: meta (icon + title) on the left, language label + Fold/Copy on the
+   right. Same translucent background as the block body (no distinct lighter bar)
+   and the editor's divider — so it reads like the editor's fence header. */
 .prose-zen .zen-code-block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  /* Compact header matching the editor's fence-bar height, not a tall toolbar. */
   min-height: 30px;
   padding: 3px 8px 3px 14px;
-  background: theme("colors.paper.300");
-  border-bottom: 1px solid theme("colors.paper.400");
+  background: transparent;
+  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.6);
+}
+.prose-zen .zen-code-block-header-left,
+.prose-zen .zen-code-block-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .prose-zen .zen-code-lang-label {
   font-family: var(
