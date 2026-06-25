@@ -2657,12 +2657,18 @@ textarea,
 :root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre code {
   counter-reset: zl;
 }
+/* Drop the pre's left padding when numbers are on so the digit sits at the card
+   edge (matching the editor gutter), not 16px in. */
+:root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre {
+  padding-left: 0;
+}
 :root[data-code-line-numbers="true"] .prose-zen .zen-code-block .zen-code-line::before {
   counter-increment: zl;
   content: counter(zl);
   display: inline-block;
-  width: 2.25em;
-  margin-right: 1.1em;
+  /* Match the editor's narrow gutter: 1.4em box + 0.6em gap → code at 2em. */
+  width: 1.4em;
+  margin-right: 0.6em;
   text-align: right;
   color: rgb(var(--z-fg-2) / 0.6);
   user-select: none;
@@ -4036,13 +4042,16 @@ textarea,
    preview). The block-relative number is on each content line's data-code-ln;
    it renders in a left gutter via ::before. */
 :root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln] {
-  padding-left: 3.4em;
+  /* Narrow gutter: a tight 1.4em number box + 0.6em gap → code at 2em, so the
+     digit sits close to the left edge instead of floating with a wide empty
+     space to its left. */
+  padding-left: 2em;
 }
 :root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln]::before {
   content: attr(data-code-ln);
   position: absolute;
   left: 0;
-  width: 2.6em;
+  width: 1.4em;
   text-align: right;
   color: rgb(var(--z-fg-2) / 0.5);
   font-variant-numeric: tabular-nums;
