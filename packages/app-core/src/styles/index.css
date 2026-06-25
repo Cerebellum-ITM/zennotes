@@ -3997,6 +3997,11 @@ textarea,
   pointer-events: none;
   user-select: none;
 }
+/* Highlighted code lines (`{n}` in the fence meta) in the editor. */
+.cm-editor .cm-line.cm-code-line-hl {
+  background: rgb(var(--z-accent) / 0.13);
+  box-shadow: inset 3px 0 0 rgb(var(--z-accent));
+}
 
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */
 /* A GFM pipe table rendered as a real, editable <table>. Mirrors Obsidian's

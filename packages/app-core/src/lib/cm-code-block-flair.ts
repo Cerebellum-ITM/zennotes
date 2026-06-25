@@ -21,8 +21,12 @@ import {
   ViewPlugin,
   type ViewUpdate
 } from '@codemirror/view'
+import { parseFenceMeta } from './code-fence-meta'
 
-const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)/
+// Capture the language token (group 1) and the rest — the meta (group 2).
+const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)[ \t]*(.*)$/
+
+const hlLineDeco = Decoration.line({ class: 'cm-code-line-hl' })
 
 const langDecoCache = new Map<string, Decoration>()
 function langLineDeco(language: string): Decoration {
@@ -53,6 +57,18 @@ function buildDecorations(view: EditorView): DecorationSet {
         const langMatch = beginLine.text.match(FENCE_RE)
         const language = (langMatch?.[1] || 'text').toLowerCase()
         pending.push({ at: beginLine.from, deco: langLineDeco(language) })
+
+        // Highlight the lines requested via `{n}` (1-based within the block
+        // body, i.e. the first content line is line 1). Safe additive line
+        // decorations — no content widgets, so the caret is unaffected.
+        const meta = parseFenceMeta(langMatch?.[2] ?? '')
+        if (meta.highlightLines.size > 0) {
+          const lastLine = state.doc.lineAt(Math.max(node.from, node.to - 1))
+          for (let n = beginLine.number + 1; n < lastLine.number; n += 1) {
+            if (!meta.highlightLines.has(n - beginLine.number)) continue
+            pending.push({ at: state.doc.line(n).from, deco: hlLineDeco })
+          }
+        }
         return false
       }
     })
