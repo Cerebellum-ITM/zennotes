@@ -15,6 +15,7 @@ import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
 import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
+import { highlightLinesAttr, parseFenceMeta } from './code-fence-meta'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -29,6 +30,8 @@ const ALLOWED_RENDERED_URI_RE =
   /^(?:(?:https?|mailto|zen|zen-asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
 const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-callout',
+  'data-code-title',
+  'data-code-hl-lines',
   'data-function-plot-source',
   'data-jsxgraph-source',
   'data-local-asset-href',
@@ -278,6 +281,30 @@ function remarkHighlight() {
 }
 
 /**
+ * Remark plugin: carries fenced-code metadata (`title=…`, `{n}` line highlight)
+ * from the info-string (`node.meta`) onto the rendered `<code>` element as
+ * `data-code-title` / `data-code-hl-lines`, for the preview post-processor to
+ * read. The language token (`node.lang`) keeps becoming `class="language-*"`.
+ */
+function remarkCodeMeta() {
+  return (tree: MdRoot): void => {
+    visit(tree, 'code', (node) => {
+      const meta = (node as { meta?: string | null }).meta
+      if (!meta) return
+      const parsed = parseFenceMeta(meta)
+      const props: Record<string, string> = {}
+      if (parsed.title) props['data-code-title'] = parsed.title
+      if (parsed.highlightLines.size) props['data-code-hl-lines'] = highlightLinesAttr(parsed)
+      if (Object.keys(props).length === 0) return
+      const data = ((node as { data?: Record<string, unknown> }).data ??= {}) as {
+        hProperties?: Record<string, unknown>
+      }
+      data.hProperties = { ...(data.hProperties ?? {}), ...props }
+    })
+  }
+}
+
+/**
  * Remark plugin: rewrites Obsidian-style callouts.
  *
  *     > [!note] Optional title
@@ -429,6 +456,7 @@ const processor = unified()
   .use(remarkHashtags)
   .use(remarkHighlight)
   .use(remarkCallouts)
+  .use(remarkCodeMeta)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeMermaid)

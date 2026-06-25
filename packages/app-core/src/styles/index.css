@@ -2518,6 +2518,35 @@ textarea,
 .prose-zen .zen-code-lang-label:empty {
   display: none;
 }
+/* Language icon + optional title (from `title=…`) on the left of the header. */
+.prose-zen .zen-code-block-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  line-height: 0;
+}
+.prose-zen .zen-code-block-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.prose-zen .zen-code-block-title {
+  font-family: var(
+    --z-interface-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    system-ui,
+    sans-serif
+  );
+  font-size: 12.5px;
+  font-weight: 600;
+  color: theme("colors.ink.800");
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .prose-zen .zen-code-block-toolbar {
   display: flex;
   align-items: center;
@@ -2634,6 +2663,16 @@ textarea,
   color: rgb(var(--z-fg-2) / 0.6);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Highlighted lines (`{n}` in the fence meta) — full-width band + accent bar.
+   inline-block + width:100% spans the row without disturbing the `\n` joins
+   or the line-number counters. */
+.prose-zen .zen-code-line.zen-code-line-hl {
+  display: inline-block;
+  width: 100%;
+  background: rgb(var(--z-accent) / 0.13);
+  box-shadow: inset 3px 0 0 rgb(var(--z-accent));
 }
 
 /* === Syntax highlighting (highlight.js classes) — theme-aware, mirrors the
@@ -3935,31 +3974,28 @@ textarea,
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
-/* Language label pinned top-right of the block; clicking it copies the code,
-   so there is no separate copy or fold control. */
-.cm-wysiwyg .cm-code-flair {
+/* Language label pinned top-right of the block, painted as a CSS pseudo-element
+   on the opening fence line (`data-code-lang`) so it lives OUTSIDE the text flow
+   and never shifts the caret. `pointer-events: none` keeps clicks landing on the
+   text underneath. Depends only on the attribute (not the begin class) and sets
+   its own positioning context. */
+.cm-wysiwyg .cm-line[data-code-lang] {
+  position: relative;
+}
+.cm-wysiwyg .cm-line[data-code-lang]::after {
+  content: attr(data-code-lang);
   position: absolute;
   top: 3px;
   right: 8px;
   z-index: 2;
-  padding: 1px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
   font-family: var(--z-interface-font, system-ui, sans-serif);
   font-size: 11px;
   line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: rgb(var(--z-grey-1));
-  cursor: pointer;
+  pointer-events: none;
   user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.cm-wysiwyg .cm-code-flair:hover {
-  background: rgb(var(--z-bg-3) / 0.85);
-  color: rgb(var(--z-fg));
-}
-.cm-wysiwyg .cm-code-flair.is-copied {
-  color: rgb(var(--z-accent));
 }
 
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */

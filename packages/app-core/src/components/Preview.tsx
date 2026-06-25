@@ -845,6 +845,23 @@ export const Preview = memo(function Preview({
     enhancePreviewHeadingFolds(stage);
     enhanceCodeBlockCopy(stage, { notePath });
 
+    // Prepend a language icon to each fenced-block header (parity with inline).
+    stage.querySelectorAll<HTMLElement>(".zen-code-block").forEach((block) => {
+      const header = block.querySelector<HTMLElement>(".zen-code-block-header");
+      if (!header || header.querySelector(".zen-code-block-icon")) return;
+      const code = block.querySelector<HTMLElement>("pre > code");
+      const lang = Array.from(code?.classList ?? [])
+        .find((c) => c.startsWith("language-"))
+        ?.slice("language-".length);
+      if (!lang) return;
+      const ref = resolveLangIconRef(lang, customByName, iconRules, vaultSettings?.langIcons);
+      if (!ref) return;
+      const iconEl = renderIconToDOM(ref, customByName, 16);
+      if (!iconEl) return;
+      iconEl.classList.add("zen-code-block-icon");
+      header.insertBefore(iconEl, header.firstChild);
+    });
+
     stage
       .querySelectorAll<HTMLInputElement>('li.task-list-item input[type="checkbox"]')
       .forEach((input, idx) => {

@@ -1,6 +1,10 @@
+import { parseHighlightLinesAttr } from './code-fence-meta'
+
 const CODE_BLOCK_CLASS = 'zen-code-block'
 const CODE_BLOCK_HEADER_CLASS = 'zen-code-block-header'
 const CODE_BLOCK_LANG_LABEL_CLASS = 'zen-code-lang-label'
+const CODE_BLOCK_TITLE_CLASS = 'zen-code-block-title'
+const CODE_LINE_HL_CLASS = 'zen-code-line-hl'
 const CODE_BLOCK_TOOLBAR_CLASS = 'zen-code-block-toolbar'
 const CODE_BLOCK_SUMMARY_CLASS = 'zen-code-block-summary'
 const CODE_LINE_CLASS = 'zen-code-line'
@@ -122,6 +126,20 @@ function ensureCodeBlockHeader(
 
   const label = header.querySelector<HTMLElement>(`.${CODE_BLOCK_LANG_LABEL_CLASS}`)
   if (label) label.textContent = codeLanguageName(code)
+
+  // Optional `title=…` from the fence meta, shown before the language label.
+  const title = code.getAttribute('data-code-title')?.trim() || ''
+  let titleEl = header.querySelector<HTMLElement>(`.${CODE_BLOCK_TITLE_CLASS}`)
+  if (title) {
+    if (!titleEl) {
+      titleEl = pre.ownerDocument.createElement('span')
+      titleEl.className = CODE_BLOCK_TITLE_CLASS
+      header.insertBefore(titleEl, label ?? header.firstChild)
+    }
+    titleEl.textContent = title
+  } else {
+    titleEl?.remove()
+  }
 }
 
 /** Bare language token (e.g. `JS`) for the header label, `''` when unknown. */
@@ -142,6 +160,8 @@ function wrapCodeBlockLines(code: HTMLElement): void {
   const html = code.innerHTML
   if (!html) return
 
+  const highlighted = parseHighlightLinesAttr(code.getAttribute('data-code-hl-lines'))
+
   // Preserve a single trailing newline as a literal text node so it stays in
   // textContent (copy) without rendering an extra numbered blank line.
   const hasTrailingNewline = html.endsWith('\n')
@@ -149,7 +169,12 @@ function wrapCodeBlockLines(code: HTMLElement): void {
 
   const lines = splitHighlightedLines(body)
   const wrapped = lines
-    .map((line) => `<span class="${CODE_LINE_CLASS}">${line}</span>`)
+    .map((line, i) => {
+      const cls = highlighted.has(i + 1)
+        ? `${CODE_LINE_CLASS} ${CODE_LINE_HL_CLASS}`
+        : CODE_LINE_CLASS
+      return `<span class="${cls}">${line}</span>`
+    })
     .join('\n')
   code.innerHTML = wrapped + (hasTrailingNewline ? '\n' : '')
 }

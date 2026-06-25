@@ -90,7 +90,7 @@ describe('wysiwyg plugin composition', () => {
     expect(view.dom.querySelectorAll('.cm-wq-quote').length).toBeGreaterThanOrEqual(1)
     expect(view.dom.querySelectorAll('.cm-hashtag').length).toBeGreaterThanOrEqual(1)
     expect(view.dom.querySelectorAll('.cm-wikilink').length).toBeGreaterThanOrEqual(1)
-    expect(view.dom.querySelectorAll('.cm-code-flair').length).toBeGreaterThanOrEqual(1)
+    expect(view.dom.querySelectorAll('[data-code-lang]').length).toBeGreaterThanOrEqual(1)
 
     view.destroy()
   })
