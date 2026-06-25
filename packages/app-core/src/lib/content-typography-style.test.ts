@@ -43,8 +43,11 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(
       /\.prose-zen pre code\s*\{[^}]*line-height:\s*var\(--z-editor-line-height,\s*1\.7\);/s
     )
+    // The rendered code block uses a tight vertical padding (not the prose line
+    // gap) so it stays as compact as the WYSIWYG editor block, which has no such
+    // band under the header or at the bottom.
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*var\(--z-prose-line-gap\)\s*16px;/s
+      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*6px\s*16px;/s
     )
     expect(stylesSource).toMatch(
       /\.prose-zen \.zen-code-block-header\s*\{[^}]*border-bottom:\s*1px solid theme\("colors\.paper\.400"\);/s
