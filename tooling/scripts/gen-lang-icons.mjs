@@ -76,13 +76,32 @@ function findSvg(dir) {
   return any ? path.join(base, any) : null
 }
 
+// Inline `<use xlink:href="#id">` references with the geometry of the element
+// they point at. The icon sanitizer (DOMPurify) strips `<use>` but keeps the
+// referencing `clip-path`/`fill`, which would leave an empty clipPath that clips
+// the whole icon to nothing (e.g. the Go gopher rendered fully blank). Inlining
+// makes the def self-contained so it survives sanitization.
+function inlineUses(svg) {
+  const defs = {}
+  svg.replace(/<(path|rect|circle|ellipse|polygon|polyline)\b([^>]*?)\/>/g, (full, tag, attrs) => {
+    const id = attrs.match(/\bid="([^"]+)"/)
+    if (id) defs[id[1]] = `<${tag}${attrs.replace(/\s*\bid="[^"]+"/, '')}/>`
+    return full
+  })
+  return svg.replace(/<use\b[^>]*?(?:xlink:)?href="#([^"]+)"[^>]*?\/?>(?:<\/use>)?/g, (full, id) =>
+    defs[id] ? defs[id] : full
+  )
+}
+
 function cleanSvg(raw) {
-  return raw
-    .replace(/<\?xml[\s\S]*?\?>/g, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/>\s+</g, '><')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
+  return inlineUses(
+    raw
+      .replace(/<\?xml[\s\S]*?\?>/g, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/>\s+</g, '><')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  )
 }
 
 const svgs = []
