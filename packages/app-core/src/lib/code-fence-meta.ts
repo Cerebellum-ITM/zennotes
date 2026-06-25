@@ -6,14 +6,20 @@
  * Supported tokens (order-independent):
  *  - `title=Foo` or `title="Foo with spaces"` → block title.
  *  - `{3,5-7,9}` → highlighted line numbers (1-based), ranges allowed.
+ *  - `ln:true` / `ln:false` (aliases `line-numbers`, `linenumbers`) → per-block
+ *    line-number override; when absent the global setting decides.
  */
 export interface FenceMeta {
   title?: string
   highlightLines: Set<number>
+  /** Per-block line-number override; `undefined` = follow the global setting. */
+  lineNumbers?: boolean
 }
 
 const TITLE_RE = /\btitle=(?:"([^"]*)"|'([^']*)'|(\S+))/
 const HL_RE = /\{([\d,\s-]+)\}/
+// `ln:true`, `ln=false`, `line-numbers:on`, `linenumbers=0`, etc.
+const LN_RE = /\b(?:ln|line-?numbers)\s*[:=]\s*(true|false|on|off|yes|no|1|0)\b/i
 
 /** Parse `{3,5-7,9}` → {3,5,6,7,9}. Invalid/≤0/inverted ranges are skipped. */
 export function parseHighlightLines(spec: string): Set<number> {
@@ -51,6 +57,9 @@ export function parseFenceMeta(meta: string | null | undefined): FenceMeta {
 
   const hl = HL_RE.exec(meta)
   if (hl) result.highlightLines = parseHighlightLines(hl[1])
+
+  const ln = LN_RE.exec(meta)
+  if (ln) result.lineNumbers = /^(true|on|yes|1)$/i.test(ln[1])
 
   return result
 }

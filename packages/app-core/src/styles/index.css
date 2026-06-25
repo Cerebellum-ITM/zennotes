@@ -2658,15 +2658,31 @@ textarea,
 .prose-zen .zen-code-line {
   display: inline;
 }
-:root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre code {
+/* Line numbers show when the global setting is on (and the block doesn't opt
+   out via `ln:false` → data-code-linenums="false"), OR when the block opts in
+   via `ln:true` → data-code-linenums="true", regardless of the global setting. */
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre
+  code,
+.prose-zen .zen-code-block[data-code-linenums="true"] pre code {
   counter-reset: zl;
 }
 /* Drop the pre's left padding when numbers are on so the digit sits at the card
    edge (matching the editor gutter), not 16px in. */
-:root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre {
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre,
+.prose-zen .zen-code-block[data-code-linenums="true"] pre {
   padding-left: 0;
 }
-:root[data-code-line-numbers="true"] .prose-zen .zen-code-block .zen-code-line::before {
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  .zen-code-line::before,
+.prose-zen .zen-code-block[data-code-linenums="true"] .zen-code-line::before {
   counter-increment: zl;
   content: counter(zl);
   display: inline-block;
@@ -4045,13 +4061,22 @@ textarea,
 /* Per-block line numbers in the editor (gated by the same setting as the
    preview). The block-relative number is on each content line's data-code-ln;
    it renders in a left gutter via ::before. */
-:root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln] {
+/* Show when the global setting is on (unless the block opts out via
+   `cm-code-ln-off` from `ln:false`), OR when the block opts in via
+   `cm-code-ln-on` (`ln:true`), regardless of the global setting. */
+:root[data-code-line-numbers="true"]
+  .cm-wysiwyg
+  .cm-line[data-code-ln]:not(.cm-code-ln-off),
+.cm-wysiwyg .cm-line[data-code-ln].cm-code-ln-on {
   /* Narrow gutter: a tight 1.4em number box + 0.6em gap → code at 2em, so the
      digit sits close to the left edge instead of floating with a wide empty
      space to its left. */
   padding-left: 2em;
 }
-:root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln]::before {
+:root[data-code-line-numbers="true"]
+  .cm-wysiwyg
+  .cm-line[data-code-ln]:not(.cm-code-ln-off)::before,
+.cm-wysiwyg .cm-line[data-code-ln].cm-code-ln-on::before {
   content: attr(data-code-ln);
   position: absolute;
   left: 0;

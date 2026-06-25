@@ -47,6 +47,15 @@ export function enhanceCodeBlockCopy(
     wrapCodeBlockLines(code)
     ensureCodeBlockSummary(wrapper, code)
 
+    // Lift the per-block line-number override (`ln:true`/`ln:false`) onto the
+    // wrapper so the stylesheet can gate the gutter at the block level.
+    const lnOverride = code.getAttribute('data-code-linenums')
+    if (lnOverride === 'true' || lnOverride === 'false') {
+      wrapper.setAttribute('data-code-linenums', lnOverride)
+    } else {
+      wrapper.removeAttribute('data-code-linenums')
+    }
+
     const persisted = storageKey ? readPersistedFoldState(storageKey, index) : null
     applyCodeBlockFoldState(wrapper, persisted ?? false)
   }

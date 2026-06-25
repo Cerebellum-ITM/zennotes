@@ -36,15 +36,25 @@ type DocLine = ReturnType<DocState['doc']['lineAt']>
 
 const hideText = Decoration.replace({})
 
+type LnMode = 'auto' | 'on' | 'off'
+
 const contentDecoCache = new Map<string, Decoration>()
-/** A content line: its block-relative number (data attr) + highlight class. */
-function contentLineDeco(rel: number, highlighted: boolean): Decoration {
-  const key = `${rel}|${highlighted ? 1 : 0}`
+/**
+ * A content line: its block-relative number (data attr), highlight class, and
+ * the per-block line-number override (`cm-code-ln-on`/`-off` from `ln:true`/
+ * `ln:false`; `auto` follows the global setting).
+ */
+function contentLineDeco(rel: number, highlighted: boolean, lnMode: LnMode): Decoration {
+  const key = `${rel}|${highlighted ? 1 : 0}|${lnMode}`
   let deco = contentDecoCache.get(key)
   if (!deco) {
+    const classes: string[] = []
+    if (highlighted) classes.push('cm-code-line-hl')
+    if (lnMode === 'on') classes.push('cm-code-ln-on')
+    else if (lnMode === 'off') classes.push('cm-code-ln-off')
     deco = Decoration.line({
       attributes: { 'data-code-ln': String(rel) },
-      class: highlighted ? 'cm-code-line-hl' : undefined
+      class: classes.length ? classes.join(' ') : undefined
     })
     contentDecoCache.set(key, deco)
   }
@@ -99,6 +109,8 @@ function buildDecorations(view: EditorView): DecorationSet {
         )
         const hasClose = endLine.number > beginLine.number && CLOSE_FENCE_RE.test(endLine.text)
         const lastContent = hasClose ? endLine.number - 1 : endLine.number
+        const lnMode: LnMode =
+          meta.lineNumbers === true ? 'on' : meta.lineNumbers === false ? 'off' : 'auto'
 
         // Per-language accent for the top strip (read by .cm-code-block-begin);
         // falls back to the theme accent in CSS when the language has no color.
@@ -152,7 +164,7 @@ function buildDecorations(view: EditorView): DecorationSet {
             from: line.from,
             to: line.from,
             rank: 0,
-            deco: contentLineDeco(rel, meta.highlightLines.has(rel))
+            deco: contentLineDeco(rel, meta.highlightLines.has(rel), lnMode)
           })
         }
 

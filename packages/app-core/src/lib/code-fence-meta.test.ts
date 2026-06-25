@@ -50,6 +50,25 @@ describe('parseFenceMeta', () => {
   it('does not throw on garbage', () => {
     expect(() => parseFenceMeta('!!! {{{ title=')).not.toThrow()
   })
+
+  it('leaves lineNumbers undefined when no ln token', () => {
+    expect(parseFenceMeta('title=test {5}').lineNumbers).toBeUndefined()
+  })
+
+  it('parses ln:true / ln:false (and aliases/values)', () => {
+    expect(parseFenceMeta('ln:true').lineNumbers).toBe(true)
+    expect(parseFenceMeta('ln=false').lineNumbers).toBe(false)
+    expect(parseFenceMeta('line-numbers:on').lineNumbers).toBe(true)
+    expect(parseFenceMeta('linenumbers=0').lineNumbers).toBe(false)
+    expect(parseFenceMeta('LN:NO').lineNumbers).toBe(false)
+  })
+
+  it('parses ln alongside title and highlight in any order', () => {
+    const m = parseFenceMeta('title=test ln:true {5}')
+    expect(m.title).toBe('test')
+    expect(m.lineNumbers).toBe(true)
+    expect([...m.highlightLines]).toEqual([5])
+  })
 })
 
 describe('isLineHighlighted', () => {

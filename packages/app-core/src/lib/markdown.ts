@@ -32,6 +32,7 @@ const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-callout',
   'data-code-title',
   'data-code-hl-lines',
+  'data-code-linenums',
   'data-function-plot-source',
   'data-jsxgraph-source',
   'data-local-asset-href',
@@ -295,6 +296,8 @@ function remarkCodeMeta() {
       const props: Record<string, string> = {}
       if (parsed.title) props['data-code-title'] = parsed.title
       if (parsed.highlightLines.size) props['data-code-hl-lines'] = highlightLinesAttr(parsed)
+      if (parsed.lineNumbers !== undefined)
+        props['data-code-linenums'] = String(parsed.lineNumbers)
       if (Object.keys(props).length === 0) return
       const data = ((node as { data?: Record<string, unknown> }).data ??= {}) as {
         hProperties?: Record<string, unknown>
