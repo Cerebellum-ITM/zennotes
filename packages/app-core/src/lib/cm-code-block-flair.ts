@@ -33,8 +33,22 @@ const CLOSE_FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*$/
 type DocState = EditorView['state']
 type DocLine = ReturnType<DocState['doc']['lineAt']>
 
-const hlLineDeco = Decoration.line({ class: 'cm-code-line-hl' })
 const hideText = Decoration.replace({})
+
+const contentDecoCache = new Map<string, Decoration>()
+/** A content line: its block-relative number (data attr) + highlight class. */
+function contentLineDeco(rel: number, highlighted: boolean): Decoration {
+  const key = `${rel}|${highlighted ? 1 : 0}`
+  let deco = contentDecoCache.get(key)
+  if (!deco) {
+    deco = Decoration.line({
+      attributes: { 'data-code-ln': String(rel) },
+      class: highlighted ? 'cm-code-line-hl' : undefined
+    })
+    contentDecoCache.set(key, deco)
+  }
+  return deco
+}
 
 const lineDecoCache = new Map<string, Decoration>()
 function lineDeco(attrs: Record<string, string>): Decoration {
@@ -116,13 +130,18 @@ function buildDecorations(view: EditorView): DecorationSet {
           }
         }
 
-        // Highlight requested content lines (1-based within the block body).
-        if (meta.highlightLines.size > 0) {
-          for (let n = beginLine.number + 1; n <= lastContent; n += 1) {
-            if (!meta.highlightLines.has(n - beginLine.number)) continue
-            const line = state.doc.line(n)
-            items.push({ from: line.from, to: line.from, rank: 0, deco: hlLineDeco })
-          }
+        // Number each content line (1-based within the block body) and flag the
+        // highlighted ones. The number is shown by CSS only when the line-number
+        // setting is on; the attribute is harmless otherwise.
+        for (let n = beginLine.number + 1; n <= lastContent; n += 1) {
+          const rel = n - beginLine.number
+          const line = state.doc.line(n)
+          items.push({
+            from: line.from,
+            to: line.from,
+            rank: 0,
+            deco: contentLineDeco(rel, meta.highlightLines.has(rel))
+          })
         }
 
         // Closing fence → hidden unless the caret is on it.

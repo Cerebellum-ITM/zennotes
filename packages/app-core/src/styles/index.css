@@ -4023,6 +4023,23 @@ textarea,
   background: rgb(var(--z-accent) / 0.13);
   box-shadow: inset 3px 0 0 rgb(var(--z-accent));
 }
+/* Per-block line numbers in the editor (gated by the same setting as the
+   preview). The block-relative number is on each content line's data-code-ln;
+   it renders in a left gutter via ::before. */
+:root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln] {
+  padding-left: 3.4em;
+}
+:root[data-code-line-numbers="true"] .cm-wysiwyg .cm-line[data-code-ln]::before {
+  content: attr(data-code-ln);
+  position: absolute;
+  left: 0;
+  width: 2.6em;
+  text-align: right;
+  color: rgb(var(--z-fg-2) / 0.5);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
 
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */
 /* A GFM pipe table rendered as a real, editable <table>. Mirrors Obsidian's
