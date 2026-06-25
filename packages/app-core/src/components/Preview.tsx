@@ -14,6 +14,7 @@ import {
   resolveNoteIconRef,
 } from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
+import { DEFAULT_LANG_ICONS, normalizeLangToken } from "../lib/lang-icons";
 import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
 import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
@@ -854,7 +855,10 @@ export const Preview = memo(function Preview({
         .find((c) => c.startsWith("language-"))
         ?.slice("language-".length);
       if (!lang) return;
-      const ref = resolveLangIconRef(lang, customByName, iconRules, vaultSettings?.langIcons);
+      // Use the bundled language logo (the proposed devicon) directly, NOT the
+      // user's saved `langIcons` override — so the block header matches the
+      // editor's icon exactly and stays consistent regardless of icon settings.
+      const ref = DEFAULT_LANG_ICONS[normalizeLangToken(lang)];
       if (!ref) return;
       const iconEl = renderIconToDOM(ref, customByName, 16);
       if (!iconEl) return;

@@ -2474,6 +2474,9 @@ textarea,
   margin: var(--z-prose-block-gap) 0;
   background: theme("colors.paper.200");
   border: 1px solid theme("colors.paper.300");
+  /* Accent strip across the top of the card, to give the block a distinct
+     colored edge (matches the editor's cm-code-block-begin). */
+  border-top: 2px solid rgb(var(--z-accent));
   border-radius: 10px;
   overflow: hidden;
 }
@@ -3965,7 +3968,8 @@ textarea,
   padding-right: 16px;
 }
 .cm-wysiwyg .cm-code-block-begin {
-  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  /* Accent strip across the top of the block (parity with the preview card). */
+  border-top: 2px solid rgb(var(--z-accent));
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
 }
