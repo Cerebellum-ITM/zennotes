@@ -4005,13 +4005,18 @@ textarea,
 }
 .cm-wysiwyg .cm-line[data-code-header]::before {
   content: attr(data-code-title);
+  display: inline-block;
   font-family: var(--z-interface-font, system-ui, sans-serif);
   font-size: 12.5px;
   font-weight: 600;
   color: rgb(var(--z-fg));
 }
-.cm-wysiwyg .cm-line[data-code-header][data-code-title=""]::before {
-  content: none;
+/* When the language has an icon, paint it as a left-aligned background on the
+   ::before box and reserve room with padding (so it shows with or without a
+   title). */
+.cm-wysiwyg .cm-line[data-code-header][style*="--zen-code-icon"]::before {
+  padding-left: 21px;
+  background: var(--zen-code-icon) no-repeat left center / 15px 15px;
 }
 /* Highlighted code lines (`{n}` in the fence meta) in the editor. */
 .cm-editor .cm-line.cm-code-line-hl {

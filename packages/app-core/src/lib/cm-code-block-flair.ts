@@ -23,6 +23,7 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { parseFenceMeta } from './code-fence-meta'
+import { langIconSvg, normalizeLangToken } from './lang-icons'
 
 // Opening fence: capture the language (group 1) and the rest — the meta (2).
 const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)[ \t]*(.*)$/
@@ -93,15 +94,22 @@ function buildDecorations(view: EditorView): DecorationSet {
             deco: lineDeco({ 'data-code-lang': language })
           })
         } else {
+          const headerAttrs: Record<string, string> = {
+            'data-code-lang': language,
+            'data-code-title': meta.title ?? '',
+            'data-code-header': ''
+          }
+          const iconSvg = language === 'text' ? null : langIconSvg(normalizeLangToken(language))
+          if (iconSvg) {
+            // Expose the icon as a CSS var so the ::before header can paint it as
+            // a background-image — keeps it out of the text flow (no widget).
+            headerAttrs.style = `--zen-code-icon: url("data:image/svg+xml,${encodeURIComponent(iconSvg)}")`
+          }
           items.push({
             from: beginLine.from,
             to: beginLine.from,
             rank: 0,
-            deco: lineDeco({
-              'data-code-lang': language,
-              'data-code-title': meta.title ?? '',
-              'data-code-header': ''
-            })
+            deco: lineDeco(headerAttrs)
           })
           if (beginLine.to > beginLine.from) {
             items.push({ from: beginLine.from, to: beginLine.to, rank: 1, deco: hideText })
