@@ -2794,7 +2794,10 @@ textarea,
   pre
   code.hljs {
   display: block;
-  padding: var(--z-prose-line-gap) 16px;
+  /* Match the compact .zen-code-block pre padding: with a palette active the
+     pre padding is zeroed and the code surface owns the padding, so it must use
+     the same tight values or it reintroduces the big top/bottom band. */
+  padding: 1px 16px 5px;
 }
 
 /* Background override (Settings → Code → Background). `app`/`custom` force the
