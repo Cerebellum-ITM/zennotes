@@ -139,7 +139,9 @@ function ensureCodeBlockHeader(
     copyButton.textContent = 'Copy'
 
     toolbar.append(foldButton, copyButton)
-    right.append(label, toolbar)
+    // Toolbar first, language label LAST (far right) — the label is the rightmost
+    // item in the header, after the Fold/Copy buttons.
+    right.append(toolbar, label)
     header.append(left, right)
     wrapper.insertBefore(header, pre)
   }
