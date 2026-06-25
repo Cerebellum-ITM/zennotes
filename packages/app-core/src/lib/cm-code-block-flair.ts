@@ -1,16 +1,17 @@
 /**
- * Code-block "flair" for the WYSIWYG (Edit) editor: the language name shown at
- * the top-right of each fenced code block.
+ * Code-block chrome for the WYSIWYG (Edit) editor. Turns each fenced block's
+ * opening fence line into a header bar (title + language) and hides the closing
+ * fence, so the block reads like the preview. Putting the caret on a fence line
+ * reveals its raw text so it stays editable (the Obsidian live-preview pattern).
  *
- * It is rendered as a **line decoration** (a `data-code-lang` attribute on the
- * opening fence line) and painted via a CSS `::after` pseudo-element — NOT as an
- * inline content widget. An absolutely-positioned content widget at the end of
- * the line made CodeMirror measure the caret at the widget, so the cursor
- * "jumped" to the top-right when editing the block. A line-attribute + CSS label
- * lives outside the text flow, so the caret is never affected.
+ * Everything is done with LINE decorations (`data-*` attributes painted via CSS
+ * pseudo-elements) and empty `Decoration.replace` ranges (to hide the raw fence
+ * text) — never an inline content widget. A content widget at the line end made
+ * CodeMirror measure the caret at the widget, so the cursor jumped to the
+ * top-right; line decorations + CSS live outside the text flow and never touch
+ * the caret. It also highlights the `{n}` lines from the fence meta.
  *
- * WYSIWYG-only: this lives in `wysiwygExtensions()` and never loads in the
- * Split (source) editor.
+ * WYSIWYG-only: lives in `wysiwygExtensions()`, never in the Split editor.
  */
 import { syntaxTree } from '@codemirror/language'
 import { RangeSetBuilder } from '@codemirror/state'
@@ -23,26 +24,46 @@ import {
 } from '@codemirror/view'
 import { parseFenceMeta } from './code-fence-meta'
 
-// Capture the language token (group 1) and the rest — the meta (group 2).
+// Opening fence: capture the language (group 1) and the rest — the meta (2).
 const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)[ \t]*(.*)$/
+// A bare closing fence line (only backticks/tildes).
+const CLOSE_FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*$/
+
+type DocState = EditorView['state']
+type DocLine = ReturnType<DocState['doc']['lineAt']>
 
 const hlLineDeco = Decoration.line({ class: 'cm-code-line-hl' })
+const hideText = Decoration.replace({})
 
-const langDecoCache = new Map<string, Decoration>()
-function langLineDeco(language: string): Decoration {
-  let deco = langDecoCache.get(language)
+const lineDecoCache = new Map<string, Decoration>()
+function lineDeco(attrs: Record<string, string>): Decoration {
+  const key = JSON.stringify(attrs)
+  let deco = lineDecoCache.get(key)
   if (!deco) {
-    deco = Decoration.line({ attributes: { 'data-code-lang': language } })
-    langDecoCache.set(language, deco)
+    deco = Decoration.line({ attributes: attrs })
+    lineDecoCache.set(key, deco)
   }
   return deco
+}
+
+function selectionTouchesLine(state: DocState, line: DocLine): boolean {
+  for (const range of state.selection.ranges) {
+    if (range.empty) {
+      if (range.from >= line.from && range.from <= line.to) return true
+      continue
+    }
+    if (Math.max(range.from, line.from) < Math.min(range.to, line.to)) return true
+  }
+  return false
 }
 
 function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view
   const tree = syntaxTree(state)
   const seen = new Set<number>()
-  const pending: Array<{ at: number; deco: Decoration }> = []
+  // rank 0 = line decoration (point), rank 1 = replace range. At an equal
+  // position, line decorations must be added before replace ranges.
+  const items: Array<{ from: number; to: number; rank: number; deco: Decoration }> = []
 
   for (const { from, to } of view.visibleRanges) {
     tree.iterate({
@@ -54,29 +75,66 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (seen.has(beginLine.from)) return false
         seen.add(beginLine.from)
 
-        const langMatch = beginLine.text.match(FENCE_RE)
-        const language = (langMatch?.[1] || 'text').toLowerCase()
-        pending.push({ at: beginLine.from, deco: langLineDeco(language) })
+        const match = beginLine.text.match(FENCE_RE)
+        const language = (match?.[1] || 'text').toLowerCase()
+        const meta = parseFenceMeta(match?.[2] ?? '')
+        const endLine = state.doc.lineAt(
+          Math.min(state.doc.length, Math.max(node.from, node.to - 1))
+        )
+        const hasClose = endLine.number > beginLine.number && CLOSE_FENCE_RE.test(endLine.text)
+        const lastContent = hasClose ? endLine.number - 1 : endLine.number
 
-        // Highlight the lines requested via `{n}` (1-based within the block
-        // body, i.e. the first content line is line 1). Safe additive line
-        // decorations — no content widgets, so the caret is unaffected.
-        const meta = parseFenceMeta(langMatch?.[2] ?? '')
-        if (meta.highlightLines.size > 0) {
-          const lastLine = state.doc.lineAt(Math.max(node.from, node.to - 1))
-          for (let n = beginLine.number + 1; n < lastLine.number; n += 1) {
-            if (!meta.highlightLines.has(n - beginLine.number)) continue
-            pending.push({ at: state.doc.line(n).from, deco: hlLineDeco })
+        // Opening fence → header bar (hidden raw text) unless the caret is on it.
+        if (selectionTouchesLine(state, beginLine)) {
+          items.push({
+            from: beginLine.from,
+            to: beginLine.from,
+            rank: 0,
+            deco: lineDeco({ 'data-code-lang': language })
+          })
+        } else {
+          items.push({
+            from: beginLine.from,
+            to: beginLine.from,
+            rank: 0,
+            deco: lineDeco({
+              'data-code-lang': language,
+              'data-code-title': meta.title ?? '',
+              'data-code-header': ''
+            })
+          })
+          if (beginLine.to > beginLine.from) {
+            items.push({ from: beginLine.from, to: beginLine.to, rank: 1, deco: hideText })
           }
+        }
+
+        // Highlight requested content lines (1-based within the block body).
+        if (meta.highlightLines.size > 0) {
+          for (let n = beginLine.number + 1; n <= lastContent; n += 1) {
+            if (!meta.highlightLines.has(n - beginLine.number)) continue
+            const line = state.doc.line(n)
+            items.push({ from: line.from, to: line.from, rank: 0, deco: hlLineDeco })
+          }
+        }
+
+        // Closing fence → hidden unless the caret is on it.
+        if (hasClose && !selectionTouchesLine(state, endLine) && endLine.to > endLine.from) {
+          items.push({
+            from: endLine.from,
+            to: endLine.from,
+            rank: 0,
+            deco: lineDeco({ 'data-code-end': '' })
+          })
+          items.push({ from: endLine.from, to: endLine.to, rank: 1, deco: hideText })
         }
         return false
       }
     })
   }
 
-  pending.sort((a, b) => a.at - b.at)
+  items.sort((a, b) => a.from - b.from || a.rank - b.rank)
   const builder = new RangeSetBuilder<Decoration>()
-  for (const item of pending) builder.add(item.at, item.at, item.deco)
+  for (const item of items) builder.add(item.from, item.to, item.deco)
   return builder.finish()
 }
 
@@ -89,7 +147,7 @@ export const codeBlockFlairPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged) {
+      if (update.docChanged || update.viewportChanged || update.selectionSet) {
         this.decorations = buildDecorations(update.view)
       }
     }
