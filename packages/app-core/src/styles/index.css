@@ -2469,14 +2469,23 @@ textarea,
   line-height: var(--z-editor-line-height, 1.7);
   color: theme("colors.ink.800");
 }
+/* Shared SOLID code-block surface, identical in the preview card and the editor
+   block. Solid (not translucent) so the block looks the same regardless of what
+   sits behind each pane — the editor and preview panes are transparent over
+   different (and sometimes vibrant/translucent) glass panels, which made a
+   translucent fill render differently in each. The color-mix reproduces the old
+   --z-bg-2/0.55 (and --z-bg-3/0.7, /0.6) composited over the note background. */
+:root {
+  --zen-code-bg: color-mix(in srgb, rgb(var(--z-bg-2)) 55%, rgb(var(--z-bg)) 45%);
+  --zen-code-border: color-mix(in srgb, rgb(var(--z-bg-3)) 70%, rgb(var(--z-bg)) 30%);
+  --zen-code-divider: color-mix(in srgb, rgb(var(--z-bg-3)) 60%, rgb(var(--z-bg)) 40%);
+}
 .prose-zen .zen-code-block {
   position: relative;
   margin: var(--z-prose-block-gap) 0;
-  /* Match the editor block exactly (.cm-code-block-line): translucent --z-bg-2
-     body + --z-bg-3 side borders, so the preview and editor read as the same
-     component on the same note background. */
-  background: rgb(var(--z-bg-2) / 0.55);
-  border: 1px solid rgb(var(--z-bg-3) / 0.7);
+  /* Same solid surface + border as the editor block (.cm-code-block-line). */
+  background: var(--zen-code-bg);
+  border: 1px solid var(--zen-code-border);
   /* Dimmed per-language accent strip across the top of the card (matches the
      editor's cm-code-block-begin). --zen-code-accent is set per block in
      Preview.tsx; falls back to the theme accent for uncolored languages. */
@@ -2509,7 +2518,7 @@ textarea,
   min-height: 30px;
   padding: 3px 8px 3px 14px;
   background: transparent;
-  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.6);
+  border-bottom: 1px solid var(--zen-code-divider);
 }
 .prose-zen .zen-code-block-header-left,
 .prose-zen .zen-code-block-header-right {
@@ -3999,9 +4008,11 @@ textarea,
    HyperMD-codeblock-bg, scoped to Edit (WYSIWYG) — Split stays raw. */
 .cm-wysiwyg .cm-code-block-line {
   position: relative;
-  background: rgb(var(--z-bg-2) / 0.55);
-  border-left: 1px solid rgb(var(--z-bg-3) / 0.7);
-  border-right: 1px solid rgb(var(--z-bg-3) / 0.7);
+  /* Same solid surface + border as the preview card (shared vars), so both
+     panes render the block identically regardless of pane background. */
+  background: var(--zen-code-bg);
+  border-left: 1px solid var(--zen-code-border);
+  border-right: 1px solid var(--zen-code-border);
   padding-left: 16px;
   padding-right: 16px;
 }
@@ -4014,7 +4025,7 @@ textarea,
   border-top-right-radius: 8px;
 }
 .cm-wysiwyg .cm-code-block-end {
-  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-bottom: 1px solid var(--zen-code-border);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
@@ -4046,8 +4057,8 @@ textarea,
    the language stays top-right (::after above). */
 .cm-wysiwyg .cm-line[data-code-header] {
   min-height: 1.9em;
-  /* Faint divider under the header bar, like the mockup's title/code split. */
-  box-shadow: inset 0 -1px 0 rgb(var(--z-bg-3) / 0.6);
+  /* Same divider as the preview header (shared var). */
+  box-shadow: inset 0 -1px 0 var(--zen-code-divider);
 }
 .cm-wysiwyg .cm-line[data-code-header]::before {
   content: attr(data-code-title);
