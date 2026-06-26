@@ -2603,9 +2603,13 @@ textarea,
 .prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-header {
   display: flex;
 }
-/* Design D: icon + text, no border/background, subtle until hover. */
+/* Design D: icon + text, no border/background, subtle until hover. Shared by the
+   preview header and the Edit-pane header widget (.cm-code-actions) so the
+   buttons are pixel-identical in both panes. */
 .prose-zen .zen-code-fold-button,
-.prose-zen .zen-code-copy-button {
+.prose-zen .zen-code-copy-button,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2632,22 +2636,28 @@ textarea,
     background-color 120ms ease,
     color 120ms ease;
 }
-.prose-zen .zen-code-btn-icon {
+.prose-zen .zen-code-btn-icon,
+.cm-wysiwyg .cm-code-actions .zen-code-btn-icon {
   display: inline-flex;
   transition: transform 150ms ease;
 }
-.prose-zen .zen-code-btn-icon svg {
+.prose-zen .zen-code-btn-icon svg,
+.cm-wysiwyg .cm-code-actions .zen-code-btn-icon svg {
   width: 13px;
   height: 13px;
   display: block;
 }
 .prose-zen .zen-code-fold-button:hover,
-.prose-zen .zen-code-copy-button:hover {
+.prose-zen .zen-code-copy-button:hover,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button:hover,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button:hover {
   background: rgb(var(--z-bg-3) / 0.45);
   color: rgb(var(--z-fg));
 }
 .prose-zen .zen-code-fold-button:focus-visible,
-.prose-zen .zen-code-copy-button:focus-visible {
+.prose-zen .zen-code-copy-button:focus-visible,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button:focus-visible,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button:focus-visible {
   outline: 2px solid rgb(var(--z-accent) / 0.45);
   outline-offset: 2px;
 }
@@ -4069,36 +4079,65 @@ textarea,
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
-/* Language label pinned top-right of the block, painted as a CSS pseudo-element
-   on the opening fence line (`data-code-lang`) so it lives OUTSIDE the text flow
-   and never shifts the caret. `pointer-events: none` keeps clicks landing on the
-   text underneath. Depends only on the attribute (not the begin class) and sets
-   its own positioning context. */
-.cm-wysiwyg .cm-line[data-code-lang] {
-  position: relative;
-}
-.cm-wysiwyg .cm-line[data-code-lang]::after {
-  content: attr(data-code-lang);
-  position: absolute;
-  top: 3px;
-  right: 8px;
-  z-index: 2;
-  font-family: var(--z-interface-font, system-ui, sans-serif);
-  font-size: 11px;
-  line-height: 1.5;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: rgb(var(--z-grey-1));
-  pointer-events: none;
-  user-select: none;
-}
 /* Opening fence line turned into a header bar: its raw text is hidden by an
-   empty replace decoration; the title is painted on the left via ::before and
-   the language stays top-right (::after above). */
+   empty replace decoration; the title/icon are painted on the left via ::before
+   and the right-side cluster (Fold · Copy · LANG) is a caret-safe widget pinned
+   top-right (.cm-code-actions below). The line is the positioning context. */
 .cm-wysiwyg .cm-line[data-code-header] {
+  position: relative;
   min-height: 1.9em;
   /* Same divider as the preview header (shared var). */
   box-shadow: inset 0 -1px 0 var(--zen-code-divider);
+}
+/* Header action cluster: real DOM (a CodeMirror widget) so the Fold/Copy buttons
+   are clickable, mirroring the preview header's right group. Lives at the line
+   start in the DOM (side -1, caret-safe) but is absolutely pinned to the header's
+   top-right here. The LANG label is the rightmost item, after the buttons. */
+.cm-wysiwyg .cm-code-actions {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  height: 1.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+}
+.cm-wysiwyg .cm-code-actions .zen-code-block-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cm-wysiwyg .cm-code-actions .zen-code-lang-label {
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 1.5;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgb(var(--z-grey-1));
+  user-select: none;
+}
+.cm-wysiwyg .cm-code-actions .zen-code-lang-label:empty {
+  display: none;
+}
+/* Settings parity with the preview (projected on :root as data-*). */
+:root[data-code-show-toolbar="false"] .cm-wysiwyg .cm-code-actions .zen-code-block-toolbar {
+  display: none;
+}
+:root[data-code-show-language="false"] .cm-wysiwyg .cm-code-actions .zen-code-lang-label {
+  display: none;
+}
+/* Collapsed: flip the fold chevron (in the editor the folded flag sits on the
+   button itself — there's no .zen-code-block wrapper like in the preview). */
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button[data-code-folded="true"] .zen-code-btn-icon {
+  transform: rotate(180deg);
+}
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button[data-copy-state="copied"] {
+  color: rgb(var(--z-green));
+}
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button[data-copy-state="failed"] {
+  color: rgb(var(--z-red));
 }
 .cm-wysiwyg .cm-line[data-code-header]::before {
   content: attr(data-code-title);

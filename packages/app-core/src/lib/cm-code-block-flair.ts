@@ -13,15 +13,24 @@
  *
  * WYSIWYG-only: lives in `wysiwygExtensions()`, never in the Split editor.
  */
-import { syntaxTree } from '@codemirror/language'
+import { foldEffect, foldedRanges, syntaxTree, unfoldEffect } from '@codemirror/language'
 import { RangeSetBuilder } from '@codemirror/state'
+import type { SyntaxNode } from '@lezer/common'
 import {
   Decoration,
   type DecorationSet,
   EditorView,
   ViewPlugin,
-  type ViewUpdate
+  type ViewUpdate,
+  WidgetType
 } from '@codemirror/view'
+import {
+  BTN_ICON_CLASS,
+  BTN_LABEL_CLASS,
+  COPY_ICON_SVG,
+  FOLD_ICON_SVG,
+  writeClipboardText
+} from './code-block-copy'
 import { parseFenceMeta } from './code-fence-meta'
 import { langAccentTriplet } from './lang-colors'
 import { langIconSvgOrGeneric, normalizeLangToken } from './lang-icons'
@@ -81,6 +90,169 @@ function selectionTouchesLine(state: DocState, line: DocLine): boolean {
     if (Math.max(range.from, line.from) < Math.min(range.to, line.to)) return true
   }
   return false
+}
+
+/**
+ * Resolve the fenced block whose opening fence starts at `headerFrom` to the
+ * body range CodeMirror should fold (everything after the opening fence line up
+ * to the end of the block). Recomputed live on click so it survives edits that
+ * shifted positions since the widget was built.
+ */
+function fencedBlockBody(state: DocState, headerFrom: number): { from: number; to: number } | null {
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(headerFrom, 1)
+  for (; node; node = node.parent) if (node.name === 'FencedCode') break
+  if (!node) return null
+  const beginLine = state.doc.lineAt(node.from)
+  const endLine = state.doc.lineAt(Math.min(state.doc.length, Math.max(node.from, node.to - 1)))
+  const from = beginLine.to
+  const to = endLine.to
+  return to > from ? { from, to } : null
+}
+
+/** Toggle CodeMirror's native fold over a block's body (button click). */
+function toggleCodeFold(view: EditorView, headerFrom: number): void {
+  const range = fencedBlockBody(view.state, headerFrom)
+  if (!range) return
+  const folded = foldedRanges(view.state)
+  let existing: { from: number; to: number } | null = null
+  folded.between(range.from, range.to, (from, to) => {
+    if (from === range.from) {
+      existing = { from, to }
+      return false
+    }
+    return undefined
+  })
+  view.dispatch({ effects: existing ? unfoldEffect.of(existing) : foldEffect.of(range) })
+}
+
+/** True when this block's body is currently folded (drives the chevron flip). */
+function isBlockFolded(state: DocState, bodyFrom: number, bodyTo: number): boolean {
+  let result = false
+  foldedRanges(state).between(bodyFrom, bodyTo, (from) => {
+    if (from === bodyFrom) {
+      result = true
+      return false
+    }
+    return undefined
+  })
+  return result
+}
+
+function makeActionButton(cls: string, iconSvg: string, label: string): HTMLButtonElement {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = cls
+  const icon = document.createElement('span')
+  icon.className = BTN_ICON_CLASS
+  icon.setAttribute('aria-hidden', 'true')
+  icon.innerHTML = iconSvg
+  const text = document.createElement('span')
+  text.className = BTN_LABEL_CLASS
+  text.textContent = label
+  btn.append(icon, text)
+  return btn
+}
+
+const copyResetTimers = new WeakMap<HTMLButtonElement, number>()
+
+/**
+ * Header action cluster (Fold · Copy · LANG) for the Edit pane, rendered as an
+ * absolutely-positioned widget at the START of the fence line (`side: -1`) — the
+ * same caret-safe placement the heading-fold arrow uses. It only exists while
+ * the header is shown (caret off the fence line), so it never measures the
+ * caret. CSS pins it to the header's top-right; it reuses the preview's button
+ * classes so both panes look identical.
+ */
+class CodeHeaderActionsWidget extends WidgetType {
+  constructor(
+    private readonly headerFrom: number,
+    private readonly language: string,
+    private readonly bodyText: string,
+    private readonly folded: boolean
+  ) {
+    super()
+  }
+
+  eq(other: CodeHeaderActionsWidget): boolean {
+    return (
+      other.headerFrom === this.headerFrom &&
+      other.language === this.language &&
+      other.bodyText === this.bodyText &&
+      other.folded === this.folded
+    )
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const wrap = document.createElement('span')
+    wrap.className = 'cm-code-actions'
+    wrap.setAttribute('contenteditable', 'false')
+
+    const toolbar = document.createElement('div')
+    toolbar.className = 'zen-code-block-toolbar'
+
+    const fold = makeActionButton(
+      'zen-code-fold-button',
+      FOLD_ICON_SVG,
+      this.folded ? 'Expand' : 'Fold'
+    )
+    fold.setAttribute('aria-label', this.folded ? 'Expand code block' : 'Collapse code block')
+    fold.setAttribute('aria-expanded', String(!this.folded))
+    if (this.folded) fold.setAttribute('data-code-folded', 'true')
+    fold.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleCodeFold(view, this.headerFrom)
+    })
+
+    const copy = makeActionButton('zen-code-copy-button', COPY_ICON_SVG, 'Copy')
+    copy.setAttribute('aria-label', 'Copy code block')
+    copy.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      this.handleCopy(copy)
+    })
+
+    // Eat mousedown/pointerdown so CodeMirror doesn't read the press as a caret
+    // placement and pull focus into the block before our click handler runs.
+    const swallow = (event: Event): void => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    for (const btn of [fold, copy]) {
+      btn.addEventListener('mousedown', swallow)
+      btn.addEventListener('pointerdown', swallow)
+    }
+
+    toolbar.append(fold, copy)
+
+    const label = document.createElement('span')
+    label.className = 'zen-code-lang-label'
+    label.textContent = this.language ? this.language.toUpperCase() : ''
+
+    wrap.append(toolbar, label)
+    return wrap
+  }
+
+  private handleCopy(button: HTMLButtonElement): void {
+    const ok = writeClipboardText(this.bodyText)
+    const previous = copyResetTimers.get(button)
+    if (previous != null) window.clearTimeout(previous)
+    button.dataset.copyState = ok ? 'copied' : 'failed'
+    const labelEl = button.querySelector<HTMLElement>(`.${BTN_LABEL_CLASS}`)
+    if (labelEl) labelEl.textContent = ok ? 'Copied' : 'Failed'
+    const timer = window.setTimeout(() => {
+      if (labelEl) labelEl.textContent = 'Copy'
+      delete button.dataset.copyState
+      copyResetTimers.delete(button)
+    }, 1400)
+    copyResetTimers.set(button, timer)
+  }
+
+  ignoreEvent(): boolean {
+    // Atomic: CodeMirror skips its own click→caret logic; our DOM listeners
+    // still fire because they're bound directly to the buttons.
+    return true
+  }
 }
 
 function buildDecorations(view: EditorView): DecorationSet {
@@ -149,8 +321,31 @@ function buildDecorations(view: EditorView): DecorationSet {
             rank: 0,
             deco: lineDeco(headerAttrs)
           })
+
+          // Caret-safe header actions (Fold · Copy · LANG): a widget at the line
+          // START (side -1, rank between the line deco and the replace) pinned to
+          // the top-right by CSS. The body text is sliced now for Copy; the fold
+          // state drives the chevron flip.
+          const firstContent = beginLine.number + 1
+          const bodyText =
+            lastContent >= firstContent
+              ? state.doc.sliceString(
+                  state.doc.line(firstContent).from,
+                  state.doc.line(lastContent).to
+                )
+              : ''
+          const folded = isBlockFolded(state, beginLine.to, endLine.to)
+          items.push({
+            from: beginLine.from,
+            to: beginLine.from,
+            rank: 1,
+            deco: Decoration.widget({
+              side: -1,
+              widget: new CodeHeaderActionsWidget(beginLine.from, language, bodyText, folded)
+            })
+          })
           if (beginLine.to > beginLine.from) {
-            items.push({ from: beginLine.from, to: beginLine.to, rank: 1, deco: hideText })
+            items.push({ from: beginLine.from, to: beginLine.to, rank: 2, deco: hideText })
           }
         }
 
@@ -198,7 +393,14 @@ export const codeBlockFlairPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged || update.selectionSet) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        update.selectionSet ||
+        update.transactions.some((tr) =>
+          tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect))
+        )
+      ) {
         this.decorations = buildDecorations(update.view)
       }
     }

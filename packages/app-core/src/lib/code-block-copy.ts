@@ -18,13 +18,14 @@ const CODE_BLOCK_FOLDS_STORAGE_PREFIX = 'zen:code-block-folds:v1'
 export const CODE_COPY_BUTTON_SELECTOR = '.zen-code-copy-button'
 export const CODE_FOLD_BUTTON_SELECTOR = '.zen-code-fold-button'
 
-const BTN_LABEL_CLASS = 'zen-code-btn-label'
-const BTN_ICON_CLASS = 'zen-code-btn-icon'
+export const BTN_LABEL_CLASS = 'zen-code-btn-label'
+export const BTN_ICON_CLASS = 'zen-code-btn-icon'
 // Design D (icon + text). Stroke icons inherit `currentColor`. The fold chevron
-// rotates 180° when the block is collapsed (CSS, via data-code-folded).
-const FOLD_ICON_SVG =
+// rotates 180° when the block is collapsed (CSS, via data-code-folded). Shared
+// with the WYSIWYG editor flair so both panes use byte-identical button assets.
+export const FOLD_ICON_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>'
-const COPY_ICON_SVG =
+export const COPY_ICON_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
 
 /** Build an icon + label button body (the label is updated alone on state change). */
@@ -363,7 +364,7 @@ function codeBlockFoldStorageKey(notePath: string): string {
   return `${CODE_BLOCK_FOLDS_STORAGE_PREFIX}:${encodeURIComponent(notePath)}`
 }
 
-function writeClipboardText(text: string): boolean {
+export function writeClipboardText(text: string): boolean {
   if (typeof window === 'undefined') return false
 
   try {
