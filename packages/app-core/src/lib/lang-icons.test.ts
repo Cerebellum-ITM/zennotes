@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LANG_ICONS,
   LANG_ICON_LIST,
+  LANG_ICON_SVGS,
   hasLangIcon,
   langIconSvg,
   normalizeLangToken
@@ -37,6 +38,14 @@ describe('bundled language logos', () => {
       const resolved = resolveIcon(ref, noCustom)
       expect(resolved?.kind).toBe('lang')
       if (resolved?.kind === 'lang') expect(resolved.token).toBe(token)
+    }
+  })
+  // The icon sanitizer (DOMPurify) strips <use> but keeps the referencing
+  // clip-path, leaving an empty clipPath that clips the whole icon to nothing
+  // (this blanked the Go gopher). The generator inlines <use> refs; guard it.
+  it('no bundled logo relies on <use> (does not survive sanitization)', () => {
+    for (const [token, svg] of Object.entries(LANG_ICON_SVGS)) {
+      expect(svg, `${token} must not contain <use>`).not.toMatch(/<use\b/)
     }
   })
 })

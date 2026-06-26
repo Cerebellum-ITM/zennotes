@@ -114,7 +114,7 @@ function unwrapMdUrl(url: string): string {
 }
 
 const LOCAL_FILE_EXT_RE =
-  /\.(md|markdown|txt|png|apng|avif|gif|jpe?g|svg|webp|pdf|mp3|m4a|aac|flac|ogg|wav|mp4|m4v|mov|ogv|webm|canvas|excalidraw)$/i
+  /\.(md|markdown|txt|html?|png|apng|avif|gif|jpe?g|svg|webp|pdf|mp3|m4a|aac|flac|ogg|wav|mp4|m4v|mov|ogv|webm|canvas|excalidraw)$/i
 
 /**
  * A fully-qualified URL to open in the browser, or null. Handles explicit

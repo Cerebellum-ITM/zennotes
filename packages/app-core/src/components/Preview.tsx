@@ -14,6 +14,8 @@ import {
   resolveNoteIconRef,
 } from "../lib/icon-resolve";
 import { renderIconToDOM } from "../lib/render-icon-dom";
+import { DEFAULT_LANG_ICONS, GENERIC_LANG_ICON_SVG, normalizeLangToken } from "../lib/lang-icons";
+import { langAccentTriplet } from "../lib/lang-colors";
 import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
 import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
@@ -844,6 +846,42 @@ export const Preview = memo(function Preview({
 
     enhancePreviewHeadingFolds(stage);
     enhanceCodeBlockCopy(stage, { notePath });
+
+    // Prepend a language icon to each fenced-block header (parity with inline).
+    stage.querySelectorAll<HTMLElement>(".zen-code-block").forEach((block) => {
+      const header = block.querySelector<HTMLElement>(".zen-code-block-header");
+      if (!header || header.querySelector(".zen-code-block-icon")) return;
+      const code = block.querySelector<HTMLElement>("pre > code");
+      // Prefer the fence language (data-code-lang) over rehype-highlight's
+      // auto-detected language-* class, so the icon/accent match the editor.
+      const lang =
+        code?.getAttribute("data-code-lang")?.trim() ||
+        Array.from(code?.classList ?? [])
+          .find((c) => c.startsWith("language-"))
+          ?.slice("language-".length);
+      if (!lang) return;
+      // Per-language accent for the top strip (read by .zen-code-block's
+      // border-top); falls back to the theme accent in CSS when unset.
+      const accent = langAccentTriplet(lang);
+      if (accent) block.style.setProperty("--zen-code-accent", accent);
+      // Use the bundled language logo (the proposed devicon) directly, NOT the
+      // user's saved `langIcons` override — so the block header matches the
+      // editor's icon exactly and stays consistent regardless of icon settings.
+      // Languages without a bundled logo fall back to the generic `< >` icon, so
+      // every block gets an icon (matches the editor's fallback).
+      const ref = DEFAULT_LANG_ICONS[normalizeLangToken(lang)];
+      let iconEl = ref ? renderIconToDOM(ref, customByName, 16) : null;
+      if (!iconEl) {
+        iconEl = document.createElement("span");
+        iconEl.setAttribute("aria-hidden", "true");
+        iconEl.innerHTML = GENERIC_LANG_ICON_SVG;
+      }
+      iconEl.classList.add("zen-code-block-icon");
+      // Into the header's left group (before the title), so the icon stays on
+      // the left while the language label sits on the right.
+      const left = header.querySelector<HTMLElement>(".zen-code-block-header-left");
+      (left ?? header).insertBefore(iconEl, (left ?? header).firstChild);
+    });
 
     stage
       .querySelectorAll<HTMLInputElement>('li.task-list-item input[type="checkbox"]')

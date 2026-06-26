@@ -15,6 +15,7 @@ import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
 import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
+import { highlightLinesAttr, parseFenceMeta } from './code-fence-meta'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -29,6 +30,10 @@ const ALLOWED_RENDERED_URI_RE =
   /^(?:(?:https?|mailto|zen|zen-asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
 const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-callout',
+  'data-code-lang',
+  'data-code-title',
+  'data-code-hl-lines',
+  'data-code-linenums',
   'data-function-plot-source',
   'data-jsxgraph-source',
   'data-local-asset-href',
@@ -278,6 +283,39 @@ function remarkHighlight() {
 }
 
 /**
+ * Remark plugin: carries fenced-code metadata (`title=…`, `{n}` line highlight)
+ * from the info-string (`node.meta`) onto the rendered `<code>` element as
+ * `data-code-title` / `data-code-hl-lines`, for the preview post-processor to
+ * read. The language token (`node.lang`) keeps becoming `class="language-*"`.
+ */
+function remarkCodeMeta() {
+  return (tree: MdRoot): void => {
+    visit(tree, 'code', (node) => {
+      const lang = (node as { lang?: string | null }).lang
+      const meta = (node as { meta?: string | null }).meta
+      const props: Record<string, string> = {}
+      // Carry the FENCE language (what was typed; `text` when none) so the header
+      // label + icon reflect the source, not rehype-highlight's auto-detection
+      // (`detect: true`), which would otherwise label an unlabeled block as the
+      // language it guessed (e.g. `ini`) — diverging from the editor's `text`.
+      props['data-code-lang'] = (lang || 'text').toLowerCase()
+      if (meta) {
+        const parsed = parseFenceMeta(meta)
+        if (parsed.title) props['data-code-title'] = parsed.title
+        if (parsed.highlightLines.size)
+          props['data-code-hl-lines'] = highlightLinesAttr(parsed)
+        if (parsed.lineNumbers !== undefined)
+          props['data-code-linenums'] = String(parsed.lineNumbers)
+      }
+      const data = ((node as { data?: Record<string, unknown> }).data ??= {}) as {
+        hProperties?: Record<string, unknown>
+      }
+      data.hProperties = { ...(data.hProperties ?? {}), ...props }
+    })
+  }
+}
+
+/**
  * Remark plugin: rewrites Obsidian-style callouts.
  *
  *     > [!note] Optional title
@@ -429,6 +467,7 @@ const processor = unified()
   .use(remarkHashtags)
   .use(remarkHighlight)
   .use(remarkCallouts)
+  .use(remarkCodeMeta)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeMermaid)

@@ -8,9 +8,15 @@
  * CodeMirror — so it is unit-tested directly.
  */
 
-export type VimPendingKind = 'operator' | 'visual' | 'prefix'
+export type VimPendingKind = 'operator' | 'visual' | 'prefix' | 'literal'
 
 export type VisualKind = 'char' | 'line' | 'block'
+
+/** An existing vim mark: its name + a snippet of the line it points to. */
+export interface VimMarkHint {
+  name: string
+  text: string
+}
 
 export interface VimPendingState {
   kind: VimPendingKind
@@ -20,6 +26,8 @@ export interface VimPendingState {
   prefix?: 'g' | 'z'
   /** Keys typed after the trigger, e.g. '' (just `c`), 'i' (`ci`), 'a' (`ca`). */
   buffer: string
+  /** Existing marks, only populated for the mark commands (m, `, '). */
+  marks?: VimMarkHint[]
 }
 
 export interface HintItem {
@@ -192,6 +200,53 @@ const PREFIX_Z: HintItem[] = [
   { keys: 'R', label: 'unfold all' }
 ]
 
+/**
+ * Single-key commands that wait for one more literal key before acting:
+ * `<character>` commands (r f F t T [ ]) flagged by `vim.expectLiteralNext`,
+ * plus `<register>` mark/macro commands (m ` ' " @ q) which the library leaves
+ * as a retained partial without that flag. Title + hint shown in the panel.
+ */
+const LITERAL_COMMANDS: Record<string, { title: string; hint: string }> = {
+  r: { title: 'Replace', hint: 'type a character to replace' },
+  f: { title: 'Find', hint: 'type a character to jump forward to' },
+  F: { title: 'Find back', hint: 'type a character to jump back to' },
+  t: { title: 'Till', hint: 'type a character to stop before' },
+  T: { title: 'Till back', hint: 'type a character to stop after' },
+  '[': { title: 'Jump back', hint: 'type a bracket/symbol to jump to' },
+  ']': { title: 'Jump', hint: 'type a bracket/symbol to jump to' },
+  m: { title: 'Set mark', hint: 'type a letter to name the mark' },
+  '`': { title: 'Go to mark', hint: 'type the mark letter' },
+  "'": { title: 'Go to mark line', hint: 'type the mark letter' },
+  '"': { title: 'Register', hint: 'type a register letter' },
+  '@': { title: 'Replay macro', hint: 'type the macro register' },
+  q: { title: 'Record macro', hint: 'type a register to record into' }
+}
+
+/** Mark/macro commands that wait for a register key (no `expectLiteralNext`). */
+const REGISTER_PENDING_COMMANDS = new Set(['m', '`', "'", '"', '@', 'q'])
+
+/** Commands that operate on a named mark (set with `m`, jump with ` / '). */
+const MARK_COMMANDS = new Set(['m', '`', "'"])
+
+/** True when `cmd` is a single-key command waiting for a register/mark key. */
+export function isRegisterPendingCommand(cmd: string): boolean {
+  return REGISTER_PENDING_COMMANDS.has(cmd)
+}
+
+/** True when `cmd` sets or jumps to a mark (m / ` / '). */
+export function isMarkCommand(cmd: string): boolean {
+  return MARK_COMMANDS.has(cmd)
+}
+
+const MARK_SNIPPET_MAX = 28
+
+/** One-line preview of a mark's target: trimmed line text, or `L<n>` if blank. */
+export function formatMarkSnippet(lineText: string, lineIndex: number): string {
+  const trimmed = lineText.trim()
+  if (!trimmed) return `L${lineIndex + 1}`
+  return trimmed.length > MARK_SNIPPET_MAX ? `${trimmed.slice(0, MARK_SNIPPET_MAX)}…` : trimmed
+}
+
 function headerFor(state: VimPendingState): string {
   if (state.kind === 'operator') return OPERATOR_LABELS[state.operator ?? ''] ?? 'Operator'
   if (state.kind === 'visual') return VISUAL_TITLES[state.visualKind ?? 'char']
@@ -200,6 +255,21 @@ function headerFor(state: VimPendingState): string {
 
 export function getPendingHints(state: VimPendingState): PendingHints {
   const header = headerFor(state)
+
+  // A single-key command awaiting one literal/register key (r, f, m, …).
+  if (state.kind === 'literal') {
+    const info = LITERAL_COMMANDS[state.buffer]
+    const title = info?.title ?? state.buffer
+    const label = info?.hint ?? 'type a character'
+    const groups: HintGroup[] = [{ title: 'Input', items: [{ keys: '·', label }] }]
+    if (state.marks && state.marks.length) {
+      groups.push({
+        title: 'Marks',
+        items: state.marks.map((m) => ({ keys: m.name, label: m.text }))
+      })
+    }
+    return { title, groups }
+  }
 
   // Drill-down: a pending `i`/`a` selects the text-object target next.
   if (state.kind !== 'prefix' && (state.buffer === 'i' || state.buffer === 'a')) {

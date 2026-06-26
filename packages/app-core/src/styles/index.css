@@ -2006,6 +2006,12 @@ textarea,
      inner language tokens (keyword/string/etc.) show their own color
      inside fenced code blocks. */
 }
+/* Plain inline code (no {lang} directive) gets the theme accent so it is
+   visibly "painted" even without a language. Excludes fenced-block lines
+   and the already-highlighted {lang} chip. */
+.cm-editor .cm-line:not(.cm-code-block-line) .tok-monospace:not(.cm-inline-hl) {
+  color: rgb(var(--z-accent));
+}
 
 /* Fenced/indented code-block lines render in the configured monospace font,
    matching inline code and the rendered preview. Covers tokens and the plain
@@ -2432,7 +2438,10 @@ textarea,
   background: theme("colors.paper.200");
   padding: 1px 6px;
   border-radius: 4px;
-  color: theme("colors.ink.800");
+  /* Plain inline code gets the theme accent so it is "painted" even without
+     a {lang} directive. Fenced blocks (.prose-zen pre code) and highlighted
+     inline code (.hljs token spans) override this. */
+  color: rgb(var(--z-accent));
 }
 /* White pill behind the inline `{lang icon}` glyph, so dark or monochrome
  * icons (e.g. a file/`__manifest__.py` glyph) stay legible on the dark
@@ -2460,11 +2469,32 @@ textarea,
   line-height: var(--z-editor-line-height, 1.7);
   color: theme("colors.ink.800");
 }
+/* Shared SOLID code-block surface, identical in the preview card and the editor
+   block. Solid (not translucent) so the block looks the same regardless of what
+   sits behind each pane — the editor and preview panes are transparent over
+   different (and sometimes vibrant/translucent) glass panels, which made a
+   translucent fill render differently in each. The color-mix reproduces the old
+   --z-bg-2/0.55 (and --z-bg-3/0.7, /0.6) composited over the note background. */
+:root {
+  --zen-code-bg: color-mix(in srgb, rgb(var(--z-bg-2)) 55%, rgb(var(--z-bg)) 45%);
+  --zen-code-border: color-mix(in srgb, rgb(var(--z-bg-3)) 70%, rgb(var(--z-bg)) 30%);
+  --zen-code-divider: color-mix(in srgb, rgb(var(--z-bg-3)) 60%, rgb(var(--z-bg)) 40%);
+  /* Highlighted line ({n}) — shared by the preview and editor so they match
+     exactly. Brighter than the old 0.13 (it was barely visible) for a more neon
+     accent band; the left bar is the full accent. */
+  --zen-code-hl-bg: rgb(var(--z-accent) / 0.24);
+  --zen-code-hl-bar: rgb(var(--z-accent));
+}
 .prose-zen .zen-code-block {
   position: relative;
   margin: var(--z-prose-block-gap) 0;
-  background: theme("colors.paper.200");
-  border: 1px solid theme("colors.paper.300");
+  /* Same solid surface + border as the editor block (.cm-code-block-line). */
+  background: var(--zen-code-bg);
+  border: 1px solid var(--zen-code-border);
+  /* Dimmed per-language accent strip across the top of the card (matches the
+     editor's cm-code-block-begin). --zen-code-accent is set per block in
+     Preview.tsx; falls back to the theme accent for uncolored languages. */
+  border-top: 2px solid rgb(var(--zen-code-accent, var(--z-accent)) / 0.55);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -2473,22 +2503,35 @@ textarea,
   border: 0;
   border-radius: 0;
   margin: 0;
-  padding: var(--z-prose-line-gap) 16px;
+  /* Tight vertical padding to match the editor, where the first code line sits
+     right under the header (only the line's own leading) and the bottom is a
+     thin cap. The old --z-prose-line-gap (~1.7em ≈ 27px) and even 6px left a
+     visible band the WYSIWYG block doesn't have. */
+  padding: 1px 16px 5px;
 }
 .prose-zen .zen-code-block[data-code-folded="true"] pre {
   display: none;
 }
 
-/* Header bar: language label (left) + Fold/Copy toolbar (right). */
+/* Header: meta (icon + title) on the left, language label + Fold/Copy on the
+   right. Same translucent background as the block body (no distinct lighter bar)
+   and the editor's divider — so it reads like the editor's fence header. */
 .prose-zen .zen-code-block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 34px;
-  padding: 5px 8px 5px 14px;
-  background: theme("colors.paper.300");
-  border-bottom: 1px solid theme("colors.paper.400");
+  min-height: 30px;
+  padding: 3px 8px 3px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--zen-code-divider);
+}
+.prose-zen .zen-code-block-header-left,
+.prose-zen .zen-code-block-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .prose-zen .zen-code-lang-label {
   font-family: var(
@@ -2508,6 +2551,35 @@ textarea,
 }
 .prose-zen .zen-code-lang-label:empty {
   display: none;
+}
+/* Language icon + optional title (from `title=…`) on the left of the header. */
+.prose-zen .zen-code-block-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  line-height: 0;
+}
+.prose-zen .zen-code-block-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.prose-zen .zen-code-block-title {
+  font-family: var(
+    --z-interface-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    system-ui,
+    sans-serif
+  );
+  font-size: 12.5px;
+  font-weight: 600;
+  color: theme("colors.ink.800");
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .prose-zen .zen-code-block-toolbar {
   display: flex;
@@ -2531,17 +2603,21 @@ textarea,
 .prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-header {
   display: flex;
 }
+/* Design D: icon + text, no border/background, subtle until hover. Shared by the
+   preview header and the Edit-pane header widget (.cm-code-actions) so the
+   buttons are pixel-identical in both panes. */
 .prose-zen .zen-code-fold-button,
-.prose-zen .zen-code-copy-button {
+.prose-zen .zen-code-copy-button,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
   height: 22px;
-  min-width: 48px;
-  border: 1px solid rgb(var(--z-bg-3) / 0.6);
+  border: 0;
   border-radius: 6px;
-  background: rgb(var(--z-bg) / 0.6);
-  color: theme("colors.ink.600");
+  background: transparent;
+  color: rgb(var(--z-fg-2) / 0.8);
   font-family: var(
     --z-interface-font,
     -apple-system,
@@ -2552,34 +2628,47 @@ textarea,
     sans-serif
   );
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
-  padding: 0 8px;
+  padding: 0 5px;
   cursor: pointer;
   transition:
     background-color 120ms ease,
-    border-color 120ms ease,
     color 120ms ease;
 }
+.prose-zen .zen-code-btn-icon,
+.cm-wysiwyg .cm-code-actions .zen-code-btn-icon {
+  display: inline-flex;
+  transition: transform 150ms ease;
+}
+.prose-zen .zen-code-btn-icon svg,
+.cm-wysiwyg .cm-code-actions .zen-code-btn-icon svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
 .prose-zen .zen-code-fold-button:hover,
-.prose-zen .zen-code-copy-button:hover {
-  background: theme("colors.paper.50");
-  border-color: theme("colors.paper.400");
-  color: theme("colors.ink.900");
+.prose-zen .zen-code-copy-button:hover,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button:hover,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button:hover {
+  background: rgb(var(--z-bg-3) / 0.45);
+  color: rgb(var(--z-fg));
 }
 .prose-zen .zen-code-fold-button:focus-visible,
-.prose-zen .zen-code-copy-button:focus-visible {
+.prose-zen .zen-code-copy-button:focus-visible,
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button:focus-visible,
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button:focus-visible {
   outline: 2px solid rgb(var(--z-accent) / 0.45);
   outline-offset: 2px;
 }
+/* Collapsed: flip the fold chevron so it points down (expand affordance). */
+.prose-zen .zen-code-block[data-code-folded="true"] .zen-code-fold-button .zen-code-btn-icon {
+  transform: rotate(180deg);
+}
 .prose-zen .zen-code-copy-button[data-copy-state="copied"] {
-  background: rgb(var(--z-green) / 0.08);
-  border-color: rgb(var(--z-green) / 0.45);
   color: rgb(var(--z-green));
 }
 .prose-zen .zen-code-copy-button[data-copy-state="failed"] {
-  background: rgb(var(--z-red) / 0.08);
-  border-color: rgb(var(--z-red) / 0.45);
   color: rgb(var(--z-red));
 }
 .prose-zen .zen-code-block-summary {
@@ -2612,19 +2701,51 @@ textarea,
 .prose-zen .zen-code-line {
   display: inline;
 }
-:root[data-code-line-numbers="true"] .prose-zen .zen-code-block pre code {
+/* Line numbers show when the global setting is on (and the block doesn't opt
+   out via `ln:false` → data-code-linenums="false"), OR when the block opts in
+   via `ln:true` → data-code-linenums="true", regardless of the global setting. */
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre
+  code,
+.prose-zen .zen-code-block[data-code-linenums="true"] pre code {
   counter-reset: zl;
 }
-:root[data-code-line-numbers="true"] .prose-zen .zen-code-block .zen-code-line::before {
+/* Drop the pre's left padding when numbers are on so the digit sits at the card
+   edge (matching the editor gutter), not 16px in. */
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre,
+.prose-zen .zen-code-block[data-code-linenums="true"] pre {
+  padding-left: 0;
+}
+:root[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  .zen-code-line::before,
+.prose-zen .zen-code-block[data-code-linenums="true"] .zen-code-line::before {
   counter-increment: zl;
   content: counter(zl);
   display: inline-block;
-  width: 2.25em;
-  margin-right: 1.1em;
+  /* Match the editor's narrow gutter: 1.4em box + 0.6em gap → code at 2em. */
+  width: 1.4em;
+  margin-right: 0.6em;
   text-align: right;
   color: rgb(var(--z-fg-2) / 0.6);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Highlighted lines (`{n}` in the fence meta) — full-width band + accent bar.
+   inline-block + width:100% spans the row without disturbing the `\n` joins
+   or the line-number counters. */
+.prose-zen .zen-code-line.zen-code-line-hl {
+  display: inline-block;
+  width: 100%;
+  background: var(--zen-code-hl-bg);
+  box-shadow: inset 3px 0 0 var(--zen-code-hl-bar);
 }
 
 /* === Syntax highlighting (highlight.js classes) — theme-aware, mirrors the
@@ -2695,21 +2816,48 @@ textarea,
   pre
   code.hljs {
   display: block;
-  padding: var(--z-prose-line-gap) 16px;
+  /* Match the compact .zen-code-block pre padding: with a palette active the
+     pre padding is zeroed and the code surface owns the padding, so it must use
+     the same tight values or it reintroduces the big top/bottom band. */
+  padding: 1px 16px 5px;
+}
+/* When line numbers are on, the gutter owns the left edge. In palette mode the
+   left padding lives on code.hljs (above), so drop it there too — otherwise the
+   numbers sit ~16px in instead of at the card edge like the editor. Selectors
+   include the palette prefix so they outrank the rule above. */
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])[data-code-line-numbers="true"]
+  .prose-zen
+  .zen-code-block:not([data-code-linenums="false"])
+  pre
+  code.hljs,
+:root[data-code-palette]:not([data-code-palette="theme"]):not([data-code-palette="mono"])
+  .prose-zen
+  .zen-code-block[data-code-linenums="true"]
+  pre
+  code.hljs {
+  padding-left: 0;
 }
 
-/* Background override (Settings → Code → Background). `app`/`custom` force the
- * block surface for every palette, beating a named theme's own background
- * (which is injected, not !important). `theme` leaves each palette as-is. */
-:root[data-code-bg="app"] .prose-zen .zen-code-block {
-  background: theme("colors.paper.200") !important;
+/* Block surface = the shared app code surface (--zen-code-bg) in BOTH panes by
+ * default, so an active palette's injected background (which lands on the
+ * preview's `.hljs` only, never the editor) can't make the preview grayer than
+ * the editor. Palettes keep coloring the syntax tokens. Only an explicit custom
+ * background (Settings → Code → Background → custom) overrides — and then it is
+ * applied to the editor block too, so the two panes still match. */
+:root:not([data-code-bg="custom"]) .prose-zen .zen-code-block {
+  background: var(--zen-code-bg) !important;
+}
+:root:not([data-code-bg="custom"]) .prose-zen .zen-code-block .hljs {
+  background: transparent !important;
 }
 :root[data-code-bg="custom"] .prose-zen .zen-code-block {
   background: var(--z-code-bg-custom) !important;
 }
-:root[data-code-bg="app"] .prose-zen .zen-code-block .hljs,
 :root[data-code-bg="custom"] .prose-zen .zen-code-block .hljs {
   background: transparent !important;
+}
+:root[data-code-bg="custom"] .cm-wysiwyg .cm-code-block-line {
+  background: var(--z-code-bg-custom) !important;
 }
 .prose-zen table {
   border-collapse: collapse;
@@ -3910,47 +4058,151 @@ textarea,
    HyperMD-codeblock-bg, scoped to Edit (WYSIWYG) — Split stays raw. */
 .cm-wysiwyg .cm-code-block-line {
   position: relative;
-  background: rgb(var(--z-bg-2) / 0.55);
-  border-left: 1px solid rgb(var(--z-bg-3) / 0.7);
-  border-right: 1px solid rgb(var(--z-bg-3) / 0.7);
+  /* Same solid surface + border as the preview card (shared vars), so both
+     panes render the block identically regardless of pane background. */
+  background: var(--zen-code-bg);
+  border-left: 1px solid var(--zen-code-border);
+  border-right: 1px solid var(--zen-code-border);
   padding-left: 16px;
   padding-right: 16px;
 }
 .cm-wysiwyg .cm-code-block-begin {
-  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  /* Dimmed per-language accent strip across the top of the block (parity with
+     the preview card). --zen-code-accent is set per block by the flair plugin;
+     falls back to the theme accent for languages without a curated color. */
+  border-top: 2px solid rgb(var(--zen-code-accent, var(--z-accent)) / 0.55);
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
 }
 .cm-wysiwyg .cm-code-block-end {
-  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-bottom: 1px solid var(--zen-code-border);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
-/* Language label pinned top-right of the block; clicking it copies the code,
-   so there is no separate copy or fold control. */
-.cm-wysiwyg .cm-code-flair {
+/* Opening fence line turned into a header bar: its raw text is hidden by an
+   empty replace decoration; the title/icon are painted on the left via ::before
+   and the right-side cluster (Fold · Copy · LANG) is a caret-safe widget pinned
+   top-right (.cm-code-actions below). The line is the positioning context. */
+.cm-wysiwyg .cm-line[data-code-header] {
+  position: relative;
+  min-height: 1.9em;
+  /* Same divider as the preview header (shared var). */
+  box-shadow: inset 0 -1px 0 var(--zen-code-divider);
+}
+/* Header action cluster: real DOM (a CodeMirror widget) so the Fold/Copy buttons
+   are clickable, mirroring the preview header's right group. Lives at the line
+   start in the DOM (side -1, caret-safe) but is absolutely pinned to the header's
+   top-right here. The LANG label is the rightmost item, after the buttons. */
+.cm-wysiwyg .cm-code-actions {
   position: absolute;
-  top: 3px;
+  top: 0;
   right: 8px;
+  height: 1.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   z-index: 2;
-  padding: 1px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+}
+.cm-wysiwyg .cm-code-actions .zen-code-block-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cm-wysiwyg .cm-code-actions .zen-code-lang-label {
   font-family: var(--z-interface-font, system-ui, sans-serif);
   font-size: 11px;
   line-height: 1.5;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: rgb(var(--z-grey-1));
-  cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
 }
-.cm-wysiwyg .cm-code-flair:hover {
-  background: rgb(var(--z-bg-3) / 0.85);
+.cm-wysiwyg .cm-code-actions .zen-code-lang-label:empty {
+  display: none;
+}
+/* Settings parity with the preview (projected on :root as data-*). */
+:root[data-code-show-toolbar="false"] .cm-wysiwyg .cm-code-actions .zen-code-block-toolbar {
+  display: none;
+}
+:root[data-code-show-language="false"] .cm-wysiwyg .cm-code-actions .zen-code-lang-label {
+  display: none;
+}
+/* Collapsed: flip the fold chevron (in the editor the folded flag sits on the
+   button itself — there's no .zen-code-block wrapper like in the preview). */
+.cm-wysiwyg .cm-code-actions .zen-code-fold-button[data-code-folded="true"] .zen-code-btn-icon {
+  transform: rotate(180deg);
+}
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button[data-copy-state="copied"] {
+  color: rgb(var(--z-green));
+}
+.cm-wysiwyg .cm-code-actions .zen-code-copy-button[data-copy-state="failed"] {
+  color: rgb(var(--z-red));
+}
+.cm-wysiwyg .cm-line[data-code-header]::before {
+  content: attr(data-code-title);
+  display: inline-block;
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 12.5px;
+  font-weight: 600;
   color: rgb(var(--z-fg));
 }
-.cm-wysiwyg .cm-code-flair.is-copied {
-  color: rgb(var(--z-accent));
+/* When the language has an icon, paint it as a left-aligned background on the
+   ::before box and reserve room with padding (so it shows with or without a
+   title). */
+.cm-wysiwyg .cm-line[data-code-header][style*="--zen-code-icon"]::before {
+  padding-left: 21px;
+  background: var(--zen-code-icon) no-repeat left center / 15px 15px;
+}
+/* Highlighted code lines (`{n}` in the fence meta) in the editor. */
+.cm-editor .cm-line.cm-code-line-hl {
+  background: var(--zen-code-hl-bg);
+  box-shadow: inset 3px 0 0 var(--zen-code-hl-bar);
+}
+/* Per-block line numbers in the editor (gated by the same setting as the
+   preview). The block-relative number is on each content line's data-code-ln;
+   it renders in a left gutter via ::before. */
+/* Show when the global setting is on (unless the block opts out via
+   `cm-code-ln-off` from `ln:false`), OR when the block opts in via
+   `cm-code-ln-on` (`ln:true`), regardless of the global setting. */
+:root[data-code-line-numbers="true"]
+  .cm-wysiwyg
+  .cm-line[data-code-ln]:not(.cm-code-ln-off),
+.cm-wysiwyg .cm-line[data-code-ln].cm-code-ln-on {
+  /* Narrow gutter: a tight 1.4em number box + 0.6em gap → code at 2em, so the
+     digit sits close to the left edge instead of floating with a wide empty
+     space to its left. */
+  padding-left: 2em;
+}
+:root[data-code-line-numbers="true"]
+  .cm-wysiwyg
+  .cm-line[data-code-ln]:not(.cm-code-ln-off)::before,
+.cm-wysiwyg .cm-line[data-code-ln].cm-code-ln-on::before {
+  content: attr(data-code-ln);
+  position: absolute;
+  left: 0;
+  width: 1.4em;
+  text-align: right;
+  color: rgb(var(--z-fg-2) / 0.5);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+/* Hidden closing fence: when the caret is off the block the raw ``` is replaced
+   with empty text, leaving an empty line that still carries the card's rounded
+   bottom (cm-code-block-end). Collapse it to a thin rounded cap snug under the
+   last content line, so the block ends cleanly like the mockup instead of
+   showing a tall empty band. Only applies while hidden (data-code-end is set by
+   the flair plugin only then); putting the caret on the line drops the attribute
+   and restores the editable ``` at full height. */
+.cm-wysiwyg .cm-line[data-code-end] {
+  min-height: 0;
+  height: 7px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
 }
 
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */

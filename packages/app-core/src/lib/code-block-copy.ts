@@ -1,6 +1,12 @@
+import { parseHighlightLinesAttr } from './code-fence-meta'
+
 const CODE_BLOCK_CLASS = 'zen-code-block'
 const CODE_BLOCK_HEADER_CLASS = 'zen-code-block-header'
+const CODE_BLOCK_HEADER_LEFT_CLASS = 'zen-code-block-header-left'
+const CODE_BLOCK_HEADER_RIGHT_CLASS = 'zen-code-block-header-right'
 const CODE_BLOCK_LANG_LABEL_CLASS = 'zen-code-lang-label'
+const CODE_BLOCK_TITLE_CLASS = 'zen-code-block-title'
+const CODE_LINE_HL_CLASS = 'zen-code-line-hl'
 const CODE_BLOCK_TOOLBAR_CLASS = 'zen-code-block-toolbar'
 const CODE_BLOCK_SUMMARY_CLASS = 'zen-code-block-summary'
 const CODE_LINE_CLASS = 'zen-code-line'
@@ -11,6 +17,36 @@ const CODE_BLOCK_FOLDS_STORAGE_PREFIX = 'zen:code-block-folds:v1'
 
 export const CODE_COPY_BUTTON_SELECTOR = '.zen-code-copy-button'
 export const CODE_FOLD_BUTTON_SELECTOR = '.zen-code-fold-button'
+
+export const BTN_LABEL_CLASS = 'zen-code-btn-label'
+export const BTN_ICON_CLASS = 'zen-code-btn-icon'
+// Design D (icon + text). Stroke icons inherit `currentColor`. The fold chevron
+// rotates 180° when the block is collapsed (CSS, via data-code-folded). Shared
+// with the WYSIWYG editor flair so both panes use byte-identical button assets.
+export const FOLD_ICON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>'
+export const COPY_ICON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+
+/** Build an icon + label button body (the label is updated alone on state change). */
+function setButtonContent(button: HTMLButtonElement, iconSvg: string, label: string): void {
+  const doc = button.ownerDocument
+  const icon = doc.createElement('span')
+  icon.className = BTN_ICON_CLASS
+  icon.setAttribute('aria-hidden', 'true')
+  icon.innerHTML = iconSvg
+  const text = doc.createElement('span')
+  text.className = BTN_LABEL_CLASS
+  text.textContent = label
+  button.replaceChildren(icon, text)
+}
+
+/** Update just the text label, leaving the icon intact. */
+function setButtonLabel(button: HTMLButtonElement, label: string): void {
+  const text = button.querySelector<HTMLElement>(`.${BTN_LABEL_CLASS}`)
+  if (text) text.textContent = label
+  else button.textContent = label
+}
 
 const resetTimers = new WeakMap<HTMLButtonElement, number>()
 
@@ -42,6 +78,15 @@ export function enhanceCodeBlockCopy(
     ensureCodeBlockHeader(wrapper, pre, code)
     wrapCodeBlockLines(code)
     ensureCodeBlockSummary(wrapper, code)
+
+    // Lift the per-block line-number override (`ln:true`/`ln:false`) onto the
+    // wrapper so the stylesheet can gate the gutter at the block level.
+    const lnOverride = code.getAttribute('data-code-linenums')
+    if (lnOverride === 'true' || lnOverride === 'false') {
+      wrapper.setAttribute('data-code-linenums', lnOverride)
+    } else {
+      wrapper.removeAttribute('data-code-linenums')
+    }
 
     const persisted = storageKey ? readPersistedFoldState(storageKey, index) : null
     applyCodeBlockFoldState(wrapper, persisted ?? false)
@@ -94,6 +139,14 @@ function ensureCodeBlockHeader(
     header = pre.ownerDocument.createElement('div')
     header.className = CODE_BLOCK_HEADER_CLASS
 
+    // Two flex groups: meta on the left (icon + title), language label + toolbar
+    // on the right — so the language label sits on the RIGHT like the editor's,
+    // not wedged next to the title on the left.
+    const left = pre.ownerDocument.createElement('div')
+    left.className = CODE_BLOCK_HEADER_LEFT_CLASS
+    const right = pre.ownerDocument.createElement('div')
+    right.className = CODE_BLOCK_HEADER_RIGHT_CLASS
+
     const label = pre.ownerDocument.createElement('span')
     label.className = CODE_BLOCK_LANG_LABEL_CLASS
 
@@ -106,30 +159,53 @@ function ensureCodeBlockHeader(
     foldButton.setAttribute('aria-label', 'Collapse code block')
     foldButton.setAttribute('aria-expanded', 'true')
     foldButton.title = 'Collapse code block'
-    foldButton.textContent = 'Fold'
+    setButtonContent(foldButton, FOLD_ICON_SVG, 'Fold')
 
     const copyButton = pre.ownerDocument.createElement('button')
     copyButton.type = 'button'
     copyButton.className = CODE_COPY_BUTTON_SELECTOR.slice(1)
     copyButton.setAttribute('aria-label', 'Copy code block')
     copyButton.title = 'Copy code block'
-    copyButton.textContent = 'Copy'
+    setButtonContent(copyButton, COPY_ICON_SVG, 'Copy')
 
     toolbar.append(foldButton, copyButton)
-    header.append(label, toolbar)
+    // Toolbar first, language label LAST (far right) — the label is the rightmost
+    // item in the header, after the Fold/Copy buttons.
+    right.append(toolbar, label)
+    header.append(left, right)
     wrapper.insertBefore(header, pre)
   }
 
   const label = header.querySelector<HTMLElement>(`.${CODE_BLOCK_LANG_LABEL_CLASS}`)
   if (label) label.textContent = codeLanguageName(code)
+
+  // Optional `title=…` from the fence meta, in the left group (after the icon).
+  const left = header.querySelector<HTMLElement>(`.${CODE_BLOCK_HEADER_LEFT_CLASS}`)
+  const title = code.getAttribute('data-code-title')?.trim() || ''
+  let titleEl = header.querySelector<HTMLElement>(`.${CODE_BLOCK_TITLE_CLASS}`)
+  if (title) {
+    if (!titleEl) {
+      titleEl = pre.ownerDocument.createElement('span')
+      titleEl.className = CODE_BLOCK_TITLE_CLASS
+      left?.append(titleEl)
+    }
+    titleEl.textContent = title
+  } else {
+    titleEl?.remove()
+  }
 }
 
 /** Bare language token (e.g. `JS`) for the header label, `''` when unknown. */
 function codeLanguageName(code: HTMLElement): string {
-  const language = Array.from(code.classList)
-    .find((className) => className.startsWith('language-'))
-    ?.slice('language-'.length)
-    .trim()
+  // Prefer the fence language (data-code-lang, set by the markdown pipeline) so
+  // the label matches the editor — not rehype-highlight's auto-detected class.
+  const fence = code.getAttribute('data-code-lang')?.trim()
+  const language =
+    fence ||
+    Array.from(code.classList)
+      .find((className) => className.startsWith('language-'))
+      ?.slice('language-'.length)
+      .trim()
   return language ? language.toUpperCase() : ''
 }
 
@@ -142,6 +218,8 @@ function wrapCodeBlockLines(code: HTMLElement): void {
   const html = code.innerHTML
   if (!html) return
 
+  const highlighted = parseHighlightLinesAttr(code.getAttribute('data-code-hl-lines'))
+
   // Preserve a single trailing newline as a literal text node so it stays in
   // textContent (copy) without rendering an extra numbered blank line.
   const hasTrailingNewline = html.endsWith('\n')
@@ -149,7 +227,12 @@ function wrapCodeBlockLines(code: HTMLElement): void {
 
   const lines = splitHighlightedLines(body)
   const wrapped = lines
-    .map((line) => `<span class="${CODE_LINE_CLASS}">${line}</span>`)
+    .map((line, i) => {
+      const cls = highlighted.has(i + 1)
+        ? `${CODE_LINE_CLASS} ${CODE_LINE_HL_CLASS}`
+        : CODE_LINE_CLASS
+      return `<span class="${cls}">${line}</span>`
+    })
     .join('\n')
   code.innerHTML = wrapped + (hasTrailingNewline ? '\n' : '')
 }
@@ -227,7 +310,7 @@ function applyCodeBlockFoldState(block: HTMLElement, folded: boolean): void {
 
   const button = block.querySelector<HTMLButtonElement>(CODE_FOLD_BUTTON_SELECTOR)
   if (!button) return
-  button.textContent = folded ? 'Expand' : 'Fold'
+  setButtonLabel(button, folded ? 'Expand' : 'Fold')
   button.setAttribute('aria-expanded', String(!folded))
   button.setAttribute('aria-label', folded ? 'Expand code block' : 'Collapse code block')
   button.title = folded ? 'Expand code block' : 'Collapse code block'
@@ -281,7 +364,7 @@ function codeBlockFoldStorageKey(notePath: string): string {
   return `${CODE_BLOCK_FOLDS_STORAGE_PREFIX}:${encodeURIComponent(notePath)}`
 }
 
-function writeClipboardText(text: string): boolean {
+export function writeClipboardText(text: string): boolean {
   if (typeof window === 'undefined') return false
 
   try {
@@ -313,12 +396,12 @@ function setCopyButtonFeedback(
 
   const copied = state === 'copied'
   button.dataset.copyState = state
-  button.textContent = copied ? 'Copied' : 'Failed'
+  setButtonLabel(button, copied ? 'Copied' : 'Failed')
   button.setAttribute('aria-label', copied ? 'Copied code block' : 'Copy failed')
   button.title = copied ? 'Copied code block' : 'Copy failed'
 
   const resetTimer = window.setTimeout(() => {
-    button.textContent = 'Copy'
+    setButtonLabel(button, 'Copy')
     button.setAttribute('aria-label', 'Copy code block')
     button.title = 'Copy code block'
     delete button.dataset.copyState
