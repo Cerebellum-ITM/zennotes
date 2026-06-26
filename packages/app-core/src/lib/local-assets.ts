@@ -352,6 +352,54 @@ function buildPinnedRefPlaceholder(
   return figure
 }
 
+/**
+ * Compact "open as reference" chip for a standalone HTML attachment link.
+ * HTML is never inline-embedded (no iframe in the note body); it opens in the
+ * sandboxed reference-pane viewer. This mirrors the editor's compact card
+ * (`LocalPdfWidget`, kind `html`) so both panes render the same chip. (#parity)
+ */
+function buildHtmlReferenceChip(
+  url: string,
+  href: string,
+  label: string,
+  pinned: boolean,
+  onActivate: () => void
+): HTMLElement {
+  const figure = document.createElement('figure')
+  figure.className = 'local-asset-embed local-asset-pinned-ref not-prose'
+  figure.dataset.localAssetUrl = url
+  figure.dataset.localAssetKind = 'html'
+  figure.dataset.localAssetHref = href
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'local-asset-pinned-ref-button'
+  button.title = pinned
+    ? 'Showing in the reference pane — click to focus'
+    : 'Open this HTML in the reference pane'
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onActivate()
+  })
+
+  const icon = document.createElement('span')
+  icon.className = 'local-asset-pinned-ref-icon'
+  icon.textContent = '↗'
+
+  const text = document.createElement('span')
+  text.className = 'local-asset-pinned-ref-text'
+  text.textContent = label
+
+  const badge = document.createElement('span')
+  badge.className = 'local-asset-pinned-ref-badge'
+  badge.textContent = pinned ? 'in reference pane' : 'open as reference'
+
+  button.append(icon, text, badge)
+  figure.append(button)
+  return figure
+}
+
 export function enhanceLocalAssetNodes(
   root: HTMLElement,
   options: {
@@ -424,14 +472,32 @@ export function enhanceLocalAssetNodes(
       })
     }
 
-    // HTML attachments open in the sandboxed reference-pane viewer (like a
-    // file link), never inline-embedded in the note.
-    if (kind === 'file' || kind === 'image' || kind === 'html') return
+    // Plain file links and inline images stay as-is. HTML is handled below as a
+    // compact reference chip (parity with the editor), not left as a bare link.
+    if (kind === 'file' || kind === 'image') return
 
     const paragraph = isStandaloneAnchorParagraph(anchor)
     if (!paragraph || paragraph.dataset.assetEmbed === 'true') return
     paragraph.dataset.assetEmbed = 'true'
     const label = localAssetLabel(raw, anchor.textContent?.trim() || 'Asset')
+
+    // HTML attachments open in the sandboxed reference-pane viewer, never
+    // inline-embedded — show the same compact "open as reference" chip the
+    // editor renders so both panes match.
+    if (kind === 'html') {
+      const pinned = !!pinnedAssetPath && assetVaultRel === pinnedAssetPath
+      // Prefer the link text as the chip label (parity with the editor's
+      // LocalPdfWidget, which shows `[label]`), falling back to the filename.
+      const htmlLabel = anchor.textContent?.trim() || label
+      paragraph.replaceWith(
+        buildHtmlReferenceChip(resolved, raw, htmlLabel, pinned, () => {
+          if (pinned) onActivatePinnedRef?.()
+          else if (assetVaultRel && onOpenAsset) onOpenAsset(assetVaultRel)
+        })
+      )
+      return
+    }
+
     if (kind === 'pdf' && pinnedAssetPath) {
       if (assetVaultRel === pinnedAssetPath) {
         paragraph.replaceWith(
