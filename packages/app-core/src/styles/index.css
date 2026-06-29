@@ -4665,18 +4665,30 @@ textarea,
  * blocks below set the local --dn-* vars; the generic rules consume them, so
  * nothing here can leak onto a normal note. Mirror of DAILY_DAY_PALETTES in
  * lib/daily-day-theme.ts (CSS is the rendering source of truth). */
-[data-daily-weekday="1"] { --dn-bg: #1b1012; --dn-h1: #ff8a9b; --dn-accent: #ff6b81; --dn-muted: #b9929a; }
-[data-daily-weekday="2"] { --dn-bg: #1c1408; --dn-h1: #ffc15e; --dn-accent: #ffb02e; --dn-muted: #bba074; }
-[data-daily-weekday="3"] { --dn-bg: #0f1810; --dn-h1: #8fdc7a; --dn-accent: #5fc24a; --dn-muted: #8aa886; }
-[data-daily-weekday="4"] { --dn-bg: #0c1819; --dn-h1: #5fd6c4; --dn-accent: #2fc2ad; --dn-muted: #7fa9a4; }
-[data-daily-weekday="5"] { --dn-bg: #0d1320; --dn-h1: #6fb3f5; --dn-accent: #3d8ee0; --dn-muted: #8497b5; }
-[data-daily-weekday="6"] { --dn-bg: #15101f; --dn-h1: #b79bff; --dn-accent: #9a7cf0; --dn-muted: #9a8fc0; }
-[data-daily-weekday="0"] { --dn-bg: #16140f; --dn-h1: #d9c9a8; --dn-accent: #c2a878; --dn-muted: #a89c84; }
+[data-daily-weekday="1"] { --dn-bg: #1b1012; --dn-h1: #ff8a9b; --dn-accent: #ff6b81; --dn-accent-rgb: 255 107 129; --dn-muted: #b9929a; }
+[data-daily-weekday="2"] { --dn-bg: #1c1408; --dn-h1: #ffc15e; --dn-accent: #ffb02e; --dn-accent-rgb: 255 176 46; --dn-muted: #bba074; }
+[data-daily-weekday="3"] { --dn-bg: #0f1810; --dn-h1: #8fdc7a; --dn-accent: #5fc24a; --dn-accent-rgb: 95 194 74; --dn-muted: #8aa886; }
+[data-daily-weekday="4"] { --dn-bg: #0c1819; --dn-h1: #5fd6c4; --dn-accent: #2fc2ad; --dn-accent-rgb: 47 194 173; --dn-muted: #7fa9a4; }
+[data-daily-weekday="5"] { --dn-bg: #0d1320; --dn-h1: #6fb3f5; --dn-accent: #3d8ee0; --dn-accent-rgb: 61 142 224; --dn-muted: #8497b5; }
+[data-daily-weekday="6"] { --dn-bg: #15101f; --dn-h1: #b79bff; --dn-accent: #9a7cf0; --dn-accent-rgb: 154 124 240; --dn-muted: #9a8fc0; }
+[data-daily-weekday="0"] { --dn-bg: #16140f; --dn-h1: #d9c9a8; --dn-accent: #c2a878; --dn-accent-rgb: 194 168 120; --dn-muted: #a89c84; }
 
 /* Tinted background of the note content area only (not sidebar/toolbars). */
 [data-daily-weekday] .cm-editor .cm-scroller,
 [data-daily-weekday] [data-preview-scroll] {
   background: var(--dn-bg);
+}
+
+/* Re-point the accent token to the day's color within the note content only
+ * (editor + preview), so accents that already read `--z-accent` follow the day:
+ * task checkboxes, blockquote bars, links, the reference chip, the #tag pill and
+ * inline-code text. The pane chrome (tabs/toolbar/breadcrumb) sits outside
+ * .cm-editor / [data-preview-scroll], so it keeps the global accent. Inline-code
+ * chip backgrounds use --z-bg-2 (neutral), so they stay subtle — only their text
+ * picks up the day color. */
+[data-daily-weekday] .cm-editor,
+[data-daily-weekday] [data-preview-scroll] {
+  --z-accent: var(--dn-accent-rgb);
 }
 
 /* Preview headings (.prose-zen). */
@@ -4716,4 +4728,29 @@ textarea,
 [data-daily-weekday] .cm-editor .cm-heading-line-h2 {
   border-left: 3px solid var(--dn-accent);
   padding-left: 0.5em;
+}
+
+/* Task checkbox: keep the day accent on the outline at ALL times (the default
+ * border is the neutral --z-bg-3, so it only showed the accent on hover/checked).
+ * The cursor/hover state adds a soft day-colored ring on top. */
+[data-daily-weekday] .cm-editor .cm-task-checkbox-input {
+  border-color: var(--dn-accent);
+}
+[data-daily-weekday] .cm-editor .cm-task-checkbox-input:hover {
+  box-shadow: 0 0 0 3px rgb(var(--z-accent) / 0.25);
+}
+/* Checked state uses the lighter day tone (--dn-h1) so the filled box reads
+ * distinctly from the always-on --dn-accent outline. */
+[data-daily-weekday] .cm-editor .cm-task-checkbox-input:checked {
+  border-color: var(--dn-h1);
+  background: var(--dn-h1);
+}
+
+/* Horizontal rules (`***` / `---`) take the day accent (both panels use a
+ * neutral --z-bg-3 by default). */
+[data-daily-weekday] .prose-zen hr {
+  border-top-color: var(--dn-accent);
+}
+[data-daily-weekday] .cm-editor .cm-wq-hr {
+  border-top-color: var(--dn-accent);
 }
