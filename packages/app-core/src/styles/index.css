@@ -4737,7 +4737,8 @@ textarea,
   border-color: var(--dn-accent);
 }
 [data-daily-weekday] .cm-editor .cm-task-checkbox-input:hover {
-  box-shadow: 0 0 0 3px rgb(var(--z-accent) / 0.25);
+  border-color: var(--dn-h1);
+  box-shadow: 0 0 0 3px rgb(var(--z-accent) / 0.4);
 }
 /* Checked state uses the lighter day tone (--dn-h1) so the filled box reads
  * distinctly from the always-on --dn-accent outline. */
