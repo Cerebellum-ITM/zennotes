@@ -390,6 +390,7 @@ interface Prefs {
   hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
+  dailyDayThemes: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -560,6 +561,7 @@ export const DEFAULT_PREFS: Prefs = {
   hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
+  dailyDayThemes: true,
   themeId: DEFAULT_THEME_ID,
   themeFamily: 'gruvbox',
   themeMode: 'dark',
@@ -697,6 +699,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
     wrapTabs:
       typeof p.wrapTabs === 'boolean' ? p.wrapTabs : DEFAULT_PREFS.wrapTabs,
+    dailyDayThemes:
+      typeof p.dailyDayThemes === 'boolean'
+        ? p.dailyDayThemes
+        : DEFAULT_PREFS.dailyDayThemes,
     themeId,
     themeFamily,
     themeMode,
@@ -1463,6 +1469,7 @@ function collectPrefs(s: {
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
+  dailyDayThemes: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -1536,6 +1543,7 @@ function collectPrefs(s: {
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
+    dailyDayThemes: s.dailyDayThemes,
     themeId: s.themeId,
     themeFamily: s.themeFamily,
     themeMode: s.themeMode,
@@ -1926,6 +1934,7 @@ interface Store {
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
+  dailyDayThemes: boolean
   settingsOpen: boolean
   themeId: string
   themeFamily: ThemeFamily
@@ -2276,6 +2285,7 @@ interface Store {
   setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
+  setDailyDayThemes: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
   setEditorFontSize: (px: number) => void
@@ -3398,6 +3408,7 @@ export const useStore = create<Store>((set, get) => {
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
+  dailyDayThemes: loadPrefs().dailyDayThemes,
   settingsOpen: false,
   themeId: loadPrefs().themeId,
   themeFamily: loadPrefs().themeFamily,
@@ -5225,6 +5236,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setWrapTabs: (on) => {
     set({ wrapTabs: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setDailyDayThemes: (on) => {
+    set({ dailyDayThemes: on })
     savePrefs(collectPrefs(get()))
   },
   setSettingsOpen: (open) => set({ settingsOpen: open }),

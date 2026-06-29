@@ -197,6 +197,7 @@ import {
   noteFolderSubpath,
   normalizeVaultSettings
 } from '../lib/vault-layout'
+import { dailyWeekdayThemeId } from '../lib/daily-day-theme'
 import {
   dragHasAttachmentFile,
   droppedPathsFromTransfer,
@@ -758,6 +759,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
+  const dailyDayThemes = useStore((s) => s.dailyDayThemes)
   const jumpToPreviousNote = useStore((s) => s.jumpToPreviousNote)
   const jumpToNextNote = useStore((s) => s.jumpToNextNote)
   const canGoBack = useStore((s) => s.noteBackstack.length > 0)
@@ -786,6 +788,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     () => (content ? classifyDateNote(content, vaultSettings) != null : false),
     [content, vaultSettings]
   )
+  // Per-weekday color theme for daily notes (Unit 30). Purely derived from the
+  // note's date — `null` unless the feature is on and the active note is a daily
+  // note. Used to scope `data-daily-weekday` on the pane (editor + preview).
+  const dailyWeekday = useMemo(() => {
+    if (!dailyDayThemes || !content) return null
+    const info = classifyDateNote(content, vaultSettings)
+    return info?.kind === 'daily' ? dailyWeekdayThemeId(info.date) : null
+  }, [dailyDayThemes, content, vaultSettings])
   const calendarAvailable = useMemo(() => {
     const s = normalizeVaultSettings(vaultSettings)
     if (!(s.dailyNotes.enabled || s.weeklyNotes.enabled)) return false
@@ -3262,6 +3272,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     <section
       ref={paneRootRef}
       data-pane-id={paneId}
+      data-daily-weekday={dailyWeekday != null ? String(dailyWeekday) : undefined}
       className={paneFrameClass}
       onMouseDownCapture={() => {
         setActivePane(paneId)

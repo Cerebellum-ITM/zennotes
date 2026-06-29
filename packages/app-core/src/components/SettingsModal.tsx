@@ -512,6 +512,8 @@ export function SettingsModal(): JSX.Element {
   const setSystemFolderLabel = useStore((s) => s.setSystemFolderLabel)
   const darkSidebar = useStore((s) => s.darkSidebar)
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
+  const dailyDayThemes = useStore((s) => s.dailyDayThemes)
+  const setDailyDayThemes = useStore((s) => s.setDailyDayThemes)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
   const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
@@ -924,6 +926,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Sidebar arrows',
           description: 'Show disclosure arrows for collapsible folders and sidebar sections.',
           keywords: ['chevrons', 'disclosure']
+        },
+        {
+          id: 'daily-day-themes',
+          title: 'Daily note day themes',
+          description: 'Tint each daily note and restyle its headings by weekday.',
+          keywords: ['daily', 'day', 'theme', 'color', 'weekday', 'heading', 'note']
         }
       ],
       content: (
@@ -1024,6 +1032,13 @@ export function SettingsModal(): JSX.Element {
               value={showSidebarChevrons}
               settingId="sidebar-arrows"
               onChange={setShowSidebarChevrons}
+            />
+            <ToggleRow
+              label="Daily note day themes"
+              description="Tint each daily note's background and restyle its headings by weekday (Monday through Sunday). Affects daily notes only."
+              value={dailyDayThemes}
+              settingId="daily-day-themes"
+              onChange={setDailyDayThemes}
             />
           </Section>
         </div>

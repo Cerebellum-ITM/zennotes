@@ -4657,3 +4657,63 @@ textarea,
 .cm-wysiwyg .cm-editor .cm-hashtag:hover {
   background-color: rgb(var(--z-accent) / 0.2);
 }
+
+/* ---- Daily note day themes (Unit 30) ------------------------------- */
+/* Per-weekday color scheme + special heading design, scoped to daily notes.
+ * EditorPane stamps data-daily-weekday="0..6" on the note pane; the editor
+ * (.cm-editor) and preview (.prose-zen) both live inside it. Only the 7
+ * blocks below set the local --dn-* vars; the generic rules consume them, so
+ * nothing here can leak onto a normal note. Mirror of DAILY_DAY_PALETTES in
+ * lib/daily-day-theme.ts (CSS is the rendering source of truth). */
+[data-daily-weekday="1"] { --dn-bg: #1b1012; --dn-h1: #ff8a9b; --dn-accent: #ff6b81; --dn-muted: #b9929a; }
+[data-daily-weekday="2"] { --dn-bg: #1c1408; --dn-h1: #ffc15e; --dn-accent: #ffb02e; --dn-muted: #bba074; }
+[data-daily-weekday="3"] { --dn-bg: #0f1810; --dn-h1: #8fdc7a; --dn-accent: #5fc24a; --dn-muted: #8aa886; }
+[data-daily-weekday="4"] { --dn-bg: #0c1819; --dn-h1: #5fd6c4; --dn-accent: #2fc2ad; --dn-muted: #7fa9a4; }
+[data-daily-weekday="5"] { --dn-bg: #0d1320; --dn-h1: #6fb3f5; --dn-accent: #3d8ee0; --dn-muted: #8497b5; }
+[data-daily-weekday="6"] { --dn-bg: #15101f; --dn-h1: #b79bff; --dn-accent: #9a7cf0; --dn-muted: #9a8fc0; }
+[data-daily-weekday="0"] { --dn-bg: #16140f; --dn-h1: #d9c9a8; --dn-accent: #c2a878; --dn-muted: #a89c84; }
+
+/* Tinted background of the note content area only (not sidebar/toolbars). */
+[data-daily-weekday] .cm-editor .cm-scroller,
+[data-daily-weekday] [data-preview-scroll] {
+  background: var(--dn-bg);
+}
+
+/* Preview headings (.prose-zen). */
+[data-daily-weekday] .prose-zen h1 {
+  color: var(--dn-h1);
+  border-bottom: 2px solid var(--dn-accent);
+  padding-bottom: 0.15em;
+}
+[data-daily-weekday] .prose-zen h2 {
+  color: var(--dn-accent);
+  border-left: 3px solid var(--dn-accent);
+  padding-left: 0.5em;
+}
+[data-daily-weekday] .prose-zen h3 {
+  color: var(--dn-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Editor headings: recolor the token text (beats .cm-editor .tok-heading*
+ * rgb(var(--z-fg)) by the extra attribute selector) and match the H1 rule /
+ * H2 bar on the line decorations. */
+[data-daily-weekday] .cm-editor .tok-heading1 {
+  color: var(--dn-h1);
+}
+[data-daily-weekday] .cm-editor .tok-heading2 {
+  color: var(--dn-accent);
+}
+[data-daily-weekday] .cm-editor .tok-heading3 {
+  color: var(--dn-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+[data-daily-weekday] .cm-editor .cm-heading-line-h1 {
+  border-bottom: 2px solid var(--dn-accent);
+}
+[data-daily-weekday] .cm-editor .cm-heading-line-h2 {
+  border-left: 3px solid var(--dn-accent);
+  padding-left: 0.5em;
+}
