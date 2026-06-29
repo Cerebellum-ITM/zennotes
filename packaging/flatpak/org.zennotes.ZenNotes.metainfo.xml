@@ -35,6 +35,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.7.0" date="2026-06-24">
+      <description>
+        <p>Link straight to your CSV databases with wikilinks, Notion-style slash commands in Quick Capture, and editor fixes (per-note undo, wikilinks in code, document outline).</p>
+      </description>
+    </release>
     <release version="2.6.0" date="2026-06-23">
       <description>
         <p>A portable plain-text config file you can sync across machines, manual task reordering in notes and on the Tasks page, faster vault reopening, and remappable table navigation.</p>
