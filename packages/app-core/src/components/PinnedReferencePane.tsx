@@ -46,7 +46,7 @@ import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { HtmlAttachmentFrame } from './HtmlAttachmentFrame'
 import { LazyPreview as Preview } from './LazyPreview'
-import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
+import { CloseIcon, ExternalIcon, PanelLeftIcon, PinIcon } from './icons'
 
 const PINNED_REF_PANE_ID = 'pinned-ref'
 export const pinnedRefPaneId = PINNED_REF_PANE_ID
@@ -153,6 +153,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const textFont = useStore((s) => s.textFont)
   const setView = useStore((s) => s.setView)
+  const openAssetsViewWithFilter = useStore((s) => s.openAssetsViewWithFilter)
 
   const viewRef = useRef<EditorView | null>(null)
   const viewPathRef = useRef<string | null>(null)
@@ -397,13 +398,17 @@ export function PinnedReferencePane(): JSX.Element | null {
               title={isAsset ? `Reveal ${title} in files` : `Reveal ${title} in the sidebar`}
               onClick={() => {
                 if (isAsset) {
-                  setView({ kind: 'assets' })
+                  // Open the Assets tab (a separate browser view) with its filter
+                  // pre-seeded to this asset's name. Opens as a virtual tab in the
+                  // active pane, so the note's own tab stays put — unlike the old
+                  // `setView({ kind: 'assets' })`, which swapped the pane content.
+                  const name = pinnedRefPath.split('/').pop() ?? pinnedRefPath
+                  void openAssetsViewWithFilter(name)
                   return
                 }
                 const parts = pinnedRefPath.split('/')
                 const top = parts[0] as 'inbox' | 'quick' | 'archive' | 'trash'
-                const subpath = parts.slice(1, -1).join('/')
-                setView({ kind: 'folder', folder: top, subpath })
+                setView({ kind: 'folder', folder: top, subpath: parts.slice(1, -1).join('/') })
               }}
               className="flex min-w-0 flex-1 items-center gap-2 truncate text-left text-sm font-semibold text-ink-900 hover:text-ink-700"
             >
@@ -434,6 +439,22 @@ export function PinnedReferencePane(): JSX.Element | null {
                     </button>
                   ))}
                 </div>
+              )}
+              {isHtmlAsset && assetUrl && window.zen.getCapabilities().supportsFloatingWindows && (
+                <button
+                  type="button"
+                  title="Open in floating window"
+                  onClick={() => {
+                    void window.zen.openHtmlAttachmentWindow(
+                      assetUrl,
+                      title,
+                      htmlAttachmentAllowNetwork
+                    )
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+                >
+                  <ExternalIcon width={14} height={14} />
+                </button>
               )}
               <button
                 type="button"

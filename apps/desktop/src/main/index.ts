@@ -2703,6 +2703,13 @@ function registerIpc(): void {
     openFloatingNoteWindow(relPath)
   })
 
+  handle(
+    IPC.WINDOW_OPEN_HTML_ASSET,
+    async (_e, assetUrl: string, title: string, allowNetwork: boolean) => {
+      openFloatingHtmlWindow(assetUrl, title, allowNetwork)
+    }
+  )
+
   handle(IPC.WINDOW_OPEN_VAULT, async (event, root?: string | null) => {
     return await openVaultInNewWindow(
       BrowserWindow.fromWebContents(event.sender),
@@ -2936,6 +2943,76 @@ function openFloatingNoteWindow(relPath: string): void {
   }
 
   const params = `?floating=1&note=${encodeURIComponent(relPath)}`
+  const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devServerUrl) {
+    void win.loadURL(`${devServerUrl}${params}`)
+  } else {
+    void win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      search: params.slice(1)
+    })
+  }
+}
+
+/**
+ * Pop an HTML attachment out into its own floating window. Mirrors
+ * `openFloatingNoteWindow`, but the renderer mounts `FloatingHtmlApp`,
+ * which renders the HTML inside a sandboxed iframe (same opaque-origin +
+ * CSP model as the inline reference-pane viewer — see U17). The asset URL
+ * is the self-contained `zen-asset://local?path=…`, so it resolves the
+ * same way in any window. Re-opening the same asset focuses the existing
+ * window instead of spawning a duplicate.
+ */
+const floatingHtmlWindows = new Map<string, BrowserWindow>()
+function openFloatingHtmlWindow(assetUrl: string, title: string, allowNetwork: boolean): void {
+  const sourceWindow = currentIpcWindow() ?? mainWindow
+  const existing = floatingHtmlWindows.get(assetUrl)
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore()
+    existing.focus()
+    return
+  }
+  const mac = isMac()
+  const win = new BrowserWindow({
+    width: 720,
+    height: 720,
+    minWidth: 360,
+    minHeight: 320,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: mac ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: { x: 12, y: 12 },
+    ...(mac
+      ? {
+          backgroundColor: MAC_WINDOW_BACKGROUND_COLOR
+        }
+      : {
+          backgroundColor: '#faf7f0',
+          icon: windowIconPath()
+        }),
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  floatingHtmlWindows.set(assetUrl, win)
+  win.on('closed', () => {
+    floatingHtmlWindows.delete(assetUrl)
+    windowVaults.clearWindow(win.id)
+  })
+  win.on('ready-to-show', () => win.show())
+  installNavigationGuards(win)
+  installZoomControls(win)
+  applyZoomFactor(win, currentZoomFactor)
+  if (sourceWindow && !sourceWindow.isDestroyed()) {
+    inheritWindowWorkspaceSession(sourceWindow, win)
+  }
+
+  const params =
+    `?floating=1&htmlAsset=1&htmlUrl=${encodeURIComponent(assetUrl)}` +
+    `&htmlTitle=${encodeURIComponent(title)}&net=${allowNetwork ? '1' : '0'}`
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
     void win.loadURL(`${devServerUrl}${params}`)

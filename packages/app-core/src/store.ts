@@ -1839,6 +1839,13 @@ interface Store {
   noteBackstack: NoteJumpLocation[]
   noteForwardstack: NoteJumpLocation[]
   pendingJumpLocation: NoteJumpLocation | null
+  /**
+   * Transient signal to reveal a folder in the sidebar tree (collapse the rest,
+   * expand only this path, scroll to it). Set by the breadcrumb, consumed by the
+   * Sidebar. The token forces a re-fire when the same segment is clicked twice.
+   * Not persisted.
+   */
+  pendingTreeReveal: { folder: NoteFolder; subpath: string; token: number } | null
   /** Notes still loading the full content. */
   loadingNote: boolean
   searchOpen: boolean
@@ -2085,6 +2092,11 @@ interface Store {
   /** Open the built-in Archive tab in the active pane. */
   openArchiveView: () => Promise<void>
   openAssetsView: () => Promise<void>
+  /** Open the Assets tab with its filter pre-seeded (e.g. to a single asset). */
+  openAssetsViewWithFilter: (filter: string) => Promise<void>
+  /** One-shot filter the AssetsView applies on mount/change, then clears. */
+  pendingAssetsFilter: string | null
+  setPendingAssetsFilter: (filter: string | null) => void
   /** Open the built-in Trash tab in the active pane. */
   openTrashView: () => Promise<void>
   /** Read a CSV database (CSV + sidecar) into `databases` if not already loaded. */
@@ -2275,6 +2287,8 @@ interface Store {
   setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
+  /** Reveal a folder in the sidebar tree (collapse the rest, expand only it). */
+  revealFolderInTree: (folder: NoteFolder, subpath: string) => void
 
   /* Pinned reference pane */
   pinReference: (path: string) => Promise<void>
@@ -3312,6 +3326,8 @@ export const useStore = create<Store>((set, get) => {
   noteBackstack: [],
   noteForwardstack: [],
   pendingJumpLocation: null,
+  pendingTreeReveal: null,
+  pendingAssetsFilter: null,
   loadingNote: false,
   searchOpen: false,
   vaultTextSearchOpen: false,
@@ -3679,6 +3695,11 @@ export const useStore = create<Store>((set, get) => {
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },
+  openAssetsViewWithFilter: async (filter) => {
+    set({ pendingAssetsFilter: filter })
+    await get().openAssetsView()
+  },
+  setPendingAssetsFilter: (filter) => set({ pendingAssetsFilter: filter }),
   loadDatabase: async (csvPath) => {
     if (get().databasesLoading[csvPath]) return
     set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: true } }))
@@ -5359,6 +5380,14 @@ export const useStore = create<Store>((set, get) => {
     set({ collapsedFolders: keys })
     savePrefs(collectPrefs(get()))
   },
+  revealFolderInTree: (folder, subpath) =>
+    set((s) => ({
+      pendingTreeReveal: {
+        folder,
+        subpath,
+        token: (s.pendingTreeReveal?.token ?? 0) + 1
+      }
+    })),
 
   pinReference: async (path) => {
     if (!path) return

@@ -20,6 +20,7 @@ import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-la
 import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
+  classifyLocalAssetHref,
   enhanceLocalAssetNodes,
   resolveAssetVaultRelativePath,
 } from "../lib/local-assets";
@@ -840,6 +841,14 @@ export const Preview = memo(function Preview({
         if (!pinnedRefVisible) togglePinnedRefVisible();
       },
       onOpenAsset: (path) => {
+        // HTML attachments live in the sandboxed reference pane, not an asset
+        // tab — opening one as a tab just hands the raw .html to the OS and
+        // downloads it. Pin it as a reference and reveal the pane instead.
+        if (classifyLocalAssetHref(path) === "html") {
+          pinAssetReferenceForNote(notePath, path);
+          if (!pinnedRefVisible) togglePinnedRefVisible();
+          return;
+        }
         void openNoteInTabRef.current(assetTabPath(path));
       },
     });

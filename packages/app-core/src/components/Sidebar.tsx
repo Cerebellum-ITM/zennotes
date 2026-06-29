@@ -1476,6 +1476,93 @@ export function Sidebar(): JSX.Element {
     };
   }, [autoReveal, activePath, selectedPath, setCollapsedFoldersAction]);
 
+  /**
+   * Breadcrumb reveal: when a breadcrumb folder segment is clicked, collapse
+   * every other branch and expand only the clicked path, then scroll to it.
+   * Driven by `pendingTreeReveal` (the token re-fires on repeated clicks).
+   *
+   * Two sub-systems, because daily/weekly notes don't live in the regular tree
+   * (`collapsedFolders` / `data-sidebar-*` keyed `folder:subpath`) — they render
+   * in the pinned `DateNotesNav` with its own `dateNavExpanded` keyed `d`/`d:Y`/
+   * `d:Y:M` (and `w`/`w:Y`). The breadcrumb only sends `folder`+`subpath`; here we
+   * decide which sub-system the path belongs to.
+   */
+  const pendingTreeReveal = useStore((s) => s.pendingTreeReveal);
+  useEffect(() => {
+    if (!pendingTreeReveal) return;
+    const { folder, subpath } = pendingTreeReveal;
+
+    // Resolve the matching date-nav keys if this subpath belongs to a date dir.
+    const dateKeys = ((): Set<string> | null => {
+      const within = (dir: string): boolean =>
+        !!dir && (subpath === dir || subpath.startsWith(`${dir}/`));
+      if (dateNav.dailyEnabled && within(dateNav.dailyDir)) {
+        const keep = new Set<string>(["d"]);
+        if (subpath !== dateNav.dailyDir) {
+          for (const yg of dateNav.daily) {
+            if (subpath === yg.yearSubpath) {
+              keep.add(`d:${yg.year}`);
+              break;
+            }
+            const mg = yg.months.find((m) => m.monthSubpath === subpath);
+            if (mg) {
+              keep.add(`d:${yg.year}`);
+              keep.add(`d:${yg.year}:${mg.month}`);
+              break;
+            }
+          }
+        }
+        return keep;
+      }
+      if (dateNav.weeklyEnabled && within(dateNav.weeklyDir)) {
+        const keep = new Set<string>(["w"]);
+        const rest = subpath.slice(dateNav.weeklyDir.length + 1).split("/").filter(Boolean);
+        const yg = dateNav.weekly.find((g) => String(g.year) === rest[0]);
+        if (yg) keep.add(`w:${yg.year}`);
+        return keep;
+      }
+      return null;
+    })();
+
+    let scrollSelector: string;
+    if (dateKeys) {
+      // Date note: collapse the whole regular tree, open only this date branch.
+      setCollapsedFoldersAction([...allFolderKeys]);
+      setDateNavExpanded(dateKeys);
+      // Prefer the active note (visible once its month is expanded), else the
+      // date-nav root row (all date rows share the dir subpath → first match).
+      scrollSelector = activePath
+        ? `[data-sidebar-path="${escapeForAttr(activePath)}"]`
+        : `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(subpath)}"]`;
+    } else {
+      // Regular folder: keep root + every ancestor + the clicked folder expanded.
+      const keep = new Set<string>([`${folder}:`]);
+      let acc = "";
+      for (const seg of subpath.split("/").filter(Boolean)) {
+        acc = acc ? `${acc}/${seg}` : seg;
+        keep.add(`${folder}:${acc}`);
+      }
+      setDateNavExpanded(new Set());
+      setCollapsedFoldersAction(allFolderKeys.filter((k) => !keep.has(k)));
+      scrollSelector = `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(subpath)}"]`;
+    }
+
+    // Scroll to the target (rAF x2 to wait for the tree re-render).
+    let raf1 = 0;
+    let raf2 = 0;
+    const scroll = (): void => {
+      const el = document.querySelector(scrollSelector) as HTMLElement | null;
+      el?.scrollIntoView({ block: "nearest" });
+    };
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(scroll);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [pendingTreeReveal, allFolderKeys, setCollapsedFoldersAction, dateNav, activePath]);
+
   const [activeBodyTagSnapshot, setActiveBodyTagSnapshot] = useState<{
     path: string;
     tags: string[];

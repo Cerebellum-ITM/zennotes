@@ -103,6 +103,7 @@ export const IPC = {
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_CLOSE: 'window:close',
   WINDOW_OPEN_NOTE: 'window:open-note',
+  WINDOW_OPEN_HTML_ASSET: 'window:open-html-asset',
   WINDOW_OPEN_VAULT: 'window:open-vault',
   WINDOW_TOGGLE_QUICK_CAPTURE: 'window:toggle-quick-capture',
   APP_PLATFORM: 'app:platform',

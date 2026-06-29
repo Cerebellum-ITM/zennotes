@@ -1266,6 +1266,11 @@ async function openNoteWindow(relPath: string): Promise<void> {
   window.open(url, '_blank', 'noopener')
 }
 
+// Floating asset windows are a desktop-only capability
+// (`supportsFloatingWindows = false` on web), so the pane's popout button
+// never renders here. Provide a no-op to satisfy the bridge contract.
+async function openHtmlAttachmentWindow(): Promise<void> {}
+
 async function openVaultWindow(_root?: string): Promise<VaultInfo | null> {
   return null
 }
@@ -1552,6 +1557,7 @@ export const httpBridge: ZenBridge = {
   windowToggleMaximize,
   windowClose,
   openNoteWindow,
+  openHtmlAttachmentWindow,
   openVaultWindow,
   readExternalFile,
   writeExternalFile,

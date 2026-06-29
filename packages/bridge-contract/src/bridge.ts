@@ -226,6 +226,8 @@ export interface ZenBridge {
   windowToggleMaximize(): void
   windowClose(): void
   openNoteWindow(relPath: string): Promise<void>
+  /** Pop an HTML attachment out into its own sandboxed floating window. */
+  openHtmlAttachmentWindow(assetUrl: string, title: string, allowNetwork: boolean): Promise<void>
   /** Open a vault in a new window. With a `root`, opens that known vault
    *  directly; without one, prompts with the folder picker. */
   openVaultWindow(root?: string): Promise<VaultInfo | null>

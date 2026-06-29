@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AssetMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import { assetTabPath } from '../lib/asset-tabs'
@@ -55,6 +55,19 @@ export function AssetsView(): JSX.Element {
   const vaultRoot = useStore((s) => s.vault?.root ?? null)
   const [filter, setFilter] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; asset: AssetMeta } | null>(null)
+
+  // A one-shot filter handed in from elsewhere (e.g. the reference pane's
+  // "reveal in files" button seeds it with a single asset's name). Apply it
+  // whenever it appears — on mount or while the tab is already open — then
+  // clear it so manual edits and future opens aren't pinned to it.
+  const pendingAssetsFilter = useStore((s) => s.pendingAssetsFilter)
+  const setPendingAssetsFilter = useStore((s) => s.setPendingAssetsFilter)
+  useEffect(() => {
+    if (pendingAssetsFilter != null) {
+      setFilter(pendingAssetsFilter)
+      setPendingAssetsFilter(null)
+    }
+  }, [pendingAssetsFilter, setPendingAssetsFilter])
 
   const assets = useMemo(() => {
     const q = filter.trim().toLowerCase()

@@ -3929,7 +3929,7 @@ function Breadcrumb({
   onAutoFocusHandled: () => void
   onRename: (next: string) => void
 }): JSX.Element {
-  const setView = useStore((s) => s.setView)
+  const revealFolderInTree = useStore((s) => s.revealFolderInTree)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const createAndOpen = useStore((s) => s.createAndOpen)
@@ -3979,7 +3979,7 @@ function Breadcrumb({
     ancestors.push({
       label: getSystemFolderLabel(topFolder, systemFolderLabels),
       subpath: '',
-      onClick: () => setView({ kind: 'folder', folder: topFolder, subpath: '' })
+      onClick: () => revealFolderInTree(topFolder, '')
     })
   }
   let acc = ''
@@ -3989,7 +3989,7 @@ function Breadcrumb({
     ancestors.push({
       label: seg,
       subpath,
-      onClick: () => setView({ kind: 'folder', folder: topFolder, subpath })
+      onClick: () => revealFolderInTree(topFolder, subpath)
     })
   }
 
