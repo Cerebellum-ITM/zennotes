@@ -38,7 +38,7 @@ const FORMATS: Array<{ label: string; marker: string; binding: string; Icon: Ico
   { label: 'Italic', marker: '*', binding: 'Mod+I', Icon: ItalicIcon },
   { label: 'Strikethrough', marker: '~~', binding: 'Shift+Mod+S', Icon: StrikethroughIcon },
   { label: 'Highlight', marker: '==', binding: 'Shift+Mod+H', Icon: HighlighterIcon },
-  { label: 'Code', marker: '`', binding: 'Mod+E', Icon: CodeIcon },
+  { label: 'Code', marker: '`', binding: 'Mod+Alt+C', Icon: CodeIcon },
   { label: 'Math', marker: '$', binding: 'Shift+Mod+M', Icon: SigmaIcon }
 ]
 

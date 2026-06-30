@@ -11,7 +11,7 @@ import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHos
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut, matchesSequenceToken } from './lib/keymaps'
 import { focusPaneOrEdgePanel } from './lib/pane-nav'
-import { requestPaneMode } from './lib/pane-mode'
+import { requestPaneMode, requestPaneModeCycle } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
@@ -749,6 +749,11 @@ function App(): JSX.Element {
       if (matchesShortcut(e, overrides, 'global.modePreview')) {
         e.preventDefault()
         requestPaneMode('preview')
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.modeCycle')) {
+        e.preventDefault()
+        requestPaneModeCycle()
         return
       }
       // ⌘. — toggle Zen mode

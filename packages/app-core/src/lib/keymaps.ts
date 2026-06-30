@@ -28,6 +28,7 @@ export type KeymapId =
   | "global.modeEdit"
   | "global.modeSplit"
   | "global.modePreview"
+  | "global.modeCycle"
   | "global.toggleZenMode"
   | "global.closeActiveTab"
   | "global.toggleWordWrap"
@@ -290,6 +291,15 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Switch to preview mode",
     description: "Show only the rendered preview for the active note.",
     defaultBinding: "Mod+6",
+  },
+  {
+    id: "global.modeCycle",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Cycle editor / split / preview",
+    description: "Step the active note's view through edit, split, and preview.",
+    defaultBinding: "Mod+E",
   },
   {
     id: "global.toggleZenMode",

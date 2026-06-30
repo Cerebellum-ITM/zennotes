@@ -368,7 +368,7 @@ export function VimNav(): JSX.Element | null {
         const formats: Array<[string, () => void]> = [
           ['Mod+B', () => toggleWrap(fmtView, '**')],
           ['Mod+I', () => toggleWrap(fmtView, '*')],
-          ['Mod+E', () => toggleWrap(fmtView, '`')],
+          ['Mod+Alt+C', () => toggleWrap(fmtView, '`')],
           ['Shift+Mod+S', () => toggleWrap(fmtView, '~~')],
           ['Shift+Mod+H', () => toggleWrap(fmtView, '==')],
           ['Shift+Mod+M', () => toggleWrap(fmtView, '$')],

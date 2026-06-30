@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { paneModeForPath, paneModesWithPathMode, type PaneModesByPath } from './pane-mode'
+import {
+  nextPaneMode,
+  paneModeForPath,
+  paneModesWithPathMode,
+  type PaneModesByPath
+} from './pane-mode'
 
 describe('pane mode by path', () => {
   it('defaults newly opened notes to edit mode without changing remembered notes', () => {
@@ -15,5 +20,17 @@ describe('pane mode by path', () => {
     expect(paneModeForPath(modesByPath, 'inbox/One.md')).toBe('preview')
     expect(paneModeForPath(modesByPath, 'inbox/Two.md')).toBe('split')
     expect(paneModeForPath(modesByPath, 'inbox/Three.md')).toBe('edit')
+  })
+})
+
+describe('nextPaneMode', () => {
+  it('cycles edit → split → preview → edit', () => {
+    expect(nextPaneMode('edit')).toBe('split')
+    expect(nextPaneMode('split')).toBe('preview')
+    expect(nextPaneMode('preview')).toBe('edit')
+  })
+
+  it('loops back to the start in three steps', () => {
+    expect(nextPaneMode(nextPaneMode(nextPaneMode('edit')))).toBe('edit')
   })
 })

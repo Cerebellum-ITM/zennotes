@@ -212,8 +212,10 @@ import {
   pastedImageInputFromFile
 } from '../lib/editor-paste-images'
 import {
+  nextPaneMode,
   paneModeForPath,
   paneModesWithPathMode,
+  ZEN_CYCLE_PANE_MODE_EVENT,
   ZEN_SET_PANE_MODE_EVENT,
   type PaneMode,
   type PaneModesByPath
@@ -1087,6 +1089,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
     return () => window.removeEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
   }, [applyPaneMode, isActive])
+
+  // `zen:cycle-pane-mode` — `Mod+E` steps the active note through
+  // edit → split → preview → edit. The current mode lives here (per path),
+  // so the active pane computes the next one.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => applyPaneMode(nextPaneMode(mode))
+    window.addEventListener(ZEN_CYCLE_PANE_MODE_EVENT, handler)
+    return () => window.removeEventListener(ZEN_CYCLE_PANE_MODE_EVENT, handler)
+  }, [applyPaneMode, isActive, mode])
 
   const lockOutlinePreviewSync = useCallback((durationMs = OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS): void => {
     // Outline jumps target a rendered heading; ratio sync can otherwise override them.
