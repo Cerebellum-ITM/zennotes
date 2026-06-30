@@ -10,12 +10,16 @@
 #   make -f Makefile.personal where     # list the produced artifacts
 
 DESKTOP := apps/desktop
+APP_NAME := ZenNotes
+APP_SRC  := dist/mac-arm64/$(APP_NAME).app
+APP_DEST := /Applications/$(APP_NAME).app
 
-.PHONY: help dmg dmg-all where
+.PHONY: help dmg dmg-all install where
 
 help:
 	@echo ""
 	@echo "  Personal packaging (macOS)"
+	@echo "    make -f Makefile.personal install  — build arm64 .app, install into /Applications, clean ./dist"
 	@echo "    make -f Makefile.personal dmg      — build the arm64 .dmg into ./dist (fast)"
 	@echo "    make -f Makefile.personal dmg-all  — build arm64 + x64 (.dmg + .zip)"
 	@echo "    make -f Makefile.personal where    — list the .dmg artifacts in ./dist"
@@ -33,6 +37,25 @@ dmg:
 dmg-all:
 	npm run dist:mac
 	@$(MAKE) -f Makefile.personal --no-print-directory where
+
+# One-shot "reinstall": build the arm64 app WITHOUT a .dmg (electron-builder
+# `dir` target → dist/mac-arm64/ZenNotes.app), quit the running app, drop the
+# fresh build straight into /Applications replacing the old copy, relaunch it,
+# then delete ./dist so no build leftovers linger. No mounting a .dmg.
+install:
+	cd $(DESKTOP) && npm run build:prod && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dir --arm64 --publish never
+	@test -d "$(APP_SRC)" || { echo "✗ build did not produce $(APP_SRC)"; exit 1; }
+	@echo "→ Quitting $(APP_NAME) if running…"
+	-@osascript -e 'tell application "$(APP_NAME)" to quit' >/dev/null 2>&1 || true
+	@sleep 1
+	@echo "→ Replacing $(APP_DEST)…"
+	rm -rf "$(APP_DEST)"
+	ditto "$(APP_SRC)" "$(APP_DEST)"
+	@echo "→ Cleaning build artifacts (./dist)…"
+	rm -rf dist
+	@echo "→ Relaunching $(APP_NAME)…"
+	-@open "$(APP_DEST)" || true
+	@echo "✓ Installed $(APP_NAME) into /Applications and cleaned the build."
 
 where:
 	@echo ""
