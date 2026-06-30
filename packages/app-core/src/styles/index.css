@@ -4708,6 +4708,24 @@ textarea,
   letter-spacing: 0.12em;
 }
 
+/* Preview accents that use the Tailwind `accent`/`paper` tokens (not
+ * rgb(var(--z-accent))), so the --z-accent reroute doesn't reach them. Recolor
+ * them explicitly to the day's accent so the preview matches the editor:
+ * blockquote bar, task checkbox, and links/wikilinks. */
+[data-daily-weekday] .prose-zen blockquote {
+  border-left-color: var(--dn-accent);
+}
+[data-daily-weekday] .prose-zen li.task-list-item input[type="checkbox"] {
+  accent-color: var(--dn-accent);
+}
+[data-daily-weekday] .prose-zen a {
+  color: var(--dn-h1);
+  border-bottom-color: var(--dn-accent);
+}
+[data-daily-weekday] .prose-zen a.wikilink {
+  color: var(--dn-h1);
+}
+
 /* Editor headings: recolor the token text (beats .cm-editor .tok-heading*
  * rgb(var(--z-fg)) by the extra attribute selector) and match the H1 rule /
  * H2 bar on the line decorations. */
