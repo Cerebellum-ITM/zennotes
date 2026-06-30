@@ -60,6 +60,7 @@ import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import { linkIconsPlugin } from '../lib/cm-link-icons'
 import { langIconsPlugin } from '../lib/cm-lang-icons'
+import { inlineIconsPlugin } from '../lib/cm-inline-icons'
 import { flashJump } from '../lib/cm-flash-jump'
 import {
   orderedListRenumber,
@@ -305,7 +306,8 @@ function markdownEditingExtensions(): Extension[] {
     headingFolding(),
     codeBlockFontPlugin,
     linkIconsPlugin,
-    langIconsPlugin
+    langIconsPlugin,
+    inlineIconsPlugin
   ]
 }
 

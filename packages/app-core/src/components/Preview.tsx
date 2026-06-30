@@ -17,6 +17,7 @@ import { renderIconToDOM } from "../lib/render-icon-dom";
 import { DEFAULT_LANG_ICONS, GENERIC_LANG_ICON_SVG, normalizeLangToken } from "../lib/lang-icons";
 import { langAccentTriplet } from "../lib/lang-colors";
 import { parseLangIconDirective, parseInlineLangDirective } from "../lib/code-lang-icon";
+import { findInlineIconDirectives } from "../lib/inline-icon-directive";
 import hljs from "highlight.js/lib/common";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
@@ -900,6 +901,40 @@ export const Preview = memo(function Preview({
         input.setAttribute("role", "checkbox");
         input.classList.add("cursor-pointer");
       });
+
+    // `{icon:<ref>}` body directive → inline icon glyph (custom/builtin). Walk
+    // text nodes, skipping code/links/code-blocks; unresolved refs stay literal.
+    {
+      const walker = document.createTreeWalker(stage, NodeFilter.SHOW_TEXT);
+      const targets: Text[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const t = n as Text;
+        if (!t.nodeValue || !t.nodeValue.includes("{icon:")) continue;
+        if (t.parentElement?.closest("code, pre, a, .zen-code-block")) continue;
+        targets.push(t);
+      }
+      for (const t of targets) {
+        const text = t.nodeValue ?? "";
+        const matches = findInlineIconDirectives(text);
+        if (matches.length === 0) continue;
+        const frag = document.createDocumentFragment();
+        let cursor = 0;
+        for (const m of matches) {
+          if (m.start > cursor)
+            frag.appendChild(document.createTextNode(text.slice(cursor, m.start)));
+          const icon = renderIconToDOM(m.ref, customByName, 16);
+          if (icon) {
+            icon.classList.add("cm-inline-icon");
+            frag.appendChild(icon);
+          } else {
+            frag.appendChild(document.createTextNode(text.slice(m.start, m.end)));
+          }
+          cursor = m.end;
+        }
+        if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
+        t.parentNode?.replaceChild(frag, t);
+      }
+    }
 
     const applyRenderedDom = async (): Promise<void> => {
       try {
