@@ -146,6 +146,12 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
     ]
   },
   {
+    heading: 'ICONS',
+    rows: [
+      { name: 'icons list', description: 'Custom + built-in icons for the {icon:<ref>} directive', flags: '--json' }
+    ]
+  },
+  {
     heading: 'CAPTURE',
     rows: [
       { name: 'capture "..."', description: 'Quick add. Pipes stdin if no positional', flags: '--folder <f>  --tag <t>  --title <t>  --json' }

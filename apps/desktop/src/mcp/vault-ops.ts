@@ -1155,3 +1155,53 @@ export async function backlinks(root: string, rel: string): Promise<NoteMeta[]> 
   }
   return refs
 }
+
+/* ---------- Custom icons --------------------------------------------- */
+
+/** A custom SVG icon under `.zennotes/icons/`, without the SVG body. */
+export interface CustomIconRef {
+  /** Unique key / IconRef tail: POSIX relpath without `.svg` (`star`, `work/star`). */
+  id: string
+  /** Display name: the file stem. */
+  name: string
+  /** Parent dir relative to the icons dir (`''` = root). */
+  section: string
+}
+
+const CUSTOM_ICON_NAME_RE = /^[A-Za-z0-9._-]+$/
+const CUSTOM_ICONS_MAX_DEPTH = 3
+
+/**
+ * List custom icons under `.zennotes/icons/` (ids/names/sections only — no SVG
+ * body), so the CLI can surface which `{icon:<id>}` refs are available. Mirrors
+ * the desktop `listCustomIcons` walk (same depth + name rules).
+ */
+export async function listCustomIconRefs(root: string): Promise<CustomIconRef[]> {
+  const baseDir = path.join(root, INTERNAL_VAULT_DIR, 'icons')
+  const out: CustomIconRef[] = []
+  const walk = async (dir: string, section: string, depth: number): Promise<void> => {
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        if (depth >= CUSTOM_ICONS_MAX_DEPTH) continue
+        if (!CUSTOM_ICON_NAME_RE.test(entry.name)) continue
+        const next = section ? `${section}/${entry.name}` : entry.name
+        await walk(path.join(dir, entry.name), next, depth + 1)
+        continue
+      }
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.svg')) continue
+      const name = entry.name.slice(0, -'.svg'.length)
+      if (!CUSTOM_ICON_NAME_RE.test(name)) continue
+      out.push({ id: section ? `${section}/${name}` : name, name, section })
+    }
+  }
+  await walk(baseDir, '', 0)
+  out.sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))
+  return out
+}
