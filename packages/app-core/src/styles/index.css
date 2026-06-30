@@ -4715,8 +4715,34 @@ textarea,
 [data-daily-weekday] .prose-zen blockquote {
   border-left-color: var(--dn-accent);
 }
+/* Preview task checkbox: `accent-color` only tints the checked fill, so the
+ * UNCHECKED native box keeps a gray browser border. Give it the editor's custom
+ * look (appearance:none + day-accent border + checkmark) so the outline shows the
+ * day color at all times, matching `.cm-task-checkbox-input`. */
 [data-daily-weekday] .prose-zen li.task-list-item input[type="checkbox"] {
-  accent-color: var(--dn-accent);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05em;
+  height: 1.05em;
+  border: 1.5px solid var(--dn-accent);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+[data-daily-weekday] .prose-zen li.task-list-item input[type="checkbox"]:checked {
+  border-color: var(--dn-h1);
+  background: var(--dn-h1);
+}
+[data-daily-weekday] .prose-zen li.task-list-item input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 0.3em;
+  height: 0.58em;
+  border: solid var(--dn-bg);
+  border-width: 0 0.16em 0.16em 0;
+  transform: translate(-50%, -55%) rotate(45deg);
 }
 [data-daily-weekday] .prose-zen a {
   color: var(--dn-h1);
