@@ -1,6 +1,18 @@
+import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+// Exact commit the build was compiled from, surfaced in the editor status bar
+// via getAppInfo().commit. Resolved once at config load; '' outside a git
+// checkout so the footer degrades to version-only.
+function gitCommit(): string {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: __dirname }).toString().trim()
+  } catch {
+    return ''
+  }
+}
 
 function rendererManualChunk(id: string): string | undefined {
   const normalizedId = id.split('\\').join('/')
@@ -94,6 +106,9 @@ function isDeferredRendererPreload(dep: string): boolean {
 
 export default defineConfig({
   root: __dirname,
+  define: {
+    __APP_COMMIT__: JSON.stringify(gitCommit())
+  },
   // Emit relative paths in index.html so the same bundle works at the
   // domain root and under a reverse-proxy subpath (e.g. /zennotes/).
   // Runtime API + WebSocket calls derive the prefix from

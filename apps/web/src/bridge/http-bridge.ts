@@ -102,10 +102,15 @@ const WEB_CAPABILITIES: ZenCapabilities = {
   supportsCustomTemplates: false
 }
 
+// Injected by Vite `define` (apps/web/vite.config.ts). '' if the build was
+// produced outside a git checkout.
+declare const __APP_COMMIT__: string
+
 const WEB_APP_INFO: ZenAppInfo = {
   name: appPackage.name,
   productName: 'ZenNotes',
   version: appPackage.version,
+  commit: typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : '',
   description: appPackage.description,
   homepage: appPackage.homepage,
   runtime: 'web'
