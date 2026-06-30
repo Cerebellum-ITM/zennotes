@@ -73,10 +73,15 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsCustomTemplates: true
 }
 
+// Injected by electron-vite `define` (electron.vite.config.ts → preload). '' if
+// the build was produced outside a git checkout.
+declare const __APP_COMMIT__: string
+
 const DESKTOP_APP_INFO: ZenAppInfo = {
   name: appPackage.name,
   productName: appPackage.productName,
   version: appPackage.version,
+  commit: typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : '',
   description: appPackage.description,
   homepage: appPackage.homepage,
   runtime: 'desktop'

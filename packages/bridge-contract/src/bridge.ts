@@ -69,6 +69,9 @@ export interface ZenAppInfo {
   name: string
   productName: string
   version: string
+  /** Full git commit hash the running build was compiled from; '' if the build
+   *  was produced outside a git checkout. Injected at build time. */
+  commit: string
   description: string
   homepage?: string
   runtime: 'desktop' | 'web'

@@ -1,6 +1,18 @@
+import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+
+// Exact commit the build was compiled from, surfaced in the editor status bar
+// via getAppInfo().commit. Resolved once at config load; '' outside a git
+// checkout (e.g. a source tarball) so the footer degrades to version-only.
+function gitCommit(): string {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: __dirname }).toString().trim()
+  } catch {
+    return ''
+  }
+}
 
 const INTERNAL_WORKSPACE_PACKAGES = [
   '@zennotes/app-core',
@@ -143,6 +155,9 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin({ exclude: INTERNAL_WORKSPACE_PACKAGES })],
+    define: {
+      __APP_COMMIT__: JSON.stringify(gitCommit())
+    },
     build: {
       outDir: 'out/preload',
       rollupOptions: {
