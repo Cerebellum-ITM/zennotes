@@ -1,6 +1,9 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
+import type { CustomIcon } from '@shared/ipc'
 import { useStore } from '../store'
+import { buildCustomIconIndex } from './icon-resolve'
+import { renderIconToDOM } from './render-icon-dom'
 
 interface SlashCmd {
   label: string
@@ -17,9 +20,22 @@ interface SlashCmd {
 }
 
 type DecoratedCompletion = Completion & {
-  _kind?: 'slash' | 'wikilink' | 'date'
+  _kind?: 'slash' | 'wikilink' | 'date' | 'icon'
   _icon?: string
+  _iconRef?: string
   _subtitle?: string
+}
+
+// Cache the custom-icon index across completion renders (rebuilt only when the
+// store's `customIcons` array changes), so the `{icon:…}` popup doesn't rebuild
+// a ~950-entry Map per rendered option.
+let _iconIdxCache: { icons: CustomIcon[]; map: Map<string, CustomIcon> } | null = null
+function iconIndexForCompletions(): Map<string, CustomIcon> {
+  const icons = useStore.getState().customIcons
+  if (!_iconIdxCache || _iconIdxCache.icons !== icons) {
+    _iconIdxCache = { icons, map: buildCustomIconIndex(icons) }
+  }
+  return _iconIdxCache.map
 }
 
 const COMMANDS: SlashCmd[] = [
@@ -51,6 +67,23 @@ const COMMANDS: SlashCmd[] = [
 /** Render a custom completion item matching the app theme. */
 function renderCompletion(completion: Completion): HTMLElement {
   const decorated = completion as DecoratedCompletion
+  if (decorated._kind === 'icon') {
+    const el = document.createElement('div')
+    el.className = 'slash-cmd-item'
+
+    const icon = document.createElement('span')
+    icon.className = 'slash-cmd-icon'
+    const svg = renderIconToDOM(decorated._iconRef ?? '', iconIndexForCompletions(), 18)
+    if (svg) icon.appendChild(svg)
+
+    const label = document.createElement('span')
+    label.className = 'slash-cmd-label'
+    label.textContent = completion.displayLabel ?? completion.label
+
+    el.appendChild(icon)
+    el.appendChild(label)
+    return el
+  }
   if (decorated._kind === 'wikilink') {
     const el = document.createElement('div')
     el.className = 'wikilink-cmd-item'

@@ -8,7 +8,7 @@ import {
   normalizeLangToken
 } from './lang-icons'
 
-const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
+export const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
   'folder',
   'bolt',
   'tray',

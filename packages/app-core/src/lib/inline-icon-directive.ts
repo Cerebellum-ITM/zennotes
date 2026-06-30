@@ -35,3 +35,19 @@ export function findInlineIconDirectives(text: string): InlineIconMatch[] {
   }
   return out
 }
+
+/** Open `{icon:` + optional partial ref, with no closing `}` yet (autocomplete). */
+const ICON_PREFIX_RE = /\{icon:([A-Za-z0-9._/:+#-]*)$/
+
+/**
+ * If the text immediately before the cursor is an unclosed `{icon:<partial>`
+ * directive, return `from` (offset of the ref start, just after `{icon:`) and
+ * the typed `query`. Pure — used by the editor autocomplete source.
+ */
+export function matchIconDirectivePrefix(
+  textBefore: string
+): { from: number; query: string } | null {
+  const m = ICON_PREFIX_RE.exec(textBefore)
+  if (!m) return null
+  return { from: textBefore.length - m[1].length, query: m[1] }
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findInlineIconDirectives } from './inline-icon-directive'
+import { findInlineIconDirectives, matchIconDirectivePrefix } from './inline-icon-directive'
 
 describe('findInlineIconDirectives', () => {
   it('matches a bare custom ref', () => {
@@ -34,5 +34,31 @@ describe('findInlineIconDirectives', () => {
   it('does not leak regex lastIndex across calls', () => {
     expect(findInlineIconDirectives('{icon:a}')).toHaveLength(1)
     expect(findInlineIconDirectives('{icon:a}')).toHaveLength(1)
+  })
+})
+
+describe('matchIconDirectivePrefix', () => {
+  it('matches an empty `{icon:` opener', () => {
+    const t = 'hola {icon:'
+    expect(matchIconDirectivePrefix(t)).toEqual({ from: t.length, query: '' })
+  })
+
+  it('captures a partial ref and the right `from`', () => {
+    const t = 'texto {icon:custom_ic'
+    const m = matchIconDirectivePrefix(t)
+    expect(m).not.toBeNull()
+    expect(m!.query).toBe('custom_ic')
+    expect(t.slice(m!.from)).toBe('custom_ic')
+  })
+
+  it('allows section paths and explicit builtin refs', () => {
+    expect(matchIconDirectivePrefix('{icon:work/st')!.query).toBe('work/st')
+    expect(matchIconDirectivePrefix('{icon:builtin:cal')!.query).toBe('builtin:cal')
+  })
+
+  it('does not match once the directive is closed, or plain text', () => {
+    expect(matchIconDirectivePrefix('{icon:star}')).toBeNull()
+    expect(matchIconDirectivePrefix('no directive')).toBeNull()
+    expect(matchIconDirectivePrefix('{lang icon} x')).toBeNull()
   })
 })

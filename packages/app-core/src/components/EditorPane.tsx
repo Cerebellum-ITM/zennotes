@@ -83,6 +83,7 @@ import { hashtagExtension } from '../lib/cm-hashtags'
 import { applyHighlight, HIGHLIGHT_COLORS, highlightExtension } from '../lib/cm-highlight'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
+import { iconDirectiveSource } from '../lib/cm-icon-complete'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
 import { DynamicIcon } from './DynamicIcon'
@@ -1563,7 +1564,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
-            override: [slashCommandSource, dateShortcutSource, wikilinkSource, wikilinkHeadingSource],
+            override: [
+              slashCommandSource,
+              iconDirectiveSource,
+              dateShortcutSource,
+              wikilinkSource,
+              wikilinkHeadingSource
+            ],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
             optionClass: (completion) =>
