@@ -148,11 +148,20 @@ describe('TOML serialization', () => {
     expect(text).toContain('[folder_labels]')
     expect(text).toContain('# Example: inbox = "Notes"')
     expect(text).toContain('[kanban_column_titles]')
+    expect(text).toContain('[tweaks]')
     // And it must still parse back cleanly to the defaults.
     const { portable } = deserializeConfig(text)
     expect(portable.themeMode).toBe('dark')
     expect(portable.editorFontSize).toBe(16)
     expect(portable.ripgrepBinaryPath).toBeNull()
+  })
+
+  it('round-trips visual tweaks (colors + sliders) through the [tweaks] table', () => {
+    const tweaks = { accent: '#ff3b30', density: 'comfortable', cornerRadius: 'rounded' }
+    const text = serializeConfig({ themeTweaks: tweaks })
+    expect(text).toContain('[tweaks]')
+    expect(text).toContain('"#ff3b30"')
+    expect(deserializeConfig(text).portable.themeTweaks).toEqual(tweaks)
   })
 })
 

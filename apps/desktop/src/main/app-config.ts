@@ -155,11 +155,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'compact | full'
   },
   // appearance
+  pdfExportUseTheme: {
+    section: 'appearance',
+    tomlKey: 'pdf_export_use_theme',
+    comment: 'true | false — export PDFs using the current theme instead of a clean light print theme'
+  },
   themeFamily: {
     section: 'appearance',
     tomlKey: 'theme_family',
     comment:
-      'apple | gruvbox | catppuccin | github | solarized | one | nord | tokyo-night | kanagawa | black-metal'
+      'apple | gruvbox | catppuccin | github | solarized | one | nord | tokyo-night | kanagawa | black-metal | custom'
   },
   themeMode: { section: 'appearance', tomlKey: 'theme_mode', comment: 'light | dark | auto' },
   themeId: {
@@ -207,6 +212,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
       'none | manual | updated-desc | updated-asc | created-desc | created-asc | name-asc | name-desc'
   },
   groupByKind: { section: 'view', tomlKey: 'group_by_kind', comment: 'group notes by kind in the list' },
+  viewSettingsScope: {
+    section: 'view',
+    tomlKey: 'view_settings_scope',
+    comment: 'apply note/list view settings globally or per vault (global | vault)'
+  },
   autoReveal: {
     section: 'view',
     tomlKey: 'auto_reveal',
@@ -274,6 +284,16 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'kanban_column_titles',
     comment: ['Kanban column title overrides, keyed by "<groupBy>:<columnId>".'],
     example: '"status:todo" = "To Do"'
+  },
+  enabledOverrides: {
+    table: 'overrides',
+    comment: ['Enabled CSS overrides — list the filenames you want active.'],
+    example: '"focus.css" = "on"'
+  },
+  themeTweaks: {
+    table: 'tweaks',
+    comment: ['Visual color tweaks from Settings → Appearance (token slug = color).'],
+    example: '"accent" = "#ff3b30"'
   }
 }
 

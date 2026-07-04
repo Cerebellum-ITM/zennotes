@@ -29,6 +29,7 @@ import {
   type RestoreHistoryResult,
   type PrimaryNotesLocation,
   type VaultSettings,
+  type VaultViewSettings,
   FolderEntry,
   ImportedAsset,
   ImportedAssetKind,
@@ -98,7 +99,6 @@ const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
   ...ATTACHMENTS_DIRS,
   INTERNAL_VAULT_DIR
 ])
-const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
   '.avif',
@@ -324,7 +324,9 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     enabled: false,
     directory: DEFAULT_DAILY_NOTES_DIRECTORY,
     titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
-    locale: DEFAULT_DAILY_NOTE_LOCALE
+    locale: DEFAULT_DAILY_NOTE_LOCALE,
+    tasksDueOnNoteDate: true,
+    rolloverUnfinishedTasks: false
   },
   weeklyNotes: {
     enabled: false,
@@ -879,7 +881,9 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       titlePattern: settings.dailyNotes.titlePattern,
       locale: settings.dailyNotes.locale,
       legacyPatterns: settings.dailyNotes.legacyPatterns?.map((pattern) => ({ ...pattern })),
-      templateId: settings.dailyNotes.templateId
+      templateId: settings.dailyNotes.templateId,
+      tasksDueOnNoteDate: settings.dailyNotes.tasksDueOnNoteDate,
+      rolloverUnfinishedTasks: settings.dailyNotes.rolloverUnfinishedTasks
     },
     weeklyNotes: {
       enabled: settings.weeklyNotes.enabled,
@@ -897,7 +901,18 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     folderColors: { ...settings.folderColors },
     favorites: [...settings.favorites],
     enabledHistoryPaths: [...settings.enabledHistoryPaths],
-    langIcons: { ...(settings.langIcons ?? {}) }
+    langIcons: { ...(settings.langIcons ?? {}) },
+    ...(settings.view ? { view: cloneVaultViewSettings(settings.view) } : {})
+  }
+}
+
+/** Deep-clone the per-vault view overrides (#292) — plain data, but the nested
+ *  records need their own copies so callers can't mutate the stored object. */
+function cloneVaultViewSettings(view: VaultViewSettings): VaultViewSettings {
+  return {
+    ...view,
+    ...(view.kanbanColumnTitles ? { kanbanColumnTitles: { ...view.kanbanColumnTitles } } : {}),
+    ...(view.systemFolderLabels ? { systemFolderLabels: { ...view.systemFolderLabels } } : {})
   }
 }
 
@@ -1029,7 +1044,9 @@ function normalizeVaultSettings(
         enabled: DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
         directory: DEFAULT_DAILY_NOTES_DIRECTORY,
         titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
-        locale: DEFAULT_DAILY_NOTE_LOCALE
+        locale: DEFAULT_DAILY_NOTE_LOCALE,
+        tasksDueOnNoteDate: DEFAULT_VAULT_SETTINGS.dailyNotes.tasksDueOnNoteDate,
+        rolloverUnfinishedTasks: DEFAULT_VAULT_SETTINGS.dailyNotes.rolloverUnfinishedTasks
       },
       weeklyNotes: {
         enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
@@ -1056,6 +1073,8 @@ function normalizeVaultSettings(
       templateId?: unknown
       // Back-compat: the personal fork's legacy single-field daily layout.
       pathFormat?: unknown
+      tasksDueOnNoteDate?: unknown
+      rolloverUnfinishedTasks?: unknown
     } | null
     weeklyNotes?: {
       enabled?: unknown
@@ -1071,6 +1090,7 @@ function normalizeVaultSettings(
     favorites?: unknown
     enabledHistoryPaths?: unknown
     langIcons?: Record<string, unknown> | null
+    view?: unknown
   }
   const folderIcons: Record<string, string> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -1101,7 +1121,9 @@ function normalizeVaultSettings(
         normalizeDailyNoteTitlePattern(candidate.dailyNotes?.titlePattern),
       locale: normalizeDailyNoteLocale(candidate.dailyNotes?.locale),
       legacyPatterns: normalizeDailyNoteLegacyPatterns(candidate.dailyNotes?.legacyPatterns),
-      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId)
+      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId),
+      tasksDueOnNoteDate: candidate.dailyNotes?.tasksDueOnNoteDate !== false,
+      rolloverUnfinishedTasks: candidate.dailyNotes?.rolloverUnfinishedTasks === true
     },
     weeklyNotes: {
       enabled:
@@ -1119,7 +1141,8 @@ function normalizeVaultSettings(
     folderColors: normalizeFolderColors(candidate.folderColors),
     favorites: normalizeFavorites(candidate.favorites),
     enabledHistoryPaths: normalizeEnabledHistoryPaths(candidate.enabledHistoryPaths),
-    langIcons: normalizeLangIcons(candidate.langIcons)
+    langIcons: normalizeLangIcons(candidate.langIcons),
+    view: normalizeVaultViewSettings(candidate.view)
   }
 }
 
@@ -1135,6 +1158,28 @@ function normalizeEnabledHistoryPaths(value: unknown): string[] {
     out.push(rel)
   }
   return out
+}
+
+/** Carry the per-vault view overrides (#292) through the round-trip, keeping
+ *  only known keys. The renderer validates the values strictly; here we just
+ *  preserve a clean object (or undefined when there are no overrides). */
+function normalizeVaultViewSettings(raw: unknown): VaultViewSettings | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const c = raw as Record<string, unknown>
+  const view: VaultViewSettings = {}
+  if (typeof c.noteSortOrder === 'string') view.noteSortOrder = c.noteSortOrder
+  if (typeof c.groupByKind === 'boolean') view.groupByKind = c.groupByKind
+  if (typeof c.tasksViewMode === 'string') view.tasksViewMode = c.tasksViewMode
+  if (typeof c.kanbanGroupBy === 'string') view.kanbanGroupBy = c.kanbanGroupBy
+  if (c.kanbanColumnTitles && typeof c.kanbanColumnTitles === 'object') {
+    view.kanbanColumnTitles = c.kanbanColumnTitles as Record<string, string>
+  }
+  if (typeof c.autoReveal === 'boolean') view.autoReveal = c.autoReveal
+  if (c.systemFolderLabels && typeof c.systemFolderLabels === 'object') {
+    view.systemFolderLabels = c.systemFolderLabels as Record<string, unknown>
+  }
+  if (typeof c.unifiedSidebar === 'boolean') view.unifiedSidebar = c.unifiedSidebar
+  return Object.keys(view).length > 0 ? view : undefined
 }
 
 function normalizeFavorites(value: unknown): string[] {
@@ -1859,12 +1904,47 @@ function folderOf(root: string, absPath: string): NoteFolder | null {
   return folderForRelativePath(path.relative(root, absPath))
 }
 
+/**
+ * Blank out fenced and inline code spans so the #tag / [[link]] / asset
+ * scanners never read code as content. Fence detection is line-based and
+ * indentation-tolerant: a fence nested under a list item is still a code block,
+ * so its contents (e.g. a C `#include` line) must not be scanned. A
+ * column-0-anchored regex missed indented fences and leaked them as tags (#293).
+ * Mirrors `stripCodeContent` in packages/app-core/src/lib/tags.ts and
+ * apps/server/internal/vault/parse.go — keep the three in sync.
+ */
 function stripCodeContent(body: string): string {
-  if (!body.includes('`')) return body
-  return body
-    // Only treat line-start triple backticks as actual fenced blocks.
-    .replace(FENCED_CODE_BLOCK_RE, '$1 ')
-    .replace(/`[^`\n]*`/g, ' ')
+  if (!body.includes('`') && !body.includes('~')) return body
+  const lines = body.split('\n')
+  let inFence = false
+  let fenceChar = ''
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string
+    const m = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (m) {
+      const marker = m[1] as string
+      const char = marker[0] as string
+      const rest = m[2] as string
+      if (!inFence) {
+        // A backtick fence's info string may not contain a backtick (CommonMark),
+        // which keeps a single-line ``` ```inline``` ``` out of fence handling.
+        if (char === '~' || !rest.includes('`')) {
+          inFence = true
+          fenceChar = char
+          fenceLen = marker.length
+          lines[i] = ' '
+          continue
+        }
+      } else if (char === fenceChar && marker.length >= fenceLen && rest.trim() === '') {
+        inFence = false
+        lines[i] = ' '
+        continue
+      }
+    }
+    if (inFence) lines[i] = ' '
+  }
+  return lines.join('\n').replace(/`[^`\n]*`/g, ' ')
 }
 
 function localAssetTargetKind(target: string): ImportedAssetKind | null {

@@ -4,7 +4,11 @@ import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
-import { resolveWikilinkTarget, wikilinkHeadingAnchor } from "../lib/wikilinks";
+import {
+  isSameFileHeadingLink,
+  resolveWikilinkTarget,
+  wikilinkHeadingAnchor,
+} from "../lib/wikilinks";
 import { openWikilinkHeading } from "../lib/wikilink-navigation";
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
@@ -757,6 +761,14 @@ export const Preview = memo(function Preview({
         a.classList.remove("broken");
         a.dataset.resolvedPath = resolved.path;
         prependNoteIcon(a, resolved);
+        delete a.dataset.databaseCsv;
+        return;
+      }
+      // `[[#heading]]` (no note part) links to a heading in THIS note — resolve
+      // it to the note being previewed so the click scrolls in place. (#291)
+      if (isSameFileHeadingLink(target)) {
+        a.classList.remove("broken");
+        a.dataset.resolvedPath = notePath;
         delete a.dataset.databaseCsv;
         return;
       }
