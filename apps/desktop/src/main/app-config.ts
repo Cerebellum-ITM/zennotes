@@ -511,6 +511,25 @@ let onChangeCb: ((next: AppConfigPortable) => void) | null = null
 let watcher: FSWatcher | null = null
 let writeQueue: Promise<void> = Promise.resolve()
 
+// Texts we've written ourselves. The watcher's loop-guard compares the file
+// against `lastKnownText` (our latest write), but rapid writes — two
+// setPortableConfig calls in a row — can make the watcher observe an EARLIER
+// own-write out of order, especially on Windows where atomic-rename events
+// don't coalesce as cleanly. Remembering the last several own-writes lets the
+// watcher recognize a stale read of any of them and skip it, instead of
+// clobbering the freshly-merged in-memory cache (which reverted settings to
+// their defaults). Bounded so it can't grow unbounded.
+const ownWrites = new Set<string>()
+const MAX_OWN_WRITES = 16
+function rememberOwnWrite(text: string): void {
+  ownWrites.add(text)
+  while (ownWrites.size > MAX_OWN_WRITES) {
+    const oldest = ownWrites.values().next().value
+    if (oldest === undefined) break
+    ownWrites.delete(oldest)
+  }
+}
+
 const WATCH_DEBOUNCE_MS = 150
 
 async function readConfigFile(): Promise<{ text: string; portable: AppConfigPortable } | null> {
@@ -558,8 +577,10 @@ function startWatching(): void {
       const res = await readConfigFile()
       if (!res) return
       // Our own writes (and no-op saves) match lastKnownText — skip them so we
-      // never feed our writes back into the renderer.
-      if (res.text === lastKnownText) return
+      // never feed our writes back into the renderer. Also skip a stale read of
+      // any recent own-write the watcher observed out of order, so it can't
+      // clobber the in-memory cache with an older serialized state.
+      if (res.text === lastKnownText || ownWrites.has(res.text)) return
       cache = res.portable
       lastKnownText = res.text
       onChangeCb?.({ ...cache })
@@ -589,6 +610,7 @@ export async function initAppConfig(
     const canonical = serializeConfig(cache)
     if (canonical !== res.text) {
       lastKnownText = canonical
+      rememberOwnWrite(canonical)
       try {
         await writeFileAtomic(getConfigFilePath(), canonical)
       } catch (err) {
@@ -621,6 +643,7 @@ export function setPortableConfig(partial: AppConfigPortable): Promise<void> {
       // Set before writing so the watcher event this triggers is recognized
       // as our own and ignored.
       lastKnownText = text
+      rememberOwnWrite(text)
       try {
         await writeFileAtomic(getConfigFilePath(), text)
       } catch (err) {

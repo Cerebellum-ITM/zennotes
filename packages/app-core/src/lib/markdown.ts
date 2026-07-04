@@ -35,6 +35,7 @@ const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-code-title',
   'data-code-hl-lines',
   'data-code-linenums',
+  'data-embed-src',
   'data-function-plot-source',
   'data-jsxgraph-source',
   'data-local-asset-href',

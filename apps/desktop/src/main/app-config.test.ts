@@ -183,6 +183,26 @@ describe('persistence + cache', () => {
     expect(deserializeConfig(text).portable.themeMode).toBe('light')
   })
 
+  it('does not let a stale watcher read of an earlier own-write clobber the cache', async () => {
+    // Regression for a Windows CI flake: two rapid writes let the file watcher
+    // observe the FIRST own-write out of order; with only a single-value
+    // loop-guard it treated that stale read as an external edit and reverted
+    // the freshly-merged cache. The watcher must recognize any recent own-write.
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-stale-')
+    await initAppConfig(() => {})
+
+    await setPortableConfig({ editorFontSize: 18 })
+    const staleText = await readFile(getConfigFilePath(), 'utf8')
+    await setPortableConfig({ editorFontSize: 22 })
+
+    // Write the earlier own-write back and let the debounced watcher process it.
+    await writeFile(getConfigFilePath(), staleText)
+    await new Promise((resolve) => setTimeout(resolve, 700))
+
+    // It's a known own-write, so the cache keeps the latest merged value.
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(22)
+  })
+
   it('ensureConfigFile creates the file when missing', async () => {
     process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg2-')
     await initAppConfig(() => {})
