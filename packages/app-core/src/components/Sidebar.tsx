@@ -915,10 +915,6 @@ export function Sidebar(): JSX.Element {
   // for folders (`folder:subpath`), notes/databases (vault-relative path), and
   // anything else. Folder keys contain ':'; note paths never do, so they coexist
   // in the same folderIcons/folderColors maps without colliding.
-  const [iconPicker, setIconPicker] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
   const [colorPicker, setColorPicker] = useState<{
     key: string;
     label: string;
@@ -989,12 +985,6 @@ export function Sidebar(): JSX.Element {
     [refreshCustomIcons],
   );
 
-  // The context menu closes itself on select (ContextMenu calls onClose first),
-  // so these just open the picker.
-  const openIconPicker = useCallback((key: string, label: string) => {
-    setIconPicker({ key, label });
-  }, []);
-
   const saveFolderIcon = useCallback(
     async (folder: NoteFolder, subpath: string, iconRef: string) => {
       const key = folderIconKey(folder, subpath);
@@ -1007,36 +997,6 @@ export function Sidebar(): JSX.Element {
       });
       await setVaultSettings(nextSettings);
       setFolderIconPicker(null);
-    },
-    [setVaultSettings, vaultSettings],
-  );
-
-  const saveIcon = useCallback(
-    async (key: string, iconRef: string) => {
-      const nextSettings = normalizeVaultSettings({
-        ...vaultSettings,
-        folderIcons: { ...vaultSettings.folderIcons, [key]: iconRef },
-      });
-      await setVaultSettings(nextSettings);
-      setIconPicker(null);
-    },
-    [setVaultSettings, vaultSettings],
-  );
-
-  const resetIcon = useCallback(
-    async (key: string) => {
-      if (!(key in vaultSettings.folderIcons)) {
-        setIconPicker(null);
-        return;
-      }
-      const nextIcons = { ...vaultSettings.folderIcons };
-      delete nextIcons[key];
-      const nextSettings = normalizeVaultSettings({
-        ...vaultSettings,
-        folderIcons: nextIcons,
-      });
-      await setVaultSettings(nextSettings);
-      setIconPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
@@ -2297,12 +2257,12 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({ kind: "separator" });
-      items.push({
-        label: "Change icon…",
-        onSelect: async () => {
-          openIconPicker(n.path, n.title);
-        },
-      });
+      // NB: no per-note "Change icon…" here. That upstream command wrote
+      // `folderIcons[<note path>]`, which is only ever read by folder key —
+      // orphaned for notes (rendered nowhere). A note's icon is its frontmatter
+      // `icon:`, set via "Set icon…" below (read by resolveNoteIconRef so it
+      // shows in the sidebar AND next to every [[wikilink]]). Color is
+      // sidebar-only, so `folderColors[note.path]` is fine and stays. (U20)
       items.push({
         label: "Change color…",
         onSelect: async () => {
@@ -2476,7 +2436,6 @@ export function Sidebar(): JSX.Element {
     tabsEnabled,
     openNoteInTab,
     toggleFavorite,
-    openIconPicker,
     openColorPicker,
     vaultSettings.favorites,
     bulkSelectionMenuItems,
@@ -3669,17 +3628,6 @@ export function Sidebar(): JSX.Element {
             );
           }}
           onCancel={() => setFolderIconPicker(null)}
-        />
-      )}
-      {iconPicker && (
-        <FolderIconPickerModal
-          targetLabel={iconPicker.label}
-          currentIconRef={vaultSettings.folderIcons[iconPicker.key] ?? ""}
-          customIcons={customIcons}
-          perSectionFilter={iconPickerPerSectionFilter}
-          onSelect={(iconRef) => void saveIcon(iconPicker.key, iconRef)}
-          onReset={() => void resetIcon(iconPicker.key)}
-          onCancel={() => setIconPicker(null)}
         />
       )}
       {colorPicker && (
