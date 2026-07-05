@@ -2872,8 +2872,12 @@ textarea,
   counter-increment: zl;
   content: counter(zl);
   display: inline-block;
-  /* Match the editor's narrow gutter: 1.4em box + 0.6em gap → code at 2em. */
-  width: 1.4em;
+  /* Match the editor's narrow gutter: 1.4em box + 0.6em gap → code at 2em.
+     Use min-width (not a fixed width) + nowrap so a 3-digit line number (≥100)
+     grows the gutter instead of wrapping to a second row — the wrap doubled the
+     height of every code line in long blocks. */
+  min-width: 1.4em;
+  white-space: nowrap;
   margin-right: 0.6em;
   text-align: right;
   color: rgb(var(--z-fg-2) / 0.6);
