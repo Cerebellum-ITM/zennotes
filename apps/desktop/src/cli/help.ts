@@ -148,7 +148,9 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
   {
     heading: 'ICONS',
     rows: [
-      { name: 'icons list', description: 'Custom + built-in icons for the {icon:<ref>} directive', flags: '--json' }
+      { name: 'icons list', description: 'Custom + built-in icons for the {icon:<ref>} directive', flags: '--json' },
+      { name: 'icons set <path> <ref>', description: "Set a note's frontmatter icon (sidebar + wikilinks)", flags: 'ref: custom:<id> | builtin:<id> | lang:<token>  --json' },
+      { name: 'icons clear <path>', description: "Remove a note's frontmatter icon", flags: '--json' }
     ]
   },
   {

@@ -11,6 +11,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { removeFrontmatterKey, setFrontmatterKey } from '@shared/template-files'
 
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
@@ -573,6 +574,30 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   const folder = folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
+}
+
+/**
+ * Set (or clear, when `iconRef` is null) a note's frontmatter `icon:` key. This
+ * is the *canonical* note icon: `resolveNoteIconRef` reads it, so it renders in
+ * the sidebar AND next to every `[[wikilink]]` that resolves to the note (editor
+ * live-preview + reading preview). Mirrors the renderer's `store.setNoteIcon`.
+ * Returns the refreshed meta (a no-op clear leaves the file untouched).
+ */
+export async function setNoteIcon(
+  root: string,
+  rel: string,
+  iconRef: string | null
+): Promise<NoteMeta> {
+  const note = await readNote(root, rel)
+  const next =
+    iconRef === null
+      ? removeFrontmatterKey(note.body, 'icon')
+      : setFrontmatterKey(note.body, 'icon', iconRef)
+  if (next === note.body) {
+    const { body: _body, ...meta } = note
+    return meta
+  }
+  return await writeNote(root, rel, next)
 }
 
 async function uniqueTitle(dir: string, base: string): Promise<string> {

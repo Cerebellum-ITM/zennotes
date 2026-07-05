@@ -44,7 +44,7 @@ import {
 import { cmdTaskList, cmdTaskToggle } from './commands/tasks.js'
 import { cmdTagFind, cmdTagList } from './commands/tags.js'
 import { cmdVaultInfo, cmdVaultList } from './commands/vault.js'
-import { cmdIconsList } from './commands/icons.js'
+import { cmdIconsClear, cmdIconsList, cmdIconsSet } from './commands/icons.js'
 import { cmdCapture } from './commands/capture.js'
 import { cmdOpen } from './commands/open.js'
 import { cmdMcp } from './commands/mcp.js'
@@ -123,6 +123,8 @@ async function main(argv: string[]): Promise<number> {
     'vault info': cmdVaultInfo,
     'vault list': cmdVaultList,
     'icons list': cmdIconsList,
+    'icons set': cmdIconsSet,
+    'icons clear': cmdIconsClear,
     capture: cmdCapture,
     open: cmdOpen
   }
@@ -145,7 +147,7 @@ function peelSubcommand(
     tag: ['list', 'find'],
     task: ['list', 'toggle'],
     vault: ['info', 'list'],
-    icons: ['list']
+    icons: ['list', 'set', 'clear']
   }
   const choices = SUBCOMMANDS[command]
   if (!choices) return { subcommand: null, parsed: parse(rest) }
