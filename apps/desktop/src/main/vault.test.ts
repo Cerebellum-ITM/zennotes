@@ -346,6 +346,19 @@ describe('searchVaultText', () => {
     expect((await searchVaultText(root, 'beta', 'builtin')).map((m) => m.path)).toContain(rel)
   })
 
+  it('searches note folders beyond inbox/quick/archive (e.g. Daily Notes) but not trash', async () => {
+    const root = await makeTempDir('zennotes-search-folders-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'Daily Notes'), { recursive: true })
+    await writeFile(path.join(root, 'Daily Notes/2026-07-09.md'), 'standup mailpituniq\n', 'utf8')
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash/old.md'), 'archived mailpituniq\n', 'utf8')
+
+    const paths = (await searchVaultText(root, 'mailpituniq', 'builtin')).map((m) => m.path)
+    expect(paths).toContain('Daily Notes/2026-07-09.md')
+    expect(paths).not.toContain('trash/old.md')
+  })
+
   it('matches note body text when auto resolves to fzf', async () => {
     const root = await makeTempDir('zennotes-search-fzf-')
     await ensureVaultLayout(root)

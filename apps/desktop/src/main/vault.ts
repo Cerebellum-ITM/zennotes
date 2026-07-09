@@ -123,7 +123,14 @@ const PDF_EXTENSIONS = new Set(['.pdf'])
 const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
 const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 const execFileAsync = promisify(execFile)
-const SEARCHABLE_TEXT_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
+// Vault text search covers the whole vault (inbox, quick, archive, Daily Notes,
+// and any user folders) EXCEPT trash and the internal/asset directories below.
+const SEARCH_EXCLUDED_ROOT_DIRS = new Set<string>([
+  'trash',
+  ...ATTACHMENTS_DIRS,
+  INTERNAL_VAULT_DIR,
+  DELETED_ASSETS_DIR
+])
 const COMMAND_CHECK_TIMEOUT_MS = 1500
 const SEARCH_EXEC_MAX_BUFFER = 64 * 1024 * 1024
 const SEARCH_CANDIDATE_CACHE_TTL_MS = 30_000
@@ -2465,6 +2472,17 @@ function noteFolderFromRelPath(relPath: string): NoteFolder | null {
   return folderForRelativePath(relPath)
 }
 
+// Resolve the searchable folder for a note path, or null when the path lives in
+// trash or an excluded internal/asset directory and must be skipped.
+function searchableFolderForRelPath(relPath: string): NoteFolder | null {
+  const normalized = normalizeVaultRelativePath(relPath)
+  const top = normalized.split('/')[0]
+  if (!top || SEARCH_EXCLUDED_ROOT_DIRS.has(top)) return null
+  const folder = noteFolderFromRelPath(normalized)
+  if (!folder || folder === 'trash') return null
+  return folder
+}
+
 // A directory entry counts as a markdown note when it's a real .md file
 // or a symlink that resolves to one. readdir's Dirent reports a symlink
 // as isSymbolicLink() (never isFile()), so without this stat fallback a
@@ -2535,12 +2553,9 @@ async function resolveDirDescent(
 
 async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSearchCandidate[]> {
   const files: Array<{ full: string; folder: NoteFolder }> = []
-  const walkFolder = async (
-    folder: NoteFolder,
+  const walk = async (
     dirAbs: string,
     dirReal: string,
-    topAbs: string,
-    isPrimaryRoot: boolean,
     ancestors: Set<string>
   ): Promise<void> => {
     let entries: Dirent[]
@@ -2555,23 +2570,24 @@ async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSe
       const childReal = await resolveDirDescent(full, entry, dirReal, ancestors)
       if (childReal !== null) {
         if (entry.name.startsWith('.')) continue
-        if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(entry.name)) continue
+        // Skip trash + internal/asset roots; everything else (inbox, quick,
+        // archive, Daily Notes, user folders) is searchable.
+        const relDir = toPosix(path.relative(root, full))
+        if (searchableFolderForRelPath(`${relDir}/`) === null) continue
         ancestors.add(childReal)
-        await walkFolder(folder, full, childReal, topAbs, isPrimaryRoot, ancestors)
+        await walk(full, childReal, ancestors)
         ancestors.delete(childReal)
         continue
       }
       if (!(await isMarkdownNoteEntry(full, entry))) continue
+      const folder = searchableFolderForRelPath(toPosix(path.relative(root, full)))
+      if (!folder) continue
       files.push({ full, folder })
     }
   }
 
-  for (const folder of SEARCHABLE_TEXT_FOLDERS) {
-    const topAbs = await folderRoot(root, folder)
-    const isPrimaryRoot = folder === 'inbox' && path.resolve(topAbs) === path.resolve(root)
-    const topReal = await realpathOrResolve(topAbs)
-    await walkFolder(folder, topAbs, topReal, topAbs, isPrimaryRoot, new Set([topReal]))
-  }
+  const rootReal = await realpathOrResolve(root)
+  await walk(root, rootReal, new Set([rootReal]))
 
   const candidateGroups = await mapLimit(
     files,
@@ -2616,13 +2632,7 @@ async function collectRipgrepSearchCandidates(
   try {
     const ripgrep = await searchExecutable('ripgrep', paths)
     if (!ripgrep) return []
-    const resolvedSearchRoots = await Promise.all(
-      SEARCHABLE_TEXT_FOLDERS.map(async (folder) => {
-        const dir = await folderRoot(root, folder)
-        return normalizeVaultRelativePath(path.relative(root, dir)) || '.'
-      })
-    )
-    const searchRoots = resolvedSearchRoots.includes('.') ? ['.'] : resolvedSearchRoots
+    // Scan the whole vault; trash/internal/asset paths are filtered out below.
     const result = await execFileAsync(
       ripgrep,
       [
@@ -2634,7 +2644,7 @@ async function collectRipgrepSearchCandidates(
         '-g',
         '*.md',
         '^',
-        ...searchRoots
+        '.'
       ],
       {
         cwd: root,
@@ -2673,8 +2683,8 @@ async function collectRipgrepSearchCandidates(
         ? (rawLines as { text: string }).text.replace(/\r?\n$/, '')
         : null
     if (!relPath || rawLineText == null || typeof lineNumber !== 'number') continue
-    const folder = noteFolderFromRelPath(relPath)
-    if (!folder || !SEARCHABLE_TEXT_FOLDERS.includes(folder)) continue
+    const folder = searchableFolderForRelPath(relPath)
+    if (!folder) continue
     candidates.push({
       path: relPath,
       title: path.basename(relPath, path.extname(relPath)),
