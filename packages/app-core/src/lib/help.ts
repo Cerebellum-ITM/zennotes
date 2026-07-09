@@ -317,8 +317,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     title: 'Global shortcuts',
     description: 'These work across the main app shell.',
     items: [
-      { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette.' },
-      { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
+      { keys: 'Mod+P', action: 'Search notes', detail: 'Open the unified search across note titles and contents.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
       { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note in the main window and focus its title.' },
       { keys: 'Shift+Mod+Space', action: 'Open quick capture window', detail: 'Open the floating, always-on-top capture window. Bound system-wide (CommandOrControl+Shift+Space by default) so it works over any app; change it under Settings → Editor.' },

@@ -45,7 +45,6 @@ function resolveShortcutKeys(
 ): string | null {
   if (sectionId === 'global-shortcuts') {
     if (action === 'Search notes') return shortcut(overrides, 'global.searchNotes')
-    if (action === 'Search notes (non-Vim mode)') return shortcut(overrides, 'global.searchNotesNonVim')
     if (action === 'Open commands') return shortcut(overrides, 'global.commandPalette')
     if (action === 'New Quick Note') return shortcut(overrides, 'global.newQuickNote')
     if (action === 'Open Settings') return shortcut(overrides, 'global.openSettings')

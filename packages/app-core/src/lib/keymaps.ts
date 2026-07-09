@@ -10,7 +10,6 @@ export type KeymapGroup = "global" | "vim" | "navigation" | "view-actions";
 
 export type KeymapId =
   | "global.searchNotes"
-  | "global.searchNotesNonVim"
   | "global.commandPalette"
   | "global.newQuickNote"
   | "global.openSettings"
@@ -129,16 +128,6 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Search notes",
     description: "Open the vault-wide note search palette.",
     defaultBinding: "Mod+P",
-  },
-  {
-    id: "global.searchNotesNonVim",
-    kind: "shortcut",
-    scope: "app",
-    group: "global",
-    title: "Search notes in non-Vim mode",
-    description: "Extra direct search shortcut when Vim mode is off.",
-    defaultBinding: "Mod+F",
-    nonVimOnly: true,
   },
   {
     id: "global.commandPalette",

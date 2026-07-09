@@ -190,8 +190,8 @@ export function VimNav(): JSX.Element | null {
       return [
         {
           keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchVaultText'),
-          label: 'Search vault text',
-          detail: 'Fuzzy-search note contents across the vault.'
+          label: 'Search notes & content',
+          detail: 'Open the unified search across note titles and contents.'
         }
       ]
     }
@@ -303,7 +303,6 @@ export function VimNav(): JSX.Element | null {
       // Skip when modals / overlays are open
       if (
         state.searchOpen ||
-        state.vaultTextSearchOpen ||
         state.settingsOpen ||
         state.commandPaletteOpen ||
         state.bufferPaletteOpen
@@ -831,7 +830,7 @@ export function VimNav(): JSX.Element | null {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          state.setVaultTextSearchOpen(true)
+          state.setSearchOpen(true)
           return
         }
         resetLeader()

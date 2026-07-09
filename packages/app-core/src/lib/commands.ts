@@ -63,12 +63,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
   const paneShortcut = (id: KeymapId): string =>
     `${shortcut('vim.panePrefix')} ${shortcut(id)}`
-  const searchShortcut = (): string => {
-    const state = getState()
-    const primary = shortcut('global.searchNotes')
-    if (state.vimMode) return primary
-    return `${primary} / ${shortcut('global.searchNotesNonVim')}`
-  }
+  const searchShortcut = (): string => shortcut('global.searchNotes')
   const openExternal = (url: string): void => {
     window.open(url, '_blank')
   }
@@ -886,20 +881,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Search Notes…',
       category: 'Go',
       shortcut: searchShortcut(),
-      keywords: 'find open cmd+f ctrl+f leader',
+      keywords: 'find open cmd+f ctrl+f leader grep content body line text vault fuzzy',
       run: () => getState().setSearchOpen(true)
-    },
-    {
-      id: 'nav.search-text',
-      title: 'Search Text in Vault…',
-      category: 'Go',
-      shortcut: getState().vimMode ? leaderShortcut('vim.leaderSearchVaultText') : undefined,
-      keywords: 'grep live grep telescope fuzzy content body line text vault',
-      run: () => {
-        const s = getState()
-        s.setSearchOpen(false)
-        s.setVaultTextSearchOpen(true)
-      }
     },
     {
       id: 'nav.folder.quick',

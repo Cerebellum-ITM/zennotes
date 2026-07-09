@@ -2044,7 +2044,6 @@ interface Store {
   /** Notes still loading the full content. */
   loadingNote: boolean
   searchOpen: boolean
-  vaultTextSearchOpen: boolean
   commandPaletteOpen: boolean
   commandPaletteInitialMode: CommandPaletteInitialMode
   bufferPaletteOpen: boolean
@@ -2437,7 +2436,6 @@ interface Store {
   exportActiveNotePdf: () => Promise<void>
   copyActiveNoteAsMarkdown: () => Promise<void>
   setSearchOpen: (open: boolean) => void
-  setVaultTextSearchOpen: (open: boolean) => void
   setCommandPaletteOpen: (open: boolean, mode?: CommandPaletteInitialMode) => void
   setBufferPaletteOpen: (open: boolean) => void
   setOutlinePaletteOpen: (open: boolean) => void
@@ -3568,7 +3566,6 @@ export const useStore = create<Store>((set, get) => {
   pendingAssetsFilter: null,
   loadingNote: false,
   searchOpen: false,
-  vaultTextSearchOpen: false,
   commandPaletteOpen: false,
   commandPaletteInitialMode: 'main',
   bufferPaletteOpen: false,
@@ -5311,13 +5308,7 @@ export const useStore = create<Store>((set, get) => {
   setSearchOpen: (open) =>
     set({
       searchOpen: open,
-      vaultTextSearchOpen: open ? false : get().vaultTextSearchOpen,
       query: open ? get().query : ''
-    }),
-  setVaultTextSearchOpen: (open) =>
-    set({
-      vaultTextSearchOpen: open,
-      searchOpen: open ? false : get().searchOpen
     }),
   setCommandPaletteOpen: (open, mode = 'main') =>
     set({

@@ -151,11 +151,6 @@ const SearchPalette = lazy(async () => {
   return { default: module.SearchPalette }
 })
 
-const VaultTextSearchPalette = lazy(async () => {
-  const module = await import('./components/VaultTextSearchPalette')
-  return { default: module.VaultTextSearchPalette }
-})
-
 const CommandPalette = lazy(async () => {
   const module = await import('./components/CommandPalette')
   return { default: module.CommandPalette }
@@ -278,8 +273,6 @@ function App(): JSX.Element {
   const workspaceRestored = useStore((s) => s.workspaceRestored)
   const searchOpen = useStore((s) => s.searchOpen)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
-  const vaultTextSearchOpen = useStore((s) => s.vaultTextSearchOpen)
-  const setVaultTextSearchOpen = useStore((s) => s.setVaultTextSearchOpen)
   const commandPaletteOpen = useStore((s) => s.commandPaletteOpen)
   const setCommandPaletteOpen = useStore((s) => s.setCommandPaletteOpen)
   const bufferPaletteOpen = useStore((s) => s.bufferPaletteOpen)
@@ -608,16 +601,7 @@ function App(): JSX.Element {
         // ⇧⌘P — command palette
         e.preventDefault()
         setBufferPaletteOpen(false)
-        setVaultTextSearchOpen(false)
         setCommandPaletteOpen(!state.commandPaletteOpen)
-        return
-      }
-      if (!state.vimMode && matchesShortcut(e, overrides, 'global.searchNotesNonVim')) {
-        // ⌘F / Ctrl+F — note search when Vim mode is off
-        e.preventDefault()
-        setBufferPaletteOpen(false)
-        setVaultTextSearchOpen(false)
-        setSearchOpen(true)
         return
       }
       if (matchesShortcut(e, overrides, 'global.newQuickNote')) {
@@ -680,10 +664,9 @@ function App(): JSX.Element {
         return
       }
       if (matchesShortcut(e, overrides, 'global.searchNotes')) {
-        // ⌘P — note search
+        // ⌘P — unified note + content search
         e.preventDefault()
         setBufferPaletteOpen(false)
-        setVaultTextSearchOpen(false)
         setSearchOpen(!state.searchOpen)
         return
       }
@@ -719,11 +702,6 @@ function App(): JSX.Element {
       }
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
-        focusEditorNormalMode()
-        return
-      }
-      if (e.key === 'Escape' && state.vaultTextSearchOpen) {
-        setVaultTextSearchOpen(false)
         focusEditorNormalMode()
         return
       }
@@ -839,7 +817,6 @@ function App(): JSX.Element {
       if (
         state.settingsOpen ||
         state.searchOpen ||
-        state.vaultTextSearchOpen ||
         state.commandPaletteOpen ||
         state.bufferPaletteOpen ||
         state.templatePaletteOpen ||
@@ -876,8 +853,7 @@ function App(): JSX.Element {
     setCommandPaletteOpen,
     setOutlinePaletteOpen,
     setTemplatePaletteOpen,
-    setSearchOpen,
-    setVaultTextSearchOpen
+    setSearchOpen
   ])
 
   if (!hasCompletedOnboarding) {
@@ -928,11 +904,6 @@ function App(): JSX.Element {
       {searchOpen && (
         <Suspense fallback={null}>
           <SearchPalette />
-        </Suspense>
-      )}
-      {vaultTextSearchOpen && (
-        <Suspense fallback={null}>
-          <VaultTextSearchPalette />
         </Suspense>
       )}
       {commandPaletteOpen && (

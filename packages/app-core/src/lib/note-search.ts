@@ -141,14 +141,35 @@ function insertTopMatch<T extends { score: number }>(
   if (next.score > matches[lowestIndex].score) matches[lowestIndex] = next
 }
 
-export function searchNoteIndex(
+export interface ScoredNoteMatch {
+  note: NoteMeta
+  score: number
+}
+
+function sortScoredMatches(
+  matches: Array<{ entry: NoteSearchEntry; score: number }>
+): ScoredNoteMatch[] {
+  return matches
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return b.entry.note.updatedAt - a.entry.note.updatedAt
+    })
+    .map((match) => ({ note: match.entry.note, score: match.score }))
+}
+
+/**
+ * Same ranking as {@link searchNoteIndex} but keeps each note's raw score so
+ * callers (the unified search) can fuse it with content-match scores. Notes
+ * matched only by the default listing (empty free text) carry score 0.
+ */
+export function searchNoteIndexScored(
   entries: NoteSearchEntry[],
   query: string,
   options: {
     limit: number
     defaultOrder?: NoteSearchDefaultOrder
   }
-): NoteMeta[] {
+): ScoredNoteMatch[] {
   const { freeText, tagTokens } = parseNoteSearchQuery(query)
   const limit = Math.max(0, options.limit)
   if (limit === 0) return []
@@ -159,7 +180,7 @@ export function searchNoteIndex(
     )
     return defaultSort(live, options.defaultOrder ?? 'current')
       .slice(0, limit)
-      .map((entry) => entry.note)
+      .map((entry) => ({ note: entry.note, score: 0 }))
   }
 
   const preparedQuery = freeText.toLowerCase()
@@ -172,14 +193,7 @@ export function searchNoteIndex(
       insertTopMatch(matches, { entry, score }, limit)
     }
 
-    if (matches.length > 0) {
-      return matches
-        .sort((a, b) => {
-          if (b.score !== a.score) return b.score - a.score
-          return b.entry.note.updatedAt - a.entry.note.updatedAt
-        })
-        .map((match) => match.entry.note)
-    }
+    if (matches.length > 0) return sortScoredMatches(matches)
   }
 
   for (const entry of entries) {
@@ -189,10 +203,16 @@ export function searchNoteIndex(
     insertTopMatch(matches, { entry, score }, limit)
   }
 
-  return matches
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score
-      return b.entry.note.updatedAt - a.entry.note.updatedAt
-    })
-    .map((match) => match.entry.note)
+  return sortScoredMatches(matches)
+}
+
+export function searchNoteIndex(
+  entries: NoteSearchEntry[],
+  query: string,
+  options: {
+    limit: number
+    defaultOrder?: NoteSearchDefaultOrder
+  }
+): NoteMeta[] {
+  return searchNoteIndexScored(entries, query, options).map((match) => match.note)
 }

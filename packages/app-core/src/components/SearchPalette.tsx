@@ -1,24 +1,43 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import type { NoteMeta } from '@shared/ipc'
+import type { VaultTextSearchMatch } from '@shared/ipc'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
-import {
-  buildNoteSearchIndex,
-  parseNoteSearchQuery,
-  searchNoteIndex
-} from '../lib/note-search'
+import { parseNoteSearchQuery } from '../lib/note-search'
+import { searchUnified, buildNoteSearchIndex, type UnifiedResult } from '../lib/unified-search'
+import { searchVaultBodies, reduceToBestPerNote, renderHighlightedText } from '../lib/vault-text-search'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
+const RESULT_LIMIT = 30
+const BODY_SEARCH_DEBOUNCE_MS = 120
+
 export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const noteContents = useStore((s) => s.noteContents)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
+  const openNoteAtOffset = useStore((s) => s.openNoteAtOffset)
+  const backend = useStore((s) => s.vaultTextSearchBackend)
+  const ripgrepBinaryPath = useStore((s) => s.ripgrepBinaryPath)
+  const fzfBinaryPath = useStore((s) => s.fzfBinaryPath)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  const [bodyMatches, setBodyMatches] = useState<Map<string, VaultTextSearchMatch>>(new Map())
+  const [bodyLoading, setBodyLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const requestIdRef = useRef(0)
+  const bodyCacheRef = useRef(new Map<string, string>())
+  const notesRef = useRef(notes)
+  const noteContentsRef = useRef(noteContents)
+
+  useEffect(() => {
+    notesRef.current = notes
+  }, [notes])
+  useEffect(() => {
+    noteContentsRef.current = noteContents
+  }, [noteContents])
 
   const searchIndex = useMemo(() => buildNoteSearchIndex(notes), [notes])
 
@@ -26,11 +45,12 @@ export function SearchPalette(): JSX.Element {
   // more tags inline: `#ops #prod migration` means "notes tagged with
   // #ops AND #prod, fuzzy-matching 'migration'". Pure-tag queries (no
   // free text) still work — in that case we just list matching notes.
-  const { tagTokens } = useMemo(() => parseNoteSearchQuery(query), [query])
+  const { tagTokens, freeText } = useMemo(() => parseNoteSearchQuery(query), [query])
 
-  const results = useMemo(() => {
-    return searchNoteIndex(searchIndex, query, { limit: 20 })
-  }, [query, searchIndex])
+  const results = useMemo(
+    () => searchUnified(searchIndex, bodyMatches, query, { limit: RESULT_LIMIT }),
+    [searchIndex, bodyMatches, query]
+  )
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -43,9 +63,56 @@ export function SearchPalette(): JSX.Element {
     el?.scrollIntoView({ block: 'nearest' })
   }, [active])
 
-  const open = async (note: NoteMeta): Promise<void> => {
+  // Full-text body search. Runs only when there's free text to look for; the
+  // name/tag index already covers titles instantly. Debounced and guarded by a
+  // request id so stale responses can't clobber a newer query.
+  useEffect(() => {
+    requestIdRef.current += 1
+    const requestId = requestIdRef.current
+    // Drop stale body matches immediately so the unified list never mixes a
+    // previous query's snippets with the new one.
+    setBodyMatches(new Map())
+
+    if (!freeText) {
+      setBodyLoading(false)
+      return
+    }
+
+    setBodyLoading(true)
+    const timer = window.setTimeout(() => {
+      void (async (): Promise<void> => {
+        try {
+          const matches = await searchVaultBodies(freeText, {
+            notes: notesRef.current,
+            backend,
+            ripgrepPath: ripgrepBinaryPath,
+            fzfPath: fzfBinaryPath,
+            getCachedBody: (path) =>
+              noteContentsRef.current[path]?.body ?? bodyCacheRef.current.get(path),
+            setCachedBody: (path, body) => bodyCacheRef.current.set(path, body)
+          })
+          if (requestIdRef.current !== requestId) return
+          setBodyMatches(reduceToBestPerNote(matches))
+        } catch (error) {
+          console.error('unified body search failed', error)
+          if (requestIdRef.current !== requestId) return
+          setBodyMatches(new Map())
+        } finally {
+          if (requestIdRef.current === requestId) setBodyLoading(false)
+        }
+      })()
+    }, BODY_SEARCH_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [freeText, backend, ripgrepBinaryPath, fzfBinaryPath])
+
+  const open = async (result: UnifiedResult): Promise<void> => {
     setSearchOpen(false)
-    await selectNote(note.path)
+    if (typeof result.offset === 'number') {
+      await openNoteAtOffset(result.path, result.offset, { scrollMode: 'center' })
+    } else {
+      await selectNote(result.path)
+    }
     focusEditorNormalMode()
   }
 
@@ -60,7 +127,7 @@ export function SearchPalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search notes…  ·  use #tag to filter"
+            placeholder="Search notes and content…  ·  use #tag to filter"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               // While composing (IME), let the input own Enter/Arrows. (#183)
@@ -75,8 +142,8 @@ export function SearchPalette(): JSX.Element {
                 setActive((a) => Math.max(0, a - 1))
               } else if (e.key === 'Enter') {
                 e.preventDefault()
-                const note = results[active]
-                if (note) open(note)
+                const result = results[active]
+                if (result) open(result)
               } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
@@ -103,7 +170,9 @@ export function SearchPalette(): JSX.Element {
         </div>
         <div ref={listRef} className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-ink-400">No matches.</div>
+            <div className="px-4 py-6 text-center text-sm text-ink-400">
+              {bodyLoading ? 'Searching…' : 'No matches.'}
+            </div>
           ) : (
             results.map((n, i) => (
               <button
@@ -112,21 +181,34 @@ export function SearchPalette(): JSX.Element {
                 onClick={() => open(n)}
                 onMouseMove={() => setActive(i)}
                 className={[
-                  'flex w-full min-w-0 items-center gap-3 px-4 py-2 text-left',
+                  'flex w-full min-w-0 flex-col gap-0.5 px-4 py-2 text-left',
                   i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                 ].join(' ')}
               >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
-                  {n.title}
-                </span>
-                <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
-                  {n.folder}
-                </span>
+                <div className="flex w-full min-w-0 items-center gap-3">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
+                    {renderHighlightedText(n.title, freeText)}
+                  </span>
+                  <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
+                    {n.folder}
+                  </span>
+                </div>
+                {n.snippet && (
+                  <div className="flex w-full min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 text-2xs tabular-nums text-ink-400">
+                      L{n.lineNumber}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-ink-500">
+                      {renderHighlightedText(n.snippet, freeText)}
+                    </span>
+                  </div>
+                )}
               </button>
             ))
           )}
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
+          {bodyLoading && <span className="mr-auto text-ink-400">searching content…</span>}
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
             <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd>{' '}

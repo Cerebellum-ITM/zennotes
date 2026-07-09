@@ -3896,10 +3896,6 @@ function KeymapSettings({
     return getKeymapDefinitionsByGroup()
       .map((group) => {
         const items = group.items.filter((definition) => {
-          if (definition.vimOnly && !vimMode && definition.id !== 'global.searchNotesNonVim') {
-            // Keep Vim-only bindings visible so users can prep their layout
-            // before turning Vim mode back on, but still let the filter work.
-          }
           if (!q) return true
           return (
             definition.title.toLowerCase().includes(q) ||
