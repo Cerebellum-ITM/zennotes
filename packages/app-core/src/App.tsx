@@ -22,6 +22,7 @@ import { focusPaneOrEdgePanel } from './lib/pane-nav'
 import { requestPaneMode, requestPaneModeCycle } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
+import { isAppOverlayOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
   appUpdateNoticeLabel,
@@ -336,6 +337,29 @@ function App(): JSX.Element {
     if (!vault) return undefined
     return scheduleEditorModuleWarmup()
   }, [vault])
+
+  // When a full-surface panel (Tasks/Tags) closes, the store asks the editor to
+  // reclaim keyboard focus so the reopened note takes typing without a manual
+  // pane jump or mouse click. Routed through a DOM event to keep the store free
+  // of an editor-focus import cycle. (#353)
+  useEffect(() => {
+    const handler = (): void => focusEditorNormalMode({ attempts: 10, delayMs: 24 })
+    window.addEventListener('zen:focus-editor', handler)
+    return () => window.removeEventListener('zen:focus-editor', handler)
+  }, [])
+
+  // Closing the sidebar while it holds keyboard focus (⌘1, Leader E, etc.) used
+  // to strand focus on the now-hidden pane; hand it back to the editor. Only
+  // fires on the open→closed transition when the sidebar was the focused panel,
+  // so hiding it mid-edit never steals focus from the editor. (#353)
+  const prevSidebarOpenRef = useRef(sidebarOpen)
+  useEffect(() => {
+    const wasOpen = prevSidebarOpenRef.current
+    prevSidebarOpenRef.current = sidebarOpen
+    if (wasOpen && !sidebarOpen && useStore.getState().focusedPanel === 'sidebar') {
+      focusEditorNormalMode({ attempts: 10, delayMs: 24 })
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     const raf = window.requestAnimationFrame(() => {
@@ -855,6 +879,48 @@ function App(): JSX.Element {
     setTemplatePaletteOpen,
     setSearchOpen
   ])
+
+  // Self-heal keyboard focus when the window wakes from an idle/background
+  // state. If Chromium/the OS lets the editor silently lose DOM focus while
+  // idle, window shortcuts and the Vim keymap stop receiving keys until focus
+  // is re-established. When the window regains focus (or becomes visible again)
+  // and the editor was the active surface with no overlay open, re-grab it so
+  // the user doesn't have to open Settings + Escape to recover. Pairs with the
+  // main-process `backgroundThrottling: false`. (#350)
+  useEffect(() => {
+    const heal = (): void => {
+      const state = useStore.getState()
+      if (state.focusedPanel !== 'editor') return
+      if (
+        state.settingsOpen ||
+        state.searchOpen ||
+        state.commandPaletteOpen ||
+        state.bufferPaletteOpen ||
+        state.templatePaletteOpen ||
+        state.outlinePaletteOpen ||
+        isAppOverlayOpen()
+      ) {
+        return
+      }
+      const view = state.editorViewRef
+      if (!view) return
+      const active = document.activeElement
+      const editorHasFocus = !!active && (active === view.dom || view.dom.contains(active))
+      if (editorHasFocus) return
+      // Leave a deliberately-focused note-title input alone.
+      if (active instanceof HTMLElement && active.dataset.noteTitleInput != null) return
+      focusEditorNormalMode()
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') heal()
+    }
+    window.addEventListener('focus', heal)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', heal)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
 
   if (!hasCompletedOnboarding) {
     return (

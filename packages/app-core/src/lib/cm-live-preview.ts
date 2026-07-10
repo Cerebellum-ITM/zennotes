@@ -564,21 +564,37 @@ class LocalPdfWidget extends WidgetType {
 class TaskCheckboxWidget extends WidgetType {
   constructor(
     /** Absolute doc offset of the opening `[`. The marker is always 3
-     *  chars (`[ ]`, `[x]`, `[X]`), so the inner state char is at `from + 1`. */
+     *  chars (`[ ]`, `[x]`, `[X]`, `[>]`), so the inner state char is at
+     *  `from + 1`. */
     private readonly from: number,
-    private readonly checked: boolean
+    private readonly checked: boolean,
+    /** `[>]` — forwarded to another note (#316); shown as an arrow, not a box. */
+    private readonly forwarded = false
   ) {
     super()
   }
 
   eq(other: TaskCheckboxWidget): boolean {
-    return other.from === this.from && other.checked === this.checked
+    return (
+      other.from === this.from &&
+      other.checked === this.checked &&
+      other.forwarded === this.forwarded
+    )
   }
 
   toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement('span')
     wrap.className = 'cm-task-checkbox'
     wrap.setAttribute('contenteditable', 'false')
+
+    if (this.forwarded) {
+      const marker = document.createElement('span')
+      marker.className = 'cm-task-forwarded'
+      marker.textContent = '→' // → forwarded marker
+      marker.title = 'Forwarded to another note'
+      wrap.append(marker)
+      return wrap
+    }
 
     const input = document.createElement('input')
     input.type = 'checkbox'
@@ -614,6 +630,23 @@ class TaskCheckboxWidget extends WidgetType {
   // also swallow our click.
   ignoreEvent(): boolean {
     return false
+  }
+}
+
+/** Renders a `- [>]` forwarded-task marker as an arrow (#316). CodeMirror parses
+ *  `[>]` as a broken link rather than a task, so this replaces it directly. */
+class ForwardedMarkerWidget extends WidgetType {
+  eq(): boolean {
+    return true
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'cm-task-forwarded'
+    span.textContent = '→'
+    span.title = 'Forwarded to another note'
+    span.setAttribute('contenteditable', 'false')
+    return span
   }
 }
 
@@ -742,6 +775,27 @@ function computeDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         const name = node.name
+
+        // #316: `[>]` at the start of a list item is a forwarded-task marker.
+        // CM parses it as a broken link; render an arrow (off the active line)
+        // and return false so its bracket marks aren't separately hidden (which
+        // would overlap this replacement) while the rest of the line — including
+        // the `[[wikilink]]` to the target — still renders normally.
+        if (name === 'Link' && state.doc.sliceString(node.from, node.to) === '[>]') {
+          const markerLine = state.doc.lineAt(node.from)
+          const before = state.doc.sliceString(markerLine.from, node.from)
+          if (/^\s*(?:[-+*]|\d+[.)])[ \t]+$/.test(before)) {
+            if (!activeLines.has(markerLine.number) && !replacedLines.has(markerLine.number)) {
+              pending.push({
+                from: node.from,
+                to: node.to,
+                deco: Decoration.replace({ widget: new ForwardedMarkerWidget() })
+              })
+            }
+            return false
+          }
+        }
+
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE
@@ -756,14 +810,16 @@ function computeDecorations(view: EditorView): DecorationSet {
           // Off the line, render the checkbox.
           if (activeLines.has(line)) return
           const markerText = state.doc.sliceString(node.from, node.to)
-          // `markerText` is `[ ]` / `[x]` / `[X]`; default to unchecked if the
-          // parser ever hands us something unexpected.
-          const checked = markerText.length >= 2 && /[xX]/.test(markerText[1] ?? '')
+          // `markerText` is `[ ]` / `[x]` / `[X]` / `[>]`; default to unchecked if
+          // the parser ever hands us something unexpected.
+          const stateChar = markerText[1] ?? ''
+          const checked = markerText.length >= 2 && /[xX]/.test(stateChar)
+          const forwarded = stateChar === '>'
           pending.push({
             from: node.from,
             to: node.to,
             deco: Decoration.replace({
-              widget: new TaskCheckboxWidget(node.from, checked)
+              widget: new TaskCheckboxWidget(node.from, checked, forwarded)
             })
           })
           return

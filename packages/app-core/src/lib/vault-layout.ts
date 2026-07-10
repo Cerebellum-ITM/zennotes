@@ -5,6 +5,9 @@ import {
   DEFAULT_WEEKLY_NOTE_LOCALE,
   DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
+  DEFAULT_MONTHLY_NOTE_LOCALE,
+  DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
+  DEFAULT_MONTHLY_NOTES_DIRECTORY,
   DEFAULT_VAULT_SETTINGS,
   type AssetMeta,
   type DateNotePatternSettings,
@@ -140,6 +143,21 @@ export function normalizeWeeklyNoteLocale(value: string | null | undefined): str
   return trimmed || DEFAULT_WEEKLY_NOTE_LOCALE
 }
 
+export function normalizeMonthlyNotesDirectory(directory: string | null | undefined): string {
+  const trimmed = (directory ?? '').trim().replace(/^\/+|\/+$/g, '')
+  return trimmed || DEFAULT_MONTHLY_NOTES_DIRECTORY
+}
+
+export function normalizeMonthlyNoteTitlePattern(value: string | null | undefined): string {
+  const trimmed = (value ?? '').trim().replace(/[\\/]+/g, '-')
+  return trimmed || DEFAULT_MONTHLY_NOTE_TITLE_PATTERN
+}
+
+export function normalizeMonthlyNoteLocale(value: string | null | undefined): string {
+  const trimmed = (value ?? '').trim()
+  return trimmed || DEFAULT_MONTHLY_NOTE_LOCALE
+}
+
 function dateNotePatternKey(pattern: DateNotePatternSettings): string {
   return `${pattern.directory}\0${pattern.titlePattern ?? ''}\0${pattern.locale ?? ''}`
 }
@@ -183,6 +201,30 @@ function normalizeWeeklyNotePatternHistory(
       ),
       titlePattern: normalizeWeeklyNoteTitlePattern(pattern?.titlePattern),
       locale: normalizeWeeklyNoteLocale(pattern?.locale)
+    }
+    const key = dateNotePatternKey(next)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(next)
+  }
+  return out
+}
+
+function normalizeMonthlyNotePatternHistory(
+  value: readonly DateNotePatternSettings[] | null | undefined,
+  primaryNotesLocation: VaultSettings['primaryNotesLocation']
+): DateNotePatternSettings[] {
+  if (!Array.isArray(value)) return []
+  const out: DateNotePatternSettings[] = []
+  const seen = new Set<string>()
+  for (const pattern of value) {
+    const next = {
+      directory: normalizePrimaryRelativeSubpath(
+        normalizeMonthlyNotesDirectory(pattern?.directory),
+        { primaryNotesLocation }
+      ),
+      titlePattern: normalizeMonthlyNoteTitlePattern(pattern?.titlePattern),
+      locale: normalizeMonthlyNoteLocale(pattern?.locale)
     }
     const key = dateNotePatternKey(next)
     if (seen.has(key)) continue
@@ -675,6 +717,10 @@ export function normalizeVaultSettings(
         dailyDirectory,
         (settings?.dailyNotes as { pathFormat?: string } | undefined)?.pathFormat
       )
+  const monthlyDirectory = normalizePrimaryRelativeSubpath(
+    normalizeMonthlyNotesDirectory(settings?.monthlyNotes?.directory),
+    { primaryNotesLocation }
+  )
 
   return {
     primaryNotesLocation,
@@ -705,6 +751,17 @@ export function normalizeVaultSettings(
         primaryNotesLocation
       ),
       templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
+    },
+    monthlyNotes: {
+      enabled: !!settings?.monthlyNotes?.enabled,
+      directory: monthlyDirectory,
+      titlePattern: normalizeMonthlyNoteTitlePattern(settings?.monthlyNotes?.titlePattern),
+      locale: normalizeMonthlyNoteLocale(settings?.monthlyNotes?.locale),
+      legacyPatterns: normalizeMonthlyNotePatternHistory(
+        settings?.monthlyNotes?.legacyPatterns,
+        primaryNotesLocation
+      ),
+      templateId: normalizeTemplateId(settings?.monthlyNotes?.templateId)
     },
     folderIcons: normalizedFolderIcons,
     iconRules: normalizeIconRules(settings?.iconRules),
@@ -1055,9 +1112,27 @@ export function weeklyNoteLocationForDate(
   return weeklyNoteLocationForPattern(date, normalized, currentWeeklyNotePattern(normalized))
 }
 
+/** Month key `YYYY-MM`, used to index monthly notes by their calendar month. */
+export function monthlyNoteTitle(date = new Date()): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
+}
+
+export interface MonthlyNoteLocation {
+  title: string
+  subpath: string
+}
+
+export function monthlyNoteLocationForDate(
+  date = new Date(),
+  settings: VaultSettings | null | undefined
+): MonthlyNoteLocation {
+  const normalized = normalizeVaultSettings(settings)
+  return monthlyNoteLocationForPattern(date, normalized, currentMonthlyNotePattern(normalized))
+}
+
 export interface DateNoteInfo {
-  kind: 'daily' | 'weekly'
-  /** Daily: that calendar day. Weekly: the Monday of that ISO week. */
+  kind: 'daily' | 'weekly' | 'monthly'
+  /** Daily: that calendar day. Weekly: the Monday of that ISO week. Monthly: the first of that month. */
   date: Date
 }
 
@@ -1074,6 +1149,14 @@ function currentWeeklyNotePattern(settings: VaultSettings): DateNotePatternSetti
     directory: settings.weeklyNotes.directory,
     titlePattern: settings.weeklyNotes.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
     locale: settings.weeklyNotes.locale ?? DEFAULT_WEEKLY_NOTE_LOCALE
+  }
+}
+
+function currentMonthlyNotePattern(settings: VaultSettings): DateNotePatternSettings {
+  return {
+    directory: settings.monthlyNotes.directory,
+    titlePattern: settings.monthlyNotes.titlePattern ?? DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
+    locale: settings.monthlyNotes.locale ?? DEFAULT_MONTHLY_NOTE_LOCALE
   }
 }
 
@@ -1095,6 +1178,19 @@ function weeklyNotePatterns(settings: VaultSettings): DateNotePatternSettings[] 
   const seen = new Set([dateNotePatternKey(current)])
   const out = [current]
   for (const pattern of settings.weeklyNotes.legacyPatterns ?? []) {
+    const key = dateNotePatternKey(pattern)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(pattern)
+  }
+  return out
+}
+
+function monthlyNotePatterns(settings: VaultSettings): DateNotePatternSettings[] {
+  const current = currentMonthlyNotePattern(settings)
+  const seen = new Set([dateNotePatternKey(current)])
+  const out = [current]
+  for (const pattern of settings.monthlyNotes.legacyPatterns ?? []) {
     const key = dateNotePatternKey(pattern)
     if (seen.has(key)) continue
     seen.add(key)
@@ -1145,6 +1241,31 @@ function weeklyNoteLocationForPattern(
       pattern.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
       locale,
       patternParts
+    )
+  )
+  return { title, subpath }
+}
+
+function monthlyNoteLocationForPattern(
+  date: Date,
+  settings: VaultSettings,
+  pattern: DateNotePatternSettings
+): MonthlyNoteLocation {
+  // Anchor to the first of the month so the note represents the whole month and
+  // any day tokens (rare in a monthly pattern) render consistently as `01`.
+  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
+  const locale = pattern.locale ?? DEFAULT_MONTHLY_NOTE_LOCALE
+  const subpath = normalizePrimaryRelativeSubpath(
+    normalizeMonthlyNotesDirectory(
+      formatDirectoryPattern(firstOfMonth, pattern.directory, locale)
+    ),
+    settings
+  )
+  const title = normalizeMonthlyNoteTitlePattern(
+    formatDateNotePattern(
+      firstOfMonth,
+      pattern.titlePattern ?? DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
+      locale
     )
   )
   return { title, subpath }
@@ -1249,6 +1370,33 @@ function matchWeeklyPattern(
   return null
 }
 
+/** First-of-month of every month consistent with the extracted numerics. */
+function monthlyCandidateDates(n: DateNotePatternMatch): Date[] {
+  if (n.year === undefined) return []
+  const firstMonth = n.month !== undefined ? n.month - 1 : 0
+  const lastMonth = n.month !== undefined ? n.month - 1 : 11
+  const out: Date[] = []
+  for (let month = firstMonth; month <= lastMonth; month++) {
+    out.push(new Date(n.year, month, 1))
+  }
+  return out
+}
+
+function matchMonthlyPattern(
+  subpath: string,
+  title: string,
+  settings: VaultSettings,
+  pattern: DateNotePatternSettings
+): Date | null {
+  const numerics = patternNumerics(pattern, subpath, title, DEFAULT_MONTHLY_NOTE_TITLE_PATTERN)
+  if (!numerics) return null
+  for (const candidate of monthlyCandidateDates(numerics)) {
+    const expected = monthlyNoteLocationForPattern(candidate, settings, pattern)
+    if (expected.subpath === subpath && expected.title === title) return candidate
+  }
+  return null
+}
+
 /**
  * Classify a note as a daily or weekly note, or `null` if it is neither.
  * A note qualifies only when re-formatting its recovered date with the
@@ -1280,12 +1428,20 @@ export function classifyDateNote(
     }
   }
 
+  if (normalized.monthlyNotes.enabled) {
+    for (const pattern of monthlyNotePatterns(normalized)) {
+      const date = matchMonthlyPattern(subpath, note.title, normalized, pattern)
+      if (date) return { kind: 'monthly', date }
+    }
+  }
+
   return null
 }
 
 export interface DateNoteIndexes {
   dailyByDate: Map<string, NoteMeta>
   weeklyByWeek: Map<string, NoteMeta>
+  monthlyByMonth: Map<string, NoteMeta>
 }
 
 export function buildDateNoteIndexes(
@@ -1294,15 +1450,17 @@ export function buildDateNoteIndexes(
 ): DateNoteIndexes {
   const dailyByDate = new Map<string, NoteMeta>()
   const weeklyByWeek = new Map<string, NoteMeta>()
+  const monthlyByMonth = new Map<string, NoteMeta>()
 
   for (const note of notes) {
     const info = classifyDateNote(note, settings)
     if (!info) continue
     if (info.kind === 'daily') dailyByDate.set(noteTitleForDate(info.date), note)
-    else weeklyByWeek.set(weeklyNoteTitle(info.date), note)
+    else if (info.kind === 'weekly') weeklyByWeek.set(weeklyNoteTitle(info.date), note)
+    else monthlyByMonth.set(monthlyNoteTitle(info.date), note)
   }
 
-  return { dailyByDate, weeklyByWeek }
+  return { dailyByDate, weeklyByWeek, monthlyByMonth }
 }
 
 /**
@@ -1338,6 +1496,11 @@ export function dateNoteFolderMayBelongToDatePattern(
   }
   if (normalized.weeklyNotes.enabled) {
     for (const pattern of weeklyNotePatterns(normalized)) {
+      if (matchDirectoryPattern(pattern.directory, subpath)) return true
+    }
+  }
+  if (normalized.monthlyNotes.enabled) {
+    for (const pattern of monthlyNotePatterns(normalized)) {
       if (matchDirectoryPattern(pattern.directory, subpath)) return true
     }
   }
@@ -1387,6 +1550,30 @@ export function findWeeklyNoteForDate(
     notes.find((note) => {
       const info = classifyDateNote(note, normalized)
       return info?.kind === 'weekly' && weeklyNoteTitle(info.date) === weekKey
+    }) ??
+    null
+  )
+}
+
+export function findMonthlyNoteForDate(
+  notes: readonly NoteMeta[],
+  settings: VaultSettings | null | undefined,
+  date: Date
+): NoteMeta | null {
+  const expected = monthlyNoteLocationForDate(date, settings)
+  const normalized = normalizeVaultSettings(settings)
+  const monthKey = monthlyNoteTitle(date)
+  return (
+    notes.find(
+      (note) =>
+        note.folder === 'inbox' &&
+        note.title === expected.title &&
+        noteFolderSubpath(note, normalized) === expected.subpath &&
+        classifyDateNote(note, normalized)?.kind === 'monthly'
+    ) ??
+    notes.find((note) => {
+      const info = classifyDateNote(note, normalized)
+      return info?.kind === 'monthly' && monthlyNoteTitle(info.date) === monthKey
     }) ??
     null
   )

@@ -18,7 +18,13 @@ import {
 const MAX_RECENT = 5
 const MAX_TASKS = 6
 
-const NO_COLLAPSE = { today: false, upcoming: false, waiting: false, done: false }
+const NO_COLLAPSE = {
+  today: false,
+  upcoming: false,
+  waiting: false,
+  forwarded: false,
+  done: false
+}
 
 function greetingFor(date: Date): string {
   const h = date.getHours()

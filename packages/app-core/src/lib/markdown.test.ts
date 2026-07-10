@@ -102,3 +102,33 @@ describe('table column widths (#294)', () => {
     expect(html).not.toContain('zen-has-col-widths')
   })
 })
+
+describe('math with raw pipes inside tables (#319)', () => {
+  const cell = (formula: string): string =>
+    renderMarkdown(`| Formula | Note |\n| --- | --- |\n| ${formula} | x |\n`)
+
+  it('renders raw unescaped pipes in table math', () => {
+    // conditional probability, set-builder, absolute value
+    expect(cell('$P(A|B)$')).toContain('katex')
+    expect(cell('$\\{x | x > 0\\}$')).toContain('katex')
+    expect(cell('$|x|$')).toContain('katex')
+  })
+
+  it('still keeps simple and escaped-pipe table math working', () => {
+    expect(cell('$\\sum_{i=1}^n i$')).toContain('katex')
+    expect(cell('$P(A\\|B)$')).toContain('katex')
+  })
+
+  it('does not false-escape a currency row (leaves the cells split)', () => {
+    const html = renderMarkdown('| Item | Price |\n| --- | --- |\n| Widget $5 | $10 |\n')
+    expect(html).toMatch(/<td>\s*Widget \$5\s*<\/td>/)
+    expect(html).toMatch(/<td>\s*\$10\s*<\/td>/)
+    expect(html).not.toContain('katex')
+  })
+
+  it('does not touch math with a pipe OUTSIDE a table', () => {
+    const html = renderMarkdown('Norm is $|x|$ inline.')
+    expect(html).toContain('katex')
+    expect(html).not.toContain('\\|')
+  })
+})

@@ -540,6 +540,49 @@ function cacheRenderedMarkdown(src: string, html: string): void {
   }
 }
 
+/**
+ * GFM splits table cells on every `|`, including pipes inside inline math, so
+ * `| $P(A|B)$ |` is torn apart before remark-math ever sees it (#319). Escape a
+ * raw `|` when it falls inside an inline `$...$` span on a table row: GFM then
+ * treats it as a literal pipe and unescapes it back to `|` for the cell, so the
+ * math renders. Currency like `| $5 | $10 |` is left alone, because the span
+ * rule (no whitespace just inside the `$` delimiters) never matches it.
+ */
+function escapeTableMathPipes(src: string): string {
+  if (!src.includes('|') || !src.includes('$')) return src
+  const lines = src.split('\n')
+  // A GFM delimiter row: only spaces, pipes, colons, dashes, with a pipe and a
+  // dash. The line above it (the header) must also look like a table row.
+  const delimiter = /^[\s|:-]*-[\s|:-]*$/
+  const isTableRow = new Array<boolean>(lines.length).fill(false)
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].includes('|') && delimiter.test(lines[i]) && lines[i - 1].includes('|')) {
+      isTableRow[i - 1] = true
+      isTableRow[i] = true
+      for (
+        let j = i + 1;
+        j < lines.length && lines[j].trim() !== '' && lines[j].includes('|');
+        j++
+      ) {
+        isTableRow[j] = true
+      }
+    }
+  }
+  // Inline math: opening `$` not escaped and not followed by space; closing `$`
+  // not preceded by space. Mirrors remark-math so currency is not matched.
+  const mathSpan = /(?<!\\)\$(?!\s)((?:\\.|[^$\\])+?)(?<!\s)\$/g
+  let changed = false
+  const out = lines.map((line, i) => {
+    if (!isTableRow[i] || !line.includes('$') || !line.includes('|')) return line
+    return line.replace(mathSpan, (whole, inner: string) => {
+      if (!inner.includes('|')) return whole
+      changed = true
+      return `$${inner.replace(/(?<!\\)\|/g, '\\|')}$`
+    })
+  })
+  return changed ? out.join('\n') : src
+}
+
 export function renderMarkdown(src: string): string {
   const cached = getCachedMarkdown(src)
   if (cached != null) {
@@ -549,7 +592,7 @@ export function renderMarkdown(src: string): string {
 
   const startedAt = performance.now()
   try {
-    const html = sanitizeRenderedHtml(String(processor.processSync(src)))
+    const html = sanitizeRenderedHtml(String(processor.processSync(escapeTableMathPipes(src))))
     cacheRenderedMarkdown(src, html)
     recordRendererPerf('markdown.render', performance.now() - startedAt, {
       chars: src.length

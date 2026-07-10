@@ -6,7 +6,10 @@ import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTE_LOCALE,
   DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
-  DEFAULT_WEEKLY_NOTES_DIRECTORY
+  DEFAULT_WEEKLY_NOTES_DIRECTORY,
+  DEFAULT_MONTHLY_NOTE_LOCALE,
+  DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
+  DEFAULT_MONTHLY_NOTES_DIRECTORY
 } from '@shared/ipc'
 import type {
   AppUpdateState,
@@ -62,7 +65,10 @@ import {
   normalizeDailyNoteTitlePattern,
   normalizeWeeklyNoteLocale,
   normalizeWeeklyNoteTitlePattern,
-  normalizeWeeklyNotesDirectory
+  normalizeWeeklyNotesDirectory,
+  normalizeMonthlyNoteLocale,
+  normalizeMonthlyNoteTitlePattern,
+  normalizeMonthlyNotesDirectory
 } from '../lib/vault-layout'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
@@ -89,6 +95,7 @@ import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palet
 type SettingsCategoryId =
   | 'appearance'
   | 'editor'
+  | 'tasks'
   | 'keymaps'
   | 'typography'
   | 'code'
@@ -167,6 +174,13 @@ const SETTINGS_CATEGORY_ICONS: Record<SettingsCategoryId, JSX.Element> = {
       <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
     </NavIcon>
   ),
+  tasks: (
+    <NavIcon>
+      <rect x="3" y="4" width="5" height="16" rx="1" />
+      <rect x="10" y="4" width="5" height="10" rx="1" />
+      <rect x="17" y="4" width="4" height="13" rx="1" />
+    </NavIcon>
+  ),
   vault: (
     <NavIcon>
       <path d="M12 3 3 7v10l9 4 9-4V7Z" />
@@ -211,7 +225,7 @@ const SETTINGS_CATEGORY_ICONS: Record<SettingsCategoryId, JSX.Element> = {
 
 const SETTINGS_SECTIONS: { id: SettingsSectionId; title: string; categoryIds: SettingsCategoryId[] }[] = [
   { id: 'look', title: 'Look & feel', categoryIds: ['appearance', 'typography', 'icons'] },
-  { id: 'editing', title: 'Editing', categoryIds: ['editor', 'keymaps', 'code'] },
+  { id: 'editing', title: 'Editing', categoryIds: ['editor', 'tasks', 'keymaps', 'code'] },
   { id: 'vault', title: 'Vault', categoryIds: ['vault', 'templates'] },
   { id: 'system', title: 'System', categoryIds: ['mcp', 'cli', 'about'] }
 ]
@@ -355,6 +369,7 @@ export function SettingsModal(): JSX.Element {
   const supportsRemoteWorkspace =
     appInfo.runtime === 'desktop' && zenBridge.getCapabilities().supportsRemoteWorkspace
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const openHelpView = useStore((s) => s.openHelpView)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
@@ -424,6 +439,7 @@ export function SettingsModal(): JSX.Element {
   const deleteRemoteWorkspaceProfile = useStore((s) => s.deleteRemoteWorkspaceProfile)
   const openTodayDailyNote = useStore((s) => s.openTodayDailyNote)
   const openThisWeekWeeklyNote = useStore((s) => s.openThisWeekWeeklyNote)
+  const openThisMonthMonthlyNote = useStore((s) => s.openThisMonthMonthlyNote)
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
   const setAutoCalendarPanel = useStore((s) => s.setAutoCalendarPanel)
   const calendarWeekStart = useStore((s) => s.calendarWeekStart)
@@ -515,6 +531,8 @@ export function SettingsModal(): JSX.Element {
   const setEditorFontSize = useStore((s) => s.setEditorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const setEditorLineHeight = useStore((s) => s.setEditorLineHeight)
+  const editorScrollOff = useStore((s) => s.editorScrollOff)
+  const setEditorScrollOff = useStore((s) => s.setEditorScrollOff)
   const previewMaxWidth = useStore((s) => s.previewMaxWidth)
   const setPreviewMaxWidth = useStore((s) => s.setPreviewMaxWidth)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
@@ -1971,6 +1989,51 @@ export function SettingsModal(): JSX.Element {
       ]
     },
     {
+      id: 'tasks',
+      title: 'Tasks',
+      description: 'Kanban columns and workflow for the vault-wide Tasks view.',
+      keywords: ['kanban', 'status', 'board', 'columns', 'tasks', 'workflow', 'sprint', 'area'],
+      searchItems: [
+        {
+          id: 'kanban-statuses',
+          title: 'Custom Kanban statuses',
+          description:
+            'Add, rename, reorder, and remove the columns for the Tasks Kanban Custom status board.',
+          keywords: [
+            'kanban',
+            'status',
+            'column',
+            'board',
+            'backlog',
+            'in progress',
+            'review',
+            'done',
+            'workflow'
+          ]
+        }
+      ],
+      content: (
+        <div className="space-y-6">
+          <Section
+            title="Kanban statuses"
+            description="Set up the columns for the Tasks Kanban Custom status board. Other @field boards (sprint, area, …) appear automatically as you tag tasks — no setup needed."
+          >
+            <KanbanStatusesRow settingId="kanban-statuses" />
+          </Section>
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen(false)
+              void openHelpView()
+            }}
+            className="inline-flex items-center gap-1 px-1 text-xs font-medium text-accent hover:underline"
+          >
+            Learn how the Tasks Kanban and custom fields work →
+          </button>
+        </div>
+      )
+    },
+    {
       id: 'keymaps',
       title: 'Keymap',
       description: 'Remap global shortcuts, Vim bindings, and view navigation.',
@@ -2029,6 +2092,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Line height',
           description: 'Editor and preview line spacing.',
           keywords: ['spacing']
+        },
+        {
+          id: 'scroll-off',
+          title: 'Scroll offset',
+          description: 'Vim scrolloff — lines kept above and below the cursor.',
+          keywords: ['scroll', 'scrolloff', 'vim', 'cursor', 'margin']
         },
         {
           id: 'reading-width',
@@ -2118,6 +2187,17 @@ export function SettingsModal(): JSX.Element {
               settingId="line-height"
               onChange={setEditorLineHeight}
               format={(v) => v.toFixed(2)}
+            />
+            <SliderRow
+              label="Scroll offset"
+              description="Vim scrolloff — lines kept above and below the cursor while scrolling. 0 disables it."
+              value={editorScrollOff}
+              min={0}
+              max={20}
+              step={1}
+              unit=" lines"
+              settingId="scroll-off"
+              onChange={setEditorScrollOff}
             />
             <SliderRow
               label="Reading width"
@@ -2424,6 +2504,54 @@ export function SettingsModal(): JSX.Element {
           title: 'Weekly note template',
           description: 'Template applied when a weekly note is created.',
           keywords: ['weekly notes', 'template']
+        },
+        {
+          id: 'enable-monthly-notes',
+          title: 'Enable monthly notes',
+          description: 'Adds a dedicated monthly-notes workflow alongside daily and weekly notes.',
+          keywords: ['monthly notes']
+        },
+        {
+          id: 'monthly-notes-directory',
+          title: 'Monthly notes directory pattern',
+          description: 'Stored inside your primary notes area.',
+          keywords: ['monthly notes', 'directory', 'folder', 'pattern', 'date', 'month']
+        },
+        {
+          id: 'monthly-note-title-pattern',
+          title: 'Monthly note naming pattern',
+          description: 'Used as the monthly note title and filename.',
+          keywords: ['monthly notes', 'title', 'filename', 'pattern', 'date', 'month']
+        },
+        {
+          id: 'monthly-note-locale',
+          title: 'Monthly note locale',
+          description: 'Used for localized month names in monthly note patterns.',
+          keywords: ['monthly notes', 'locale', 'month', 'pattern']
+        },
+        {
+          id: 'monthly-note-pattern-support',
+          title: 'Supported monthly note pattern tokens',
+          description: 'Reference for supported date tokens, quoted literals, and example outputs.',
+          keywords: ['monthly notes', 'pattern', 'tokens', 'format', 'yyyy', 'mm', 'month']
+        },
+        {
+          id: 'monthly-note-pattern-reset',
+          title: 'Reset monthly note patterns to defaults',
+          description: 'Restore the monthly directory, naming, and locale patterns to their defaults.',
+          keywords: ['monthly notes', 'reset', 'default', 'defaults', 'restore', 'pattern']
+        },
+        {
+          id: 'monthly-notes-template',
+          title: 'Monthly note template',
+          description: 'Template applied when a monthly note is created.',
+          keywords: ['monthly notes', 'template']
+        },
+        {
+          id: 'open-this-month-note',
+          title: "Open this month's note",
+          description: "Opens this month's note if it exists, otherwise creates it.",
+          keywords: ['monthly notes', 'this month']
         },
         {
           id: 'open-this-week-note',
@@ -3049,6 +3177,139 @@ export function SettingsModal(): JSX.Element {
               settingId="calendar-week-numbers"
               onChange={setCalendarShowWeekNumbers}
             />
+          </Section>
+
+          <Section
+            title="Monthly Notes"
+            description="Create one note per calendar month with a configurable title and keep it in a dedicated directory."
+          >
+            <ToggleRow
+              label="Enable monthly notes"
+              description="Adds a dedicated monthly-notes workflow alongside daily and weekly notes."
+              value={vaultSettings.monthlyNotes.enabled}
+              settingId="enable-monthly-notes"
+              onChange={(enabled) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: {
+                    ...vaultSettings.monthlyNotes,
+                    enabled
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Monthly notes directory pattern"
+              description="Stored inside your primary notes area. The default is `Monthly Notes`."
+              value={vaultSettings.monthlyNotes.directory}
+              placeholder={DEFAULT_MONTHLY_NOTES_DIRECTORY}
+              settingId="monthly-notes-directory"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: {
+                    ...vaultSettings.monthlyNotes,
+                    directory: normalizeMonthlyNotesDirectory(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Monthly note naming pattern"
+              description="Used as the monthly note title and filename. The default is `yyyy-MM`."
+              value={vaultSettings.monthlyNotes.titlePattern ?? DEFAULT_MONTHLY_NOTE_TITLE_PATTERN}
+              placeholder={DEFAULT_MONTHLY_NOTE_TITLE_PATTERN}
+              settingId="monthly-note-title-pattern"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: {
+                    ...vaultSettings.monthlyNotes,
+                    titlePattern: normalizeMonthlyNoteTitlePattern(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Monthly note locale"
+              description="Used for localized month names. Use `system`, `en-US`, or `pt-BR`."
+              value={vaultSettings.monthlyNotes.locale ?? DEFAULT_MONTHLY_NOTE_LOCALE}
+              placeholder={DEFAULT_MONTHLY_NOTE_LOCALE}
+              settingId="monthly-note-locale"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: {
+                    ...vaultSettings.monthlyNotes,
+                    locale: normalizeMonthlyNoteLocale(next)
+                  }
+                })
+              }
+            />
+            <DateNotePatternResetRow
+              kind="monthly"
+              settingId="monthly-note-pattern-reset"
+              isDefault={
+                vaultSettings.monthlyNotes.directory === DEFAULT_MONTHLY_NOTES_DIRECTORY &&
+                (vaultSettings.monthlyNotes.titlePattern ?? DEFAULT_MONTHLY_NOTE_TITLE_PATTERN) ===
+                  DEFAULT_MONTHLY_NOTE_TITLE_PATTERN &&
+                (vaultSettings.monthlyNotes.locale ?? DEFAULT_MONTHLY_NOTE_LOCALE) ===
+                  DEFAULT_MONTHLY_NOTE_LOCALE
+              }
+              onReset={() =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: {
+                    ...vaultSettings.monthlyNotes,
+                    directory: DEFAULT_MONTHLY_NOTES_DIRECTORY,
+                    titlePattern: DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
+                    locale: DEFAULT_MONTHLY_NOTE_LOCALE
+                  }
+                })
+              }
+            />
+            <DateNotePatternSupportRow kind="monthly" settingId="monthly-note-pattern-support" />
+            <TemplateSelectRow
+              label="Monthly note template"
+              description="Applied when a monthly note is created. None creates a blank note."
+              value={vaultSettings.monthlyNotes.templateId}
+              templates={allTemplates}
+              settingId="monthly-notes-template"
+              onChange={(templateId) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  monthlyNotes: { ...vaultSettings.monthlyNotes, templateId }
+                })
+              }
+            />
+            <div
+              className="flex items-center justify-between gap-4 px-5 py-4"
+              {...settingsSearchTargetProps('open-this-month-note')}
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-900">Open this month's note</div>
+                <div className="mt-1 text-xs leading-5 text-ink-500">
+                  Opens this month's note if it exists, otherwise creates it with the configured
+                  monthly title pattern.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={!vaultSettings.monthlyNotes.enabled}
+                onClick={() => void openThisMonthMonthlyNote()}
+                className={[
+                  'shrink-0 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
+                  vaultSettings.monthlyNotes.enabled
+                    ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
+                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
+                ].join(' ')}
+              >
+                Open this month
+              </button>
+            </div>
           </Section>
         </div>
           )
@@ -5229,7 +5490,7 @@ function DateNotePatternSupportRow({
   kind,
   settingId
 }: {
-  kind: 'daily' | 'weekly'
+  kind: 'daily' | 'weekly' | 'monthly'
   settingId?: string
 }): JSX.Element {
   const example =
@@ -5238,6 +5499,12 @@ function DateNotePatternSupportRow({
         <code className="font-mono text-ink-700">yyyy/MM-MMM</code> +{' '}
         <code className="font-mono text-ink-700">yyyy-MM-dd-EEE</code> creates{' '}
         <code className="font-mono text-ink-700">2026/06-Jun/2026-06-09-Tue.md</code>.
+      </>
+    ) : kind === 'monthly' ? (
+      <>
+        <code className="font-mono text-ink-700">yyyy</code> +{' '}
+        <code className="font-mono text-ink-700">yyyy-MM</code> creates{' '}
+        <code className="font-mono text-ink-700">2026/2026-06.md</code>.
       </>
     ) : (
       <>
@@ -5285,16 +5552,29 @@ function DateNotePatternResetRow({
   onReset,
   settingId
 }: {
-  kind: 'daily' | 'weekly'
+  kind: 'daily' | 'weekly' | 'monthly'
   isDefault: boolean
   onReset: () => void
   settingId?: string
 }): JSX.Element {
   const directory =
-    kind === 'daily' ? DEFAULT_DAILY_NOTES_DIRECTORY : DEFAULT_WEEKLY_NOTES_DIRECTORY
+    kind === 'daily'
+      ? DEFAULT_DAILY_NOTES_DIRECTORY
+      : kind === 'monthly'
+        ? DEFAULT_MONTHLY_NOTES_DIRECTORY
+        : DEFAULT_WEEKLY_NOTES_DIRECTORY
   const naming =
-    kind === 'daily' ? DEFAULT_DAILY_NOTE_TITLE_PATTERN : DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
-  const locale = kind === 'daily' ? DEFAULT_DAILY_NOTE_LOCALE : DEFAULT_WEEKLY_NOTE_LOCALE
+    kind === 'daily'
+      ? DEFAULT_DAILY_NOTE_TITLE_PATTERN
+      : kind === 'monthly'
+        ? DEFAULT_MONTHLY_NOTE_TITLE_PATTERN
+        : DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
+  const locale =
+    kind === 'daily'
+      ? DEFAULT_DAILY_NOTE_LOCALE
+      : kind === 'monthly'
+        ? DEFAULT_MONTHLY_NOTE_LOCALE
+        : DEFAULT_WEEKLY_NOTE_LOCALE
   return (
     <div
       className="flex items-center justify-between gap-4 px-5 py-4"
@@ -6146,6 +6426,143 @@ function ToggleRow({
         />
       </button>
     </label>
+  )
+}
+
+/** Slugify a human status name into the id stored in `kanban_statuses` and the
+ *  `@status:<id>` token (lower-case, non-alphanumerics to underscores). */
+function slugifyStatus(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\d]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32)
+}
+
+/** Settings editor for the custom-status Kanban columns. Add, rename, reorder,
+ *  and remove columns without touching config.toml by hand; changes are written
+ *  straight back to the config file (and the per-vault view override). (#354) */
+function KanbanStatusesRow({ settingId }: { settingId?: string }): JSX.Element {
+  const statuses = useStore((s) => s.kanbanStatuses)
+  const setKanbanStatuses = useStore((s) => s.setKanbanStatuses)
+  const [rows, setRows] = useState<string[]>(statuses)
+  const [draft, setDraft] = useState('')
+  useEffect(() => {
+    setRows(statuses)
+  }, [statuses])
+
+  const commit = (next: string[]): void => {
+    const cleaned: string[] = []
+    for (const raw of next) {
+      const id = slugifyStatus(raw)
+      if (id && !cleaned.includes(id)) cleaned.push(id)
+    }
+    setRows(cleaned)
+    setKanbanStatuses(cleaned)
+  }
+  const addDraft = (): void => {
+    const id = slugifyStatus(draft)
+    if (!id) return
+    setDraft('')
+    commit([...rows, id])
+  }
+  const removeAt = (i: number): void => commit(rows.filter((_, k) => k !== i))
+  const moveAt = (i: number, dir: -1 | 1): void => {
+    const j = i + dir
+    if (j < 0 || j >= rows.length) return
+    const next = [...rows]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    commit(next)
+  }
+
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Custom Kanban statuses</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        The columns for the Tasks Kanban “Custom status” board, in order. Saved to your config
+        file. Move a task by dragging its card, or focus it and press Shift+H / Shift+L; you never
+        have to type the tokens by hand.
+      </div>
+      <div className="mt-3 space-y-2">
+        {rows.length === 0 && (
+          <div className="rounded-md border border-dashed border-paper-300 px-3 py-2 text-xs text-ink-500">
+            No statuses yet. Add your first column below (for example Backlog, In progress, Review,
+            Done).
+          </div>
+        )}
+        {rows.map((id, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              value={rows[i]}
+              onChange={(e) => {
+                const next = [...rows]
+                next[i] = e.target.value
+                setRows(next)
+              }}
+              onBlur={() => commit(rows)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commit(rows)
+                }
+              }}
+              aria-label={`Status ${i + 1}`}
+              className="min-w-0 flex-1 rounded-md border border-paper-300 bg-paper-100 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent/60"
+            />
+            <button
+              type="button"
+              onClick={() => moveAt(i, -1)}
+              disabled={i === 0}
+              aria-label="Move up"
+              className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-paper-200 disabled:opacity-40"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={() => moveAt(i, 1)}
+              disabled={i === rows.length - 1}
+              aria-label="Move down"
+              className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-paper-200 disabled:opacity-40"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              onClick={() => removeAt(i)}
+              aria-label="Remove status"
+              className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-rose-500/15 hover:text-rose-400"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              addDraft()
+            }
+          }}
+          placeholder="New status, e.g. In progress"
+          aria-label="New status name"
+          data-kanban-status-input=""
+          className="min-w-0 flex-1 rounded-md border border-paper-300 bg-paper-100 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent/60"
+        />
+        <button
+          type="button"
+          onClick={addDraft}
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+        >
+          Add status
+        </button>
+      </div>
+    </div>
   )
 }
 

@@ -14,6 +14,7 @@ import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
 import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
+import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
@@ -131,6 +132,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: leaderShortcut('vim.leaderWeeklyNote'),
       when: () => getState().vaultSettings.weeklyNotes.enabled,
       run: () => getState().openThisWeekWeeklyNote()
+    },
+    {
+      id: 'note.monthly.thisMonth',
+      title: "Open This Month's Note",
+      category: 'Note',
+      keywords: 'monthly month review reflection date log',
+      shortcut: leaderShortcut('vim.leaderMonthlyNote'),
+      when: () => getState().vaultSettings.monthlyNotes.enabled,
+      run: () => getState().openThisMonthMonthlyNote()
     },
     {
       id: 'template.create',
@@ -779,6 +789,26 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'expand unfold all every reset',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => runFoldCommand('unfoldAll')
+    },
+    {
+      id: 'task.forward',
+      title: 'Forward Task to Note…',
+      category: 'Editor',
+      keywords: 'forward task move migrate rollover bullet journal due',
+      when: () => {
+        const view = getState().editorViewRef
+        return !!view && !!getState().activeNote && !!taskAtEditorCursor(view)
+      },
+      run: async () => {
+        const view = getState().editorViewRef
+        if (!view) return
+        const task = taskAtEditorCursor(view)
+        if (!task) {
+          window.alert('Put the cursor on a task line to forward it.')
+          return
+        }
+        await forwardTaskWithPicker(task)
+      }
     },
     {
       id: 'nav.back',

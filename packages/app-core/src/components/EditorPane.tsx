@@ -52,9 +52,16 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
-import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
-import { setYankToClipboardEnabled } from '../lib/cm-vim-clipboard'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { scrollOff } from '../lib/cm-scrolloff'
+import { offerCreateNoteFromLink } from '../lib/create-note-from-link'
+import {
+  setYankToClipboardEnabled,
+  setPasteFromClipboardEnabled,
+  vimClipboardPasteExtension,
+} from '../lib/cm-vim-clipboard'
 import { wireYankHighlight, yankHighlightExtension } from '../lib/cm-yank-highlight'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
@@ -85,7 +92,7 @@ import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { iconDirectiveSource } from '../lib/cm-icon-complete'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
-import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
+import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
 import { DynamicIcon } from './DynamicIcon'
 import { buildCustomIconIndex, resolveNoteIconRef } from '../lib/icon-resolve'
 import { resolveWikilinkTarget, wikilinkHeadingAnchor } from '../lib/wikilinks'
@@ -302,10 +309,12 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
 
 function markdownEditingExtensions(): Extension[] {
   return [
-    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
+    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+    vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
     frontmatterStyle,
     orderedListRenumber,
+    forwardOnCheckboxArrow,
     headingFolding(),
     codeBlockFontPlugin,
     linkIconsPlugin,
@@ -682,8 +691,13 @@ function followEditorLink(target: string): boolean {
     focusSoon()
     return true
   }
-  return false
+  // Dead link — don't leave it a silent dead end. Offer to create the note (with
+  // a confirmation), matching the `gd` follow-link path. (Discord: dead links)
+  void offerCreateNoteFromLink(target)
+  return true
 }
+
+const EMPTY_PANE_MODES: PaneModesByPath = {}
 
 export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const paneId = pane.id
@@ -760,6 +774,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
+  const editorScrollOff = useStore((s) => s.editorScrollOff)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
@@ -778,7 +793,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
   const historyPreview = useStore((s) => s.historyPreview)
 
-  const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
+  const modesByPath = useStore((s) => s.paneModes[paneId]) ?? EMPTY_PANE_MODES
+  const setPaneModeForPath = useStore((s) => s.setPaneModeForPath)
   const mode = paneModeForPath(modesByPath, activeTab)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -853,6 +869,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
+  const scrolloffCompartmentRef = useRef<Compartment | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
   const historyCompartmentRef = useRef<Compartment | null>(null)
@@ -936,10 +953,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [isActive, toggleConnectionsPanel])
 
   // Mirror `set clipboard=unnamed`: when enabled, Vim yank/delete/change also
-  // copy to the system clipboard. The patch is global, so any pane can drive it.
-  // Also install the highlight-on-yank handler (idempotent). (#144)
+  // copy to the system clipboard, and `p` / `P` paste from it. The patch is
+  // global, so any pane can drive it. Also install the highlight-on-yank
+  // handler (idempotent). (#144, #357)
   useEffect(() => {
     setYankToClipboardEnabled(vimYankToClipboard)
+    setPasteFromClipboardEnabled(vimYankToClipboard)
     wireYankHighlight()
   }, [vimYankToClipboard])
 
@@ -991,7 +1010,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
-    setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
+    setPaneModeForPath(paneId, activeTab, nextMode)
     setActivePane(paneId)
     setFocusedPanel('editor')
     requestAnimationFrame(() => {
@@ -1001,7 +1020,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       focusEditorNormalMode()
     })
-  }, [activeTab, paneId, setActivePane, setFocusedPanel])
+  }, [activeTab, paneId, setPaneModeForPath, setActivePane, setFocusedPanel])
 
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
@@ -1534,6 +1553,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const livePreviewCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
+      const scrolloffCompartment = new Compartment()
       const historyCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
@@ -1542,6 +1562,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       livePreviewCompartmentRef.current = livePreviewCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       wordWrapCompartmentRef.current = wordWrapCompartment
+      scrolloffCompartmentRef.current = scrolloffCompartment
       historyCompartmentRef.current = historyCompartment
       const s0 = useStore.getState()
       const initialPath = findLeaf(s0.paneLayout, paneId)?.activeTab ?? null
@@ -1561,9 +1582,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           highlightActiveLine(),
           taskJumpHighlightField,
           yankHighlightExtension,
+          vimClipboardPasteExtension,
           commentDecorationField,
           flashJump(),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
+          scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
           markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
           markdownSyntaxCompartment.of(
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
@@ -1580,6 +1603,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               slashCommandSource,
               iconDirectiveSource,
               dateShortcutSource,
+              atNoteSource,
               wikilinkSource,
               wikilinkHeadingSource
             ],
@@ -1963,6 +1987,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       effects: comp.reconfigure(wordWrap ? EditorView.lineWrapping : [])
     })
   }, [wordWrap])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = scrolloffCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({ effects: comp.reconfigure(scrollOff(editorScrollOff)) })
+  }, [editorScrollOff])
 
   // Re-measure CM on prefs that change line geometry.
   useEffect(() => {

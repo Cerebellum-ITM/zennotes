@@ -72,6 +72,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.leaderInsertTemplate", group: "vim", defaultBinding: "i", title: "Leader: insert template into note" },
   { id: "vim.leaderDailyNote", group: "vim", defaultBinding: "d", title: "Leader: today's daily note" },
   { id: "vim.leaderWeeklyNote", group: "vim", defaultBinding: "w", title: "Leader: this week's note" },
+  { id: "vim.leaderMonthlyNote", group: "vim", defaultBinding: "m", title: "Leader: this month's note" },
   { id: "vim.leaderCalendar", group: "vim", defaultBinding: "c", title: "Leader: toggle calendar" },
   { id: "vim.panePrefix", group: "vim", defaultBinding: "Ctrl+W", title: "Pane command prefix" },
   { id: "vim.paneFocusLeft", group: "vim", defaultBinding: "h", title: "Pane: focus left" },

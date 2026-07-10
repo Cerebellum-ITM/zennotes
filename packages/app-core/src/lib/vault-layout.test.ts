@@ -18,7 +18,8 @@ import {
   rewriteFavoriteNotePath,
   rewriteFavoritesForFolderRename,
   toggleFavorite,
-  weeklyNoteLocationForDate
+  weeklyNoteLocationForDate,
+  monthlyNoteLocationForDate
 } from './vault-layout'
 
 function note(path: string, title: string): NoteMeta {
@@ -43,6 +44,7 @@ function settings(dailyDirectory: string, weeklyDirectory: string): VaultSetting
     primaryNotesLocation: 'inbox',
     dailyNotes: { enabled: true, directory: dailyDirectory },
     weeklyNotes: { enabled: true, directory: weeklyDirectory },
+    monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
     folderIcons: {},
     folderColors: {},
     favorites: [],
@@ -83,6 +85,7 @@ describe('classifyDateNote', () => {
           titlePattern: "yyyy-'W'ww-EEE",
           locale: 'en-US'
         },
+        monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
         folderIcons: {},
         folderColors: {},
         favorites: [],
@@ -106,6 +109,7 @@ describe('classifyDateNote', () => {
           locale: 'en-US'
         },
         weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+        monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
         folderIcons: {},
         folderColors: {},
         favorites: [],
@@ -142,6 +146,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -164,6 +169,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -194,6 +200,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -216,6 +223,7 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww-EEE",
         locale: 'en-US'
       },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -228,6 +236,70 @@ describe('classifyDateNote', () => {
     })
   })
 
+  it('renders monthly note locations anchored to the first of the month', () => {
+    const location = monthlyNoteLocationForDate(new Date(2026, 6, 21), {
+      primaryNotesLocation: 'inbox',
+      dailyNotes: { enabled: false, directory: 'Daily Notes' },
+      weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: {
+        enabled: true,
+        directory: 'Monthly Notes',
+        titlePattern: 'yyyy-MM',
+        locale: 'en-US'
+      },
+      folderIcons: {},
+      folderColors: {},
+      favorites: [],
+      enabledHistoryPaths: []
+    } as VaultSettings)
+
+    expect(location).toEqual({ subpath: 'Monthly Notes', title: '2026-07' })
+  })
+
+  it('renders monthly note locations from date-based directory and title patterns', () => {
+    const location = monthlyNoteLocationForDate(new Date(2026, 6, 21), {
+      primaryNotesLocation: 'inbox',
+      dailyNotes: { enabled: false, directory: 'Daily Notes' },
+      weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: {
+        enabled: true,
+        directory: 'yyyy/MM-MMM',
+        titlePattern: "yyyy-'M'MM",
+        locale: 'en-US'
+      },
+      folderIcons: {},
+      folderColors: {},
+      favorites: [],
+      enabledHistoryPaths: []
+    } as VaultSettings)
+
+    expect(location).toEqual({ subpath: '2026/07-Jul', title: '2026-M07' })
+  })
+
+  it('classifies a monthly note by its month pattern and only inside its folder', () => {
+    const settings = {
+      primaryNotesLocation: 'inbox',
+      dailyNotes: { enabled: false, directory: 'Daily Notes' },
+      weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: {
+        enabled: true,
+        directory: 'Monthly Notes',
+        titlePattern: 'yyyy-MM',
+        locale: 'system'
+      },
+      folderIcons: {},
+      folderColors: {},
+      favorites: [],
+      enabledHistoryPaths: []
+    } as VaultSettings
+
+    const info = classifyDateNote(note('inbox/Monthly Notes/2026-07.md', '2026-07'), settings)
+    expect(info).toMatchObject({ kind: 'monthly' })
+    expect(info?.date).toEqual(new Date(2026, 6, 1))
+
+    expect(classifyDateNote(note('inbox/Random/2026-07.md', '2026-07'), settings)).toBeNull()
+  })
+
   it('uses the ISO week-year for weekly pattern years', () => {
     const location = weeklyNoteLocationForDate(new Date(2021, 0, 1), {
       primaryNotesLocation: 'inbox',
@@ -238,6 +310,7 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -260,6 +333,7 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -282,6 +356,7 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -311,6 +386,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -336,6 +412,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -358,6 +435,7 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -386,6 +464,7 @@ describe('classifyDateNote', () => {
         ]
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -414,6 +493,7 @@ describe('classifyDateNote', () => {
           { directory: 'Weekly Notes', titlePattern: "yyyy-'W'ww", locale: 'en-US' }
         ]
       },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
@@ -458,6 +538,7 @@ describe('dateNoteFolderMayBelongToDatePattern', () => {
         ]
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+      monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
       folderIcons: {},
       folderColors: {},
       favorites: [],
