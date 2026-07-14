@@ -18,6 +18,15 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('javascript:alert(1)')
   })
 
+  it('stamps top-level blocks with data-source-line for split-view scroll sync', () => {
+    // Lines: 1 `# Heading`, 3 `First para.`, 5 `- a`, 8 `Last para.`
+    const html = renderMarkdown('# Heading\n\nFirst para.\n\n- a\n- b\n\nLast para.')
+    expect(html).toContain('data-source-line="1"')
+    expect(html).toContain('data-source-line="3"')
+    expect(html).toContain('data-source-line="5"')
+    expect(html).toContain('data-source-line="8"')
+  })
+
   it('preserves GFM table column alignment through render + sanitize', () => {
     const html = renderMarkdown(
       ['| L | C | R |', '|:--|:-:|--:|', '| 1 | 2 | 3 |'].join('\n')
@@ -64,6 +73,29 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<img')
     expect(html).toContain('src="CleanShot%202026-04-13%20at%2014.31.31@2x.png"')
     expect(html).toContain('alt="CleanShot 2026-04-13 at 14.31.31@2x.png"')
+  })
+
+  it('renders excalidraw embeds as placeholder divs', () => {
+    const html = renderMarkdown('![[diagram.excalidraw]]')
+
+    expect(html).toContain('data-excalidraw-embed="diagram.excalidraw"')
+    expect(html).toContain('class="excalidraw-embed-host"')
+    expect(html).not.toContain('<img')
+  })
+
+  it('parses size hints on excalidraw embeds', () => {
+    const html = renderMarkdown('![[diagram.excalidraw|600x400]]')
+
+    expect(html).toContain('data-excalidraw-embed="diagram.excalidraw"')
+    expect(html).toContain('data-embed-width="600"')
+    expect(html).toContain('data-embed-height="400"')
+  })
+
+  it('renders excalidraw embeds without size hint when label is the target', () => {
+    const html = renderMarkdown('![[diagram.excalidraw]]')
+
+    expect(html).not.toContain('data-embed-width')
+    expect(html).not.toContain('data-embed-height')
   })
 
   it('renders ==text== as <mark> (and survives the sanitizer)', () => {
@@ -130,5 +162,44 @@ describe('math with raw pipes inside tables (#319)', () => {
     const html = renderMarkdown('Norm is $|x|$ inline.')
     expect(html).toContain('katex')
     expect(html).not.toContain('\\|')
+  })
+})
+
+describe('currency vs inline math (reading view matches the editor)', () => {
+  it('leaves a currency line literal instead of rendering it as math', () => {
+    const html = renderMarkdown('I paid $5 and got $10 back.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$5 and got $10 back.')
+  })
+
+  it('handles several currency amounts on one line', () => {
+    const html = renderMarkdown('Prices: $5, $10, and $20 total.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$5,')
+    expect(html).toContain('$20 total.')
+  })
+
+  it('reverts a padded span the editor would reject ($ x $)', () => {
+    // Leading/trailing space just inside the `$` means it is not math to the
+    // editor; remark-math strips the padding and would render it, so guard it.
+    const html = renderMarkdown('Range $ 5 $ here.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$ 5 $')
+  })
+
+  it('still renders genuine inline math', () => {
+    expect(renderMarkdown('Euler: $e^{i\\pi}+1=0$ is elegant.')).toContain('katex')
+    expect(renderMarkdown('Norm $|x|$ and sum $\\sum_{i=1}^n i$.')).toContain('katex')
+  })
+
+  it('keeps inline math sitting next to a lone currency amount', () => {
+    // `$x$` is math; the trailing `$5.` has no closing `$`, so it stays text.
+    const html = renderMarkdown('The value $x$ costs $5.')
+    expect(html).toContain('katex')
+    expect(html).toContain('$5.')
+  })
+
+  it('still renders block math', () => {
+    expect(renderMarkdown('$$\n\\int_0^1 x\\,dx\n$$')).toContain('katex')
   })
 })

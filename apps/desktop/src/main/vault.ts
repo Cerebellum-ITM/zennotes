@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import { app } from 'electron'
 import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
+import { isEphemeralRoot } from './ephemeral-vaults'
 import {
   resolveWikilinkTarget,
   rewriteWikilinksForRename,
@@ -33,6 +34,7 @@ import {
   type PrimaryNotesLocation,
   type VaultSettings,
   type VaultViewSettings,
+  type FileLocationSetting,
   FolderEntry,
   ImportedAsset,
   ImportedAssetKind,
@@ -930,7 +932,13 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     favorites: [...settings.favorites],
     enabledHistoryPaths: [...settings.enabledHistoryPaths],
     langIcons: { ...(settings.langIcons ?? {}) },
-    ...(settings.view ? { view: cloneVaultViewSettings(settings.view) } : {})
+    ...(settings.view ? { view: cloneVaultViewSettings(settings.view) } : {}),
+    ...(settings.drawingsLocation
+      ? { drawingsLocation: { ...settings.drawingsLocation } }
+      : {}),
+    ...(settings.databasesLocation
+      ? { databasesLocation: { ...settings.databasesLocation } }
+      : {})
   }
 }
 
@@ -940,6 +948,13 @@ function cloneVaultViewSettings(view: VaultViewSettings): VaultViewSettings {
   return {
     ...view,
     ...(view.kanbanColumnTitles ? { kanbanColumnTitles: { ...view.kanbanColumnTitles } } : {}),
+    ...(view.kanbanColumnOrder
+      ? {
+          kanbanColumnOrder: Object.fromEntries(
+            Object.entries(view.kanbanColumnOrder).map(([group, ids]) => [group, [...ids]])
+          )
+        }
+      : {}),
     ...(view.systemFolderLabels ? { systemFolderLabels: { ...view.systemFolderLabels } } : {})
   }
 }
@@ -1101,6 +1116,22 @@ function normalizePrimaryNotesLocation(value: unknown): PrimaryNotesLocation {
   return value === 'root' ? 'root' : 'inbox'
 }
 
+/** Persist a drawings/databases file-location setting; mirrors the renderer's
+ *  normalizer so the round-trip through vault.json keeps the value. (#362) */
+function normalizeFileLocation(value: unknown): FileLocationSetting {
+  const v = value as { mode?: unknown; folder?: unknown } | null | undefined
+  if (v?.mode === 'active-note') return { mode: 'active-note' }
+  if (v?.mode === 'folder') {
+    // Keep `folder` mode even when empty so the setting sticks while the user is
+    // still typing the folder; an empty folder resolves to the primary root.
+    const folder = (typeof v.folder === 'string' ? v.folder : '')
+      .trim()
+      .replace(/^\/+|\/+$/g, '')
+    return { mode: 'folder', folder }
+  }
+  return { mode: 'primary' }
+}
+
 function normalizeVaultSettings(
   value: unknown,
   fallbackPrimary: PrimaryNotesLocation = DEFAULT_VAULT_SETTINGS.primaryNotesLocation
@@ -1128,6 +1159,8 @@ function normalizeVaultSettings(
         titlePattern: DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
         locale: DEFAULT_MONTHLY_NOTE_LOCALE
       },
+      drawingsLocation: { mode: 'primary' },
+      databasesLocation: { mode: 'primary' },
       folderIcons: {},
       iconRules: [],
       folderColors: {},
@@ -1166,6 +1199,8 @@ function normalizeVaultSettings(
       legacyPatterns?: unknown
       templateId?: unknown
     } | null
+    drawingsLocation?: unknown
+    databasesLocation?: unknown
     folderIcons?: Record<string, unknown> | null
     iconRules?: unknown
     folderColors?: Record<string, unknown> | null
@@ -1229,6 +1264,8 @@ function normalizeVaultSettings(
       legacyPatterns: normalizeMonthlyNoteLegacyPatterns(candidate.monthlyNotes?.legacyPatterns),
       templateId: normalizeTemplateId(candidate.monthlyNotes?.templateId)
     },
+    drawingsLocation: normalizeFileLocation(candidate.drawingsLocation),
+    databasesLocation: normalizeFileLocation(candidate.databasesLocation),
     folderIcons,
     iconRules: normalizeIconRules(candidate.iconRules),
     folderColors: normalizeFolderColors(candidate.folderColors),
@@ -1266,6 +1303,9 @@ function normalizeVaultViewSettings(raw: unknown): VaultViewSettings | undefined
   if (typeof c.kanbanGroupBy === 'string') view.kanbanGroupBy = c.kanbanGroupBy
   if (c.kanbanColumnTitles && typeof c.kanbanColumnTitles === 'object') {
     view.kanbanColumnTitles = c.kanbanColumnTitles as Record<string, string>
+  }
+  if (c.kanbanColumnOrder && typeof c.kanbanColumnOrder === 'object') {
+    view.kanbanColumnOrder = c.kanbanColumnOrder as Record<string, string[]>
   }
   if (typeof c.autoReveal === 'boolean') view.autoReveal = c.autoReveal
   if (c.systemFolderLabels && typeof c.systemFolderLabels === 'object') {
@@ -1450,6 +1490,9 @@ export async function setVaultSettings(
 ): Promise<VaultSettings> {
   const fallbackPrimary = await inferPrimaryNotesLocation(root)
   const normalized = normalizeVaultSettings(next, fallbackPrimary)
+  // Temporary folder session (#): never write .zennotes/vault.json into a
+  // folder the user only dropped in to read. Keep the change in memory.
+  if (isEphemeralRoot(root)) return cloneVaultSettings(normalized)
   await fs.mkdir(path.dirname(vaultSettingsPath(root)), { recursive: true })
   await fs.writeFile(vaultSettingsPath(root), JSON.stringify(normalized, null, 2), 'utf8')
   if (normalized.primaryNotesLocation === 'inbox') {
@@ -2401,6 +2444,9 @@ async function persistNoteMetaCacheSnapshot(
 
 function schedulePersistNoteMetaCache(root: string, metas: NoteMeta[]): void {
   if (process.env.ZEN_PERF_DISABLE_PERSISTED_META_CACHE === '1') return
+  // Temporary folder session (#): keep the note-meta cache in memory; don't
+  // write .zennotes/ into a folder the user is only browsing.
+  if (isEphemeralRoot(root)) return
   const rootAbs = path.resolve(root)
   clearScheduledPersistNoteMetaCache(rootAbs)
 
@@ -4343,14 +4389,20 @@ export async function importFiles(
 
   const noteDir = path.posix.dirname(toPosix(noteRelPath))
   const imported: ImportedAsset[] = []
+  // Dropped files land in the unified `assets/` folder, matching pasted images
+  // (`importPastedImage`). They used to be copied to the vault root, which in
+  // Vault Root mode dumped them right next to your notes and was inconsistent
+  // with paste. (#377)
+  const assetsDir = path.join(root, ASSETS_DIR)
 
   for (const sourcePath of sourcePaths) {
     const sourceAbs = path.resolve(sourcePath)
     const stat = await fs.stat(sourceAbs)
     if (!stat.isFile()) continue
 
-    const finalName = await uniqueFilename(root, path.basename(sourceAbs))
-    const destAbs = path.join(root, finalName)
+    await fs.mkdir(assetsDir, { recursive: true })
+    const finalName = await uniqueFilename(assetsDir, path.basename(sourceAbs))
+    const destAbs = path.join(assetsDir, finalName)
     await fs.copyFile(sourceAbs, destAbs)
 
     const vaultRelPath = toPosix(path.relative(root, destAbs))

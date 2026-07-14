@@ -449,6 +449,8 @@ export function Sidebar(): JSX.Element {
   const setSearchOpen = useStore((s) => s.setSearchOpen);
   const createAndOpen = useStore((s) => s.createAndOpen);
   const createDrawingAndOpen = useStore((s) => s.createDrawingAndOpen);
+  const newDrawing = useStore((s) => s.newDrawing);
+  const newDatabase = useStore((s) => s.newDatabase);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const createDatabase = useStore((s) => s.createDatabase);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
@@ -887,7 +889,27 @@ export function Sidebar(): JSX.Element {
       await moveNoteAction(payload.path, targetFolder, targetSubpath);
       return;
     }
-    if (payload.kind === "asset") return;
+    if (payload.kind === "asset") {
+      // Move an asset (image / PDF / any attachment) into the target folder,
+      // the same operation as the row's "Move…" context-menu action. Without
+      // this, assets were draggable but silently ignored on folder drop. (#378)
+      if (typeof window.zen.moveAsset !== "function") return;
+      const targetDir = vaultRelativeFolderPath(
+        targetFolder,
+        targetSubpath,
+        vaultSettings,
+      );
+      const slash = payload.path.lastIndexOf("/");
+      const curDir = slash === -1 ? "" : payload.path.slice(0, slash);
+      if (curDir === targetDir) return; // already in this folder
+      try {
+        await window.zen.moveAsset(payload.path, targetDir);
+        await refreshAssets();
+      } catch (err) {
+        window.alert((err as Error).message);
+      }
+      return;
+    }
     if (payload.kind === "task") return;
     // Folder drop — cross-top-folder moves aren't supported (folders
     // can't move between inbox/archive/trash). Same-top-folder moves
@@ -2185,7 +2207,7 @@ export function Sidebar(): JSX.Element {
       {
         label: "New drawing",
         onSelect: async () => {
-          await createDrawingAndOpen("inbox", "");
+          await newDrawing();
         },
       },
       {
@@ -2197,7 +2219,7 @@ export function Sidebar(): JSX.Element {
       {
         label: "New database",
         onSelect: async () => {
-          await createDatabase("inbox", "");
+          await newDatabase();
         },
       },
       {

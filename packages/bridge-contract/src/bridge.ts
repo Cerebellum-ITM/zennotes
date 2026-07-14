@@ -208,6 +208,8 @@ export interface ZenBridge {
   revealNote(relPath: string): Promise<void>
   /** Reveal the original target of a symlinked note in the OS file manager. */
   revealNoteTarget(relPath: string): Promise<void>
+  /** Reveal an arbitrary file path in the OS file manager (desktop only). */
+  revealFilePath(absPath: string): Promise<void>
   moveNote(relPath: string, targetFolder: NoteFolder, targetSubpath: string): Promise<NoteMeta>
   importFilesToNote(notePath: string, sourcePaths: string[]): Promise<ImportedAsset[]>
   importPastedImage(input: PastedImageInput): Promise<ImportedAsset>
@@ -228,6 +230,9 @@ export interface ZenBridge {
   revealFolderTarget(folder: NoteFolder, subpath: string): Promise<void>
   revealAssetsDir(): Promise<void>
   getPathForFile(file: File): string | null
+  /** Open a folder as a temporary session (drag a folder onto the app to read
+   *  it without turning it into a vault). Desktop-only. */
+  openFolderTemporary(absPath: string): Promise<void>
   resolveLocalAssetUrl(vaultRoot: string, notePath: string, href: string): string | null
   resolveVaultAssetUrl(vaultRoot: string, assetPath: string): string | null
 

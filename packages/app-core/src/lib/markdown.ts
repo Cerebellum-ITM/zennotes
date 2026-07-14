@@ -13,9 +13,11 @@ import rehypeStringify from 'rehype-stringify'
 import { visit, SKIP } from 'unist-util-visit'
 import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
+import type { VFile } from 'vfile'
 import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
 import { highlightLinesAttr, parseFenceMeta } from './code-fence-meta'
+import { parseEmbedSizeHint } from './excalidraw-preview'
 import { parseColWidthsComment } from './markdown-table'
 
 /**
@@ -36,6 +38,9 @@ const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-code-hl-lines',
   'data-code-linenums',
   'data-embed-src',
+  'data-embed-height',
+  'data-embed-width',
+  'data-excalidraw-embed',
   'data-function-plot-source',
   'data-jsxgraph-source',
   'data-local-asset-href',
@@ -85,6 +90,16 @@ function remarkWikilinks() {
         url: target,
         title: null,
         alt: label
+      }
+    }
+    if (bang === '!' && assetKind === 'excalidraw') {
+      const size = parseEmbedSizeHint(label)
+      const w = size?.width ? ` data-embed-width="${size.width}"` : ''
+      const h = size?.height ? ` data-embed-height="${size.height}"` : ''
+      const safeTarget = target.replace(/"/g, '&quot;')
+      return {
+        type: 'html',
+        value: `<div class="excalidraw-embed-host" data-excalidraw-embed="${safeTarget}"${w}${h}></div>`
       }
     }
     if (bang === '!' && assetKind) {
@@ -500,17 +515,71 @@ function rehypeTableColWidths() {
   }
 }
 
+/**
+ * Stamp each top-level block with `data-source-line` (its 1-based start line in
+ * the markdown source), so the split-view preview can be scroll-synced to the
+ * editor by mapping the editor's top line to the matching rendered element
+ * instead of by a raw scroll ratio (which drifts when the two heights differ).
+ * Applied via `data.hProperties` so `remarkRehype` carries it onto the element.
+ */
+function remarkSourceLines() {
+  return (tree: MdRoot): void => {
+    for (const node of tree.children) {
+      const line = node.position?.start?.line
+      if (line == null) continue
+      const data = (node.data ??= {})
+      const hProperties = ((data.hProperties ??= {}) as Record<string, unknown>)
+      hProperties['data-source-line'] = line
+    }
+  }
+}
+
+/**
+ * Genuine inline math (mirrors the live editor's `INLINE_MATH_RE`): a single `$`
+ * on each side with no whitespace immediately inside either delimiter. The
+ * anchored form is tested against the raw `$…$` source token.
+ */
+const STRICT_INLINE_MATH_RE = /^\$(?!\s)(?:\\.|[^$\\])*(?<!\s)\$$/
+
+/**
+ * remark-math is more permissive than the editor: it renders `$5 and got $10` as
+ * a formula (the content only has to avoid *both-sided* padding), so a currency
+ * line shows up as math in the reading view while the editor keeps it literal.
+ * Re-check every inline-math node against the editor's stricter rule using the
+ * original source, and turn currency-like matches back into plain text so the two
+ * views agree. Runs right after remark-math, before the node becomes a KaTeX span.
+ */
+function remarkCurrencyGuard() {
+  return (tree: MdRoot, file: VFile): void => {
+    const raw = file?.value
+    const source = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
+    if (!source.includes('$')) return
+    visit(tree, 'inlineMath', (node, index, parent) => {
+      if (!parent || index === undefined) return
+      const start = node.position?.start?.offset
+      const end = node.position?.end?.offset
+      if (start == null || end == null) return
+      const token = source.slice(start, end)
+      if (STRICT_INLINE_MATH_RE.test(token)) return
+      ;(parent as unknown as AnyParent).children.splice(index, 1, { type: 'text', value: token })
+      return [SKIP, index + 1]
+    })
+  }
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkGfm)
   .use(remarkBreaks)
   .use(remarkMath)
+  .use(remarkCurrencyGuard)
   .use(remarkWikilinks)
   .use(remarkHashtags)
   .use(remarkHighlight)
   .use(remarkCallouts)
   .use(remarkCodeMeta)
+  .use(remarkSourceLines)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeTableColWidths)

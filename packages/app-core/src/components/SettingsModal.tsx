@@ -415,6 +415,14 @@ export function SettingsModal(): JSX.Element {
   const setWordWrap = useStore((s) => s.setWordWrap)
   const previewSmoothScroll = useStore((s) => s.previewSmoothScroll)
   const setPreviewSmoothScroll = useStore((s) => s.setPreviewSmoothScroll)
+  const completedTaskStyle = useStore((s) => s.completedTaskStyle)
+  const setCompletedTaskStyle = useStore((s) => s.setCompletedTaskStyle)
+  const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes)
+  const setKeepViewModeAcrossNotes = useStore((s) => s.setKeepViewModeAcrossNotes)
+  const cursorBlink = useStore((s) => s.cursorBlink)
+  const setCursorBlink = useStore((s) => s.setCursorBlink)
+  const timeFormat = useStore((s) => s.timeFormat)
+  const setTimeFormat = useStore((s) => s.setTimeFormat)
   const editorMaxWidth = useStore((s) => s.editorMaxWidth)
   const setEditorMaxWidth = useStore((s) => s.setEditorMaxWidth)
   const pdfEmbedInEditMode = useStore((s) => s.pdfEmbedInEditMode)
@@ -1637,6 +1645,18 @@ export function SettingsModal(): JSX.Element {
           keywords: ['overrides', 'auto close', 'autoclose', 'auto-pair', 'brackets', 'markdown', 'completion']
         },
         {
+          id: 'completed-task-style',
+          title: 'Completed task style',
+          description: "How a checked task's text looks — strikethrough, gray, or both.",
+          keywords: ['task', 'todo', 'checkbox', 'done', 'complete', 'strike', 'strikethrough', 'gray', 'grey']
+        },
+        {
+          id: 'keep-view-mode',
+          title: 'Keep view mode when switching notes',
+          description: 'Stay in the current Edit / Split / Preview mode when opening another note.',
+          keywords: ['view', 'mode', 'edit', 'split', 'preview', 'switch', 'note']
+        },
+        {
           id: 'note-tabs',
           title: 'Note tabs',
           description: 'Open notes in tabs and allow split-friendly tab workflows.',
@@ -1655,6 +1675,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['wrap', 'line wrap']
         },
         {
+          id: 'cursor-blink',
+          title: 'Blinking cursor',
+          description: 'Blink the editor caret and Vim block cursor, or keep it solid.',
+          keywords: ['cursor', 'caret', 'blink', 'blinking', 'solid', 'non-blinking', 'accessibility']
+        },
+        {
           id: 'smooth-preview-scroll',
           title: 'Smooth preview scroll',
           description: 'Animate Ctrl+D / Ctrl+U half-page jumps in preview mode.',
@@ -1665,6 +1691,12 @@ export function SettingsModal(): JSX.Element {
           title: 'PDFs in edit mode',
           description: 'Compact keeps the editor focused. Full inlines the PDF viewer under your cursor.',
           keywords: ['pdf', 'embed']
+        },
+        {
+          id: 'time-format',
+          title: 'Time format',
+          description: 'Clock format the @time macro inserts.',
+          keywords: ['time', 'clock', '12 hour', '24 hour', '@time', 'now', 'macro']
         },
         {
           id: 'html-attachment-network',
@@ -1871,11 +1903,15 @@ export function SettingsModal(): JSX.Element {
             'live-preview',
             'render-tables',
             'markdown-overrides',
+            'completed-task-style',
+            'keep-view-mode',
             'note-tabs',
             'wrap-note-tabs',
             'word-wrap',
+            'cursor-blink',
             'smooth-preview-scroll',
-            'pdfs-in-edit-mode'
+            'pdfs-in-edit-mode',
+            'time-format'
           ],
           content: (
         <div className="space-y-6">
@@ -1906,6 +1942,26 @@ export function SettingsModal(): JSX.Element {
               settingId="markdown-overrides"
               onChange={setMarkdownSnippets}
             />
+            <SegmentedRow
+              label="Completed task style"
+              description="How a checked task's text looks in the editor and preview — strike it through, gray it out, or both. The checkbox always shows checked."
+              value={completedTaskStyle}
+              settingId="completed-task-style"
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'strikethrough', label: 'Strikethrough' },
+                { value: 'gray', label: 'Gray' },
+                { value: 'gray-strikethrough', label: 'Both' }
+              ]}
+              onChange={(next) => setCompletedTaskStyle(next)}
+            />
+            <ToggleRow
+              label="Keep view mode when switching notes"
+              description="Stay in the current Edit / Split / Preview mode when you open another note, instead of each note reopening in its own last mode. Handy if you like reading in Preview."
+              value={keepViewModeAcrossNotes}
+              settingId="keep-view-mode"
+              onChange={setKeepViewModeAcrossNotes}
+            />
             <ToggleRow
               label="Note tabs"
               description="Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior."
@@ -1928,6 +1984,13 @@ export function SettingsModal(): JSX.Element {
               onChange={setWordWrap}
             />
             <ToggleRow
+              label="Blinking cursor"
+              description="Blink the editor caret and the Vim block cursor. Turn off for a solid cursor, e.g. to match the macOS 'Prefer non-blinking cursor' accessibility setting."
+              value={cursorBlink}
+              settingId="cursor-blink"
+              onChange={setCursorBlink}
+            />
+            <ToggleRow
               label="Smooth preview scroll"
               description="Animate Ctrl+D / Ctrl+U half-page jumps in preview mode. Turn off for an instant snap that keeps position predictable."
               value={previewSmoothScroll}
@@ -1944,6 +2007,17 @@ export function SettingsModal(): JSX.Element {
                 { value: 'full', label: 'Full' }
               ]}
               onChange={(next) => setPdfEmbedInEditMode(next)}
+            />
+            <SegmentedRow
+              label="Time format"
+              description="Clock format the @time macro inserts (@time / @now in a note)."
+              value={timeFormat}
+              settingId="time-format"
+              options={[
+                { value: '12h', label: '12-hour' },
+                { value: '24h', label: '24-hour' }
+              ]}
+              onChange={(next) => setTimeFormat(next)}
             />
             <ToggleRow
               label="Allow external resources in HTML attachments"
@@ -2410,6 +2484,18 @@ export function SettingsModal(): JSX.Element {
           keywords: ['primary notes', 'inbox', 'vault root']
         },
         {
+          id: 'drawings-location',
+          title: 'Default drawings location',
+          description: 'Where new Excalidraw drawings are created (primary, active note folder, or a specific folder).',
+          keywords: ['drawing', 'excalidraw', 'location', 'folder', 'new']
+        },
+        {
+          id: 'databases-location',
+          title: 'Default databases location',
+          description: 'Where new databases are created (primary, active note folder, or a specific folder).',
+          keywords: ['database', 'db', 'location', 'folder', 'new']
+        },
+        {
           id: 'view-settings-scope',
           title: 'View settings',
           description: 'Apply note-list & view preferences (sort, grouping, the Tasks view) the same everywhere, or independently per vault.',
@@ -2774,6 +2860,8 @@ export function SettingsModal(): JSX.Element {
           title: 'Notes',
           searchIds: [
             'primary-notes-location',
+            'drawings-location',
+            'databases-location',
             'enable-daily-notes',
             'daily-notes-directory',
             'daily-note-title-pattern',
@@ -2816,6 +2904,77 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+          </Section>
+          <Section
+            title="New Drawings & Databases"
+            description="Where new Excalidraw drawings and databases are created, so they don't clutter the root of your vault."
+          >
+            <SegmentedRow
+              label="Default drawings location"
+              description="`Primary location` uses your primary notes area, `Active note's folder` puts it beside the note you're viewing, `Specific folder` uses a subfolder you choose."
+              value={vaultSettings.drawingsLocation?.mode ?? 'primary'}
+              settingId="drawings-location"
+              options={[
+                { value: 'primary', label: 'Primary location' },
+                { value: 'active-note', label: "Active note's folder" },
+                { value: 'folder', label: 'Specific folder' }
+              ]}
+              onChange={(mode) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  drawingsLocation: { ...vaultSettings.drawingsLocation, mode }
+                })
+              }
+            />
+            {vaultSettings.drawingsLocation?.mode === 'folder' && (
+              <TextInputRow
+                label="Drawings folder"
+                description="Vault-relative subfolder for new drawings, e.g. `assets/drawings`."
+                value={vaultSettings.drawingsLocation?.folder ?? ''}
+                placeholder="assets/drawings"
+                settingId="drawings-folder"
+                commitOnBlur
+                onChange={(next) =>
+                  void persistVaultSettings({
+                    ...vaultSettings,
+                    drawingsLocation: { mode: 'folder', folder: next ?? '' }
+                  })
+                }
+              />
+            )}
+            <SegmentedRow
+              label="Default databases location"
+              description="Same options as drawings, applied to new databases."
+              value={vaultSettings.databasesLocation?.mode ?? 'primary'}
+              settingId="databases-location"
+              options={[
+                { value: 'primary', label: 'Primary location' },
+                { value: 'active-note', label: "Active note's folder" },
+                { value: 'folder', label: 'Specific folder' }
+              ]}
+              onChange={(mode) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  databasesLocation: { ...vaultSettings.databasesLocation, mode }
+                })
+              }
+            />
+            {vaultSettings.databasesLocation?.mode === 'folder' && (
+              <TextInputRow
+                label="Databases folder"
+                description="Vault-relative subfolder for new databases, e.g. `assets/databases`."
+                value={vaultSettings.databasesLocation?.folder ?? ''}
+                placeholder="assets/databases"
+                settingId="databases-folder"
+                commitOnBlur
+                onChange={(next) =>
+                  void persistVaultSettings({
+                    ...vaultSettings,
+                    databasesLocation: { mode: 'folder', folder: next ?? '' }
+                  })
+                }
+              />
+            )}
           </Section>
           <Section
             title="View settings"

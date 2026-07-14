@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { expandEmbeds, hasNoteEmbeds } from "../lib/transclusion";
@@ -28,9 +29,13 @@ import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   classifyLocalAssetHref,
   enhanceLocalAssetNodes,
+  hrefFragment,
   resolveAssetVaultRelativePath,
 } from "../lib/local-assets";
 import { assetTabPath } from "../lib/asset-tabs";
+import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
+import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
+import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
 import { renderDiagrams } from "../lib/diagram-renderers";
 import { attachInlineDiagramPanZoom } from "../lib/inline-diagram-pan-zoom";
@@ -468,7 +473,9 @@ export const Preview = memo(function Preview({
     () =>
       (target: string): { path: string; title: string } | null => {
         const n = resolveWikilinkTarget(notes, target);
-        return n ? { path: n.path, title: n.title } : null;
+        if (!n) return null;
+        if (isExcalidrawPath(n.path) || isObsidianExcalidrawPath(n.path)) return null;
+        return { path: n.path, title: n.title };
       },
     [notes],
   );
@@ -531,6 +538,9 @@ export const Preview = memo(function Preview({
   const openNoteInTabRef = useRef(openNoteInTab);
   const updateActiveBodyRef = useRef(updateActiveBody);
   const persistActiveRef = useRef(persistActive);
+  // React roots for rendered Excalidraw embed placeholders — unmounted on
+  // every re-render and on component teardown to avoid leaks.
+  const excalidrawRootsRef = useRef<Root[]>([]);
 
   useEffect(() => {
     notesRef.current = notes;
@@ -967,6 +977,36 @@ export const Preview = memo(function Preview({
         input.dataset.taskIndex = String(idx);
         input.setAttribute("role", "checkbox");
         input.classList.add("cursor-pointer");
+        // Tag the item with its OWN checked state and wrap its inline text in a
+        // span, so the completed-task styling (strike/gray) targets just this
+        // line and never bleeds onto nested sub-tasks. Loose items keep their
+        // <p>, which the CSS targets directly; only bare-text (tight) items get
+        // the wrapper.
+        const li = input.closest<HTMLLIElement>("li.task-list-item");
+        if (li) {
+          li.classList.toggle("task-self-done", input.checked);
+          if (!li.querySelector(":scope > .task-item-body")) {
+            const own = Array.from(li.childNodes).filter((node) => {
+              if (node === input) return false;
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = (node as Element).tagName;
+                if (tag === "UL" || tag === "OL" || tag === "P") return false;
+              }
+              return true;
+            });
+            const hasText = own.some(
+              (node) =>
+                node.nodeType !== Node.TEXT_NODE ||
+                (node.textContent ?? "").trim() !== "",
+            );
+            if (hasText && own.length > 0) {
+              const body = document.createElement("span");
+              body.className = "task-item-body";
+              li.insertBefore(body, own[0]);
+              for (const node of own) body.appendChild(node);
+            }
+          }
+        }
       });
 
     // `{icon:<ref>}` body directive → inline icon glyph (custom/builtin). Walk
@@ -1018,15 +1058,62 @@ export const Preview = memo(function Preview({
       root.replaceChildren(...Array.from(stage.childNodes));
       await renderDiagrams(root, { themeKey: effectiveMode, expanded: false });
       if (cancelled) return;
+      renderExcalidrawEmbeds(root);
       requestAnimationFrame(() => {
         if (!cancelled && embedsReadyRef.current) onRenderedRef.current?.();
       });
+    };
+
+    const renderExcalidrawEmbeds = (container: HTMLElement): void => {
+      // Unmount roots from the previous render before hydrating the new DOM.
+      for (const r of excalidrawRootsRef.current) {
+        try {
+          r.unmount();
+        } catch {
+          /* node already gone */
+        }
+      }
+      excalidrawRootsRef.current = [];
+      const notePaths = notes.map((n) => n.path);
+      container
+        .querySelectorAll<HTMLElement>("[data-excalidraw-embed]")
+        .forEach((host) => {
+          const target = host.getAttribute("data-excalidraw-embed") || "";
+          if (!target.trim()) return;
+          const wAttr = host.getAttribute("data-embed-width");
+          const hAttr = host.getAttribute("data-embed-height");
+          const resolved = resolveExcalidrawEmbedPath(notePaths, target) ?? target;
+          const r = createRoot(host);
+          excalidrawRootsRef.current.push(r);
+          r.render(
+            <LazyExcalidrawPreview
+              path={resolved}
+              width={wAttr ? Number(wAttr) : undefined}
+              height={hAttr ? Number(hAttr) : undefined}
+              className="excalidraw-embed-preview"
+              onClick={() => {
+                // Open the drawing (isExcalidrawPath → Excalidraw editor). An
+                // asset tab (zen://asset/…) would route to the generic asset
+                // viewer and offer to download the file instead. (#360)
+                void openNoteInTabRef.current(resolved);
+              }}
+            />,
+          );
+        });
     };
 
     void applyRenderedDom();
 
     return () => {
       cancelled = true;
+      for (const r of excalidrawRootsRef.current) {
+        try {
+          r.unmount();
+        } catch {
+          /* node already gone */
+        }
+      }
+      excalidrawRootsRef.current = [];
     };
   }, [
     assetFilesKey,
@@ -1149,13 +1236,15 @@ export const Preview = memo(function Preview({
         if (abs) window.zen.clipboardWriteText(abs);
       },
     });
+    const assetHref = assetMenu.href;
+    const fragment = hrefFragment(assetHref) || null;
     items.push(
       {
         label: "Open as Reference (This Note)",
         disabled: !vaultRel,
         onSelect: async () => {
           if (vaultRel) {
-            pinAssetReferenceForNote(notePath, vaultRel);
+            pinAssetReferenceForNote(notePath, vaultRel, fragment);
           }
         },
       },
@@ -1163,7 +1252,7 @@ export const Preview = memo(function Preview({
         label: "Open as Reference (Global)",
         disabled: !vaultRel,
         onSelect: async () => {
-          if (vaultRel) pinAssetReference(vaultRel);
+          if (vaultRel) pinAssetReference(vaultRel, fragment);
         },
       },
     );

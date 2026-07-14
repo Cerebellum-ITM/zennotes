@@ -11,11 +11,17 @@ import {
 import { useStore } from '../store'
 import {
   classifyLocalAssetHref,
+  hrefFragment,
   resolveAssetVaultRelativePath,
   resolveLocalAssetUrl
 } from './local-assets'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { assetTabPath } from './asset-tabs'
+import {
+  getExcalidrawPreview,
+  parseEmbedSizeHint,
+  resolveExcalidrawEmbedPath
+} from './excalidraw-preview'
 
 /**
  * Live-preview extension: hides markdown syntax markers on lines where
@@ -50,6 +56,9 @@ const PREFIX_HIDE_WITH_SPACE = new Set(['HeaderMark', 'QuoteMark'])
 
 const hide = Decoration.replace({})
 const imageSourceHide = Decoration.replace({})
+// Marks the text of a completed task (`- [x] …`) so CSS can strike/gray it,
+// gated by the `data-completed-task-style` setting on the document root.
+const taskDoneMark = Decoration.mark({ class: 'cm-task-done' })
 // Stamped on an image line only while its raw source is hidden, so the host
 // line stops reserving a blank text row above/below the block figure (#261).
 const imageEmbedLine = Decoration.line({ class: 'cm-image-embed-line' })
@@ -435,7 +444,7 @@ class LocalPdfWidget extends WidgetType {
         const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
         // Default to a per-note pin — the PDF stays attached to this
         // note and quietly disappears when the user navigates away.
-        if (abs) state.pinAssetReferenceForNote(notePath, abs)
+        if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
       })
 
       const icon = document.createElement('span')
@@ -503,7 +512,7 @@ class LocalPdfWidget extends WidgetType {
       const notePath = state.activeNote?.path
       if (!root || !notePath) return
       const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
-      if (abs) state.pinAssetReferenceForNote(notePath, abs)
+      if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
     })
 
     const openButton = document.createElement('button')
@@ -545,10 +554,122 @@ class LocalPdfWidget extends WidgetType {
 
     const frame = document.createElement('iframe')
     frame.className = 'local-pdf-embed-frame'
-    frame.src = this.resolvedUrl
+    frame.src = this.resolvedUrl + hrefFragment(this.href)
     frame.title = this.label || 'PDF'
 
     figure.append(header, frame)
+    return figure
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
+type ParsedExcalidraw = {
+  href: string
+  resolvedPath: string
+  width?: number
+  height?: number
+}
+
+function parseStandaloneLocalExcalidraw(lineText: string): ParsedExcalidraw | null {
+  const fromEmbed = lineText.match(STANDALONE_OBSIDIAN_EMBED_RE)
+  if (!fromEmbed) return null
+  const href = (fromEmbed[1] ?? '').trim()
+  if (classifyLocalAssetHref(href) !== 'excalidraw') return null
+  const state = useStore.getState()
+  const notePaths = state.notes.map((n) => n.path)
+  const resolvedPath = resolveExcalidrawEmbedPath(notePaths, href) ?? href
+  const hint = parseEmbedSizeHint(fromEmbed[2])
+  return {
+    href,
+    resolvedPath,
+    width: hint?.width,
+    height: hint?.height
+  }
+}
+
+/** Renders a `![[drawing.excalidraw]]` embed as an exported PNG image, like an
+ *  inline image block. Clicking opens the drawing in a dedicated Excalidraw
+ *  tab. The preview is produced lazily by excalidraw-preview.ts (exportToBlob)
+ *  and cached by path + mtime. */
+class LocalExcalidrawWidget extends WidgetType {
+  constructor(
+    private readonly notePath: string,
+    private readonly lineFrom: number,
+    private readonly lineTo: number,
+    private readonly href: string,
+    private readonly resolvedPath: string,
+    private readonly width?: number,
+    private readonly height?: number,
+    private readonly version = 0
+  ) {
+    super()
+  }
+
+  eq(other: LocalExcalidrawWidget): boolean {
+    return (
+      other.notePath === this.notePath &&
+      other.href === this.href &&
+      other.resolvedPath === this.resolvedPath &&
+      other.width === this.width &&
+      other.height === this.height &&
+      other.version === this.version
+    )
+  }
+
+  toDOM(): HTMLElement {
+    const figure = document.createElement('figure')
+    figure.className = 'local-image-embed cm-excalidraw-embed'
+
+    const frame = document.createElement('div')
+    frame.className = 'local-image-embed-frame'
+
+    const image = document.createElement('img')
+    image.className = 'local-image-embed-image excalidraw-embed-image'
+    image.alt = ''
+    image.loading = 'lazy'
+    image.draggable = false
+    const imgStyle = image.style
+    if (this.width) imgStyle.maxWidth = `${this.width}px`
+    if (this.height) imgStyle.maxHeight = `${this.height}px`
+
+    // Lazy-render the PNG and swap it in when ready.
+    void getExcalidrawPreview(this.resolvedPath).then((url) => {
+      if (url) image.src = url
+    })
+
+    // Click anywhere on the image opens the drawing in a new Excalidraw tab.
+    image.style.cursor = 'pointer'
+    image.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      // Open the drawing itself (routes to the Excalidraw editor via
+      // isExcalidrawPath). Wrapping it as an asset tab (zen://asset/…) instead
+      // hits the generic asset viewer, which offers to download the file. (#360)
+      void useStore.getState().openNoteInTab(this.resolvedPath)
+    })
+    // Right-click shows the drawing menu (Open / Copy image) rather than the
+    // editor's plain text context menu. (#360)
+    image.addEventListener('contextmenu', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      window.dispatchEvent(
+        new CustomEvent('zen:excalidraw-embed-menu', {
+          detail: { path: this.resolvedPath, x: event.clientX, y: event.clientY }
+        })
+      )
+    })
+
+    frame.append(image)
+
+    const caption = document.createElement('figcaption')
+    caption.className = 'local-image-embed-caption'
+    caption.textContent =
+      decodeURIComponentSafe(this.href.split('/').filter(Boolean).pop()) || 'Drawing'
+
+    figure.append(frame, caption)
     return figure
   }
 
@@ -719,6 +840,43 @@ function computeDecorations(view: EditorView): DecorationSet {
         }
         continue
       }
+      const parsedExcalidraw = parseStandaloneLocalExcalidraw(line.text)
+      if (parsedExcalidraw) {
+        const st = useStore.getState()
+        const notePath = st.activeNote?.path
+        if (!notePath) continue
+        replacedLines.add(lineNo)
+        pending.push({
+          from: line.to,
+          to: line.to,
+          deco: Decoration.widget({
+            side: 1,
+            widget: new LocalExcalidrawWidget(
+              notePath,
+              line.from,
+              line.to,
+              parsedExcalidraw.href,
+              parsedExcalidraw.resolvedPath,
+              parsedExcalidraw.width,
+              parsedExcalidraw.height,
+              st.excalidrawPreviewVersion
+            )
+          })
+        })
+        if (!lineActive) {
+          pending.push({
+            from: line.from,
+            to: line.to,
+            deco: imageSourceHide
+          })
+          pending.push({
+            from: line.from,
+            to: line.from,
+            deco: imageEmbedLine
+          })
+        }
+        continue
+      }
       if (lineActive) continue
       const parsedPdf = parseStandaloneLocalPdf(line.text)
       if (parsedPdf) {
@@ -802,19 +960,26 @@ function computeDecorations(view: EditorView): DecorationSet {
         const isLinkSyntax = name === 'LinkMark' || isUrl
 
         if (name === TASK_MARKER_NODE) {
-          const line = state.doc.lineAt(node.from).number
+          const lineObj = state.doc.lineAt(node.from)
+          const line = lineObj.number
           if (replacedLines.has(line)) return
-          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
-          // line reads as source — matching Obsidian, and consistent with the
-          // list/quote/heading markers, which also reveal on the active line.
-          // Off the line, render the checkbox.
-          if (activeLines.has(line)) return
           const markerText = state.doc.sliceString(node.from, node.to)
           // `markerText` is `[ ]` / `[x]` / `[X]` / `[>]`; default to unchecked if
           // the parser ever hands us something unexpected.
           const stateChar = markerText[1] ?? ''
           const checked = markerText.length >= 2 && /[xX]/.test(stateChar)
           const forwarded = stateChar === '>'
+          // Mark a completed task's text so CSS can strike/gray it (gated by the
+          // `completedTaskStyle` setting). Applied on the active line too, so it
+          // doesn't flip as the cursor moves; the checkbox itself is untouched.
+          if (checked && lineObj.to > node.to) {
+            pending.push({ from: node.to, to: lineObj.to, deco: taskDoneMark })
+          }
+          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
+          // line reads as source — matching Obsidian, and consistent with the
+          // list/quote/heading markers, which also reveal on the active line.
+          // Off the line, render the checkbox.
+          if (activeLines.has(line)) return
           pending.push({
             from: node.from,
             to: node.to,
@@ -933,7 +1098,12 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
           // (or anywhere other than the note's own directory) bakes in
           // the wrong URL on the very first decoration pass and stays
           // broken until you re-trigger a recompute by editing.
-          state.assetFiles !== prev.assetFiles
+          state.assetFiles !== prev.assetFiles ||
+          // Notes list arriving late lets Excalidraw embed targets resolve
+          // to a vault-relative path; and a bumped version means a drawing
+          // was edited elsewhere and the cached preview must refresh.
+          state.notes !== prev.notes ||
+          state.excalidrawPreviewVersion !== prev.excalidrawPreviewVersion
         ) {
           view.dispatch({ effects: refreshLivePreviewEffect.of(null) })
         }

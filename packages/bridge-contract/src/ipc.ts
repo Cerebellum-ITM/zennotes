@@ -77,6 +77,7 @@ export const IPC = {
   VAULT_DELETE_FOLDER: 'vault:delete-folder',
   VAULT_DUPLICATE_FOLDER: 'vault:duplicate-folder',
   VAULT_REVEAL_FOLDER: 'vault:reveal-folder',
+  VAULT_REVEAL_FILE_PATH: 'vault:reveal-file-path',
   VAULT_REVEAL_FOLDER_TARGET: 'vault:reveal-folder-target',
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
   VAULT_SCAN_TASKS: 'vault:scan-tasks',
@@ -119,6 +120,7 @@ export const IPC = {
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',
   APP_OPEN_MARKDOWN_FILE: 'app:open-markdown-file',
+  APP_OPEN_FOLDER_TEMPORARY: 'app:open-folder-temporary',
   TIKZ_RENDER: 'tikz:render',
   MCP_STATUS: 'mcp:status',
   MCP_INSTALL: 'mcp:install',
@@ -252,6 +254,18 @@ export interface AppUpdateState {
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 
 export type PrimaryNotesLocation = 'inbox' | 'root'
+
+/** Where a newly created Drawing/Database file is stored. (#362) */
+export type FileLocationMode = 'primary' | 'active-note' | 'folder'
+export interface FileLocationSetting {
+  /** `primary` → the primary notes location root; `active-note` → the folder of
+   *  the note you're viewing; `folder` → the `folder` subfolder of the primary
+   *  location. */
+  mode: FileLocationMode
+  /** Vault-relative subfolder used when `mode === 'folder'`, e.g. `assets/drawings`. */
+  folder?: string
+}
+export const DEFAULT_FILE_LOCATION: FileLocationSetting = { mode: 'primary' }
 export type FolderIconId =
   | 'folder'
   | 'bolt'
@@ -444,6 +458,7 @@ export interface VaultViewSettings {
   tasksViewMode?: string
   kanbanGroupBy?: string
   kanbanColumnTitles?: Record<string, string>
+  kanbanColumnOrder?: Record<string, string[]>
   kanbanStatuses?: string[]
   autoReveal?: boolean
   systemFolderLabels?: Record<string, unknown>
@@ -455,6 +470,11 @@ export interface VaultSettings {
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings
   monthlyNotes: MonthlyNotesSettings
+  /** Where new Excalidraw drawings are created; absent means the default
+   *  (`primary`). Read through `normalizeVaultSettings`, which fills it in. (#362) */
+  drawingsLocation?: FileLocationSetting
+  /** Where new databases are created; absent means the default (`primary`). (#362) */
+  databasesLocation?: FileLocationSetting
   /** Per-vault view overrides (#292); absent/empty means "inherit global". */
   view?: VaultViewSettings
   /** Map of folder key (`<folder>:<subpath>`) to an {@link IconRef}. */
@@ -551,6 +571,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     titlePattern: DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
     locale: DEFAULT_MONTHLY_NOTE_LOCALE
   },
+  drawingsLocation: { mode: 'primary' },
+  databasesLocation: { mode: 'primary' },
   folderIcons: {},
   folderColors: {},
   favorites: [],
@@ -719,6 +741,11 @@ export interface PastedImageInput {
 export interface VaultInfo {
   root: string
   name: string
+  /** True when this is a temporary folder session (a folder dropped on the app
+   *  to read, not opened as a vault): edits save to the files in place, but no
+   *  ZenNotes state is written into the folder and it isn't remembered. The
+   *  renderer shows a banner and the next launch reopens the saved vault. */
+  temporary?: boolean
 }
 
 /** A markdown file opened from outside any vault (standalone editor window). */
