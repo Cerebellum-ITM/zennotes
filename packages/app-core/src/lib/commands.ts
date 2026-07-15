@@ -1283,6 +1283,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'ref.keep',
+      title: 'Keep Reference While Browsing',
+      category: 'Reference',
+      keywords: 'sticky global promote attachment pdf stay',
+      when: () => {
+        const s = getState()
+        return !!(s.selectedPath && s.noteRefs[s.selectedPath])
+      },
+      run: async () => {
+        const s = getState()
+        const noteRef = s.selectedPath ? s.noteRefs[s.selectedPath] : null
+        if (!noteRef) return
+        if (noteRef.kind === 'asset') s.pinAssetReference(noteRef.path, noteRef.fragment ?? null)
+        else await s.pinReference(noteRef.path)
+      }
+    },
+    {
       id: 'ref.unpin',
       title: 'Unpin Reference',
       category: 'Reference',

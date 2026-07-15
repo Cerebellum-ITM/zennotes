@@ -140,9 +140,27 @@ export function PinnedReferencePane(): JSX.Element | null {
   const togglePinnedRefVisible = useStore((s) => s.togglePinnedRefVisible)
   const setPinnedRefWidth = useStore((s) => s.setPinnedRefWidth)
   const setPinnedRefMode = useStore((s) => s.setPinnedRefMode)
+  const pinAssetReference = useStore((s) => s.pinAssetReference)
+  const pinReference = useStore((s) => s.pinReference)
   const unpinReference = (): void => {
     if (isPerNotePin && selectedPath) unpinReferenceForNote(selectedPath)
     else unpinReferenceGlobal()
+  }
+  // Whether the current per-note reference has been promoted to the global pin
+  // (so it stays open while browsing other notes).
+  const isKept = !!noteRef && noteRef.path === globalRefPath
+  // Promote the current per-note reference to the global pin (or, when already
+  // kept, drop back to per-note by clearing the global pin). The per-note entry
+  // is left intact — the note keeps owning its reference; the global pin is just
+  // the fallback that survives navigation.
+  const keepWhileBrowsing = (): void => {
+    if (!noteRef) return
+    if (isKept) {
+      unpinReferenceGlobal()
+      return
+    }
+    if (noteRef.kind === 'asset') pinAssetReference(noteRef.path, noteRef.fragment ?? null)
+    else void pinReference(noteRef.path)
   }
   const content = useStore((s) =>
     pinnedRefPath ? s.noteContents[pinnedRefPath] ?? null : null
@@ -470,6 +488,20 @@ export function PinnedReferencePane(): JSX.Element | null {
                   className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
                 >
                   <ExternalIcon width={14} height={14} />
+                </button>
+              )}
+              {isPerNotePin && (
+                <button
+                  type="button"
+                  title={isKept ? 'Stop keeping open' : 'Keep open while browsing (pin globally)'}
+                  aria-pressed={isKept}
+                  onClick={keepWhileBrowsing}
+                  className={[
+                    'flex h-7 w-7 items-center justify-center rounded-md hover:bg-paper-200 hover:text-ink-900',
+                    isKept ? 'text-accent' : 'text-ink-500'
+                  ].join(' ')}
+                >
+                  <PinIcon width={14} height={14} />
                 </button>
               )}
               <button
