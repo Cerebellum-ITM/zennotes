@@ -5068,16 +5068,17 @@ export const useStore = create<Store>((set, get) => {
           isWorkspaceVirtualTabPath
         )
         const ensured = ensureActivePane(nextLayout, s.activePaneId)
-        // Auto-unpin the reference pane if its note has been deleted on
-        // disk. Asset pins (PDFs etc.) aren't in the notes index, so
-        // we leave them alone — the iframe will just render empty if
-        // the file is gone, and the user can unpin manually.
-        const pinnedStillExists =
-          s.pinnedRefPath !== null &&
-          (s.pinnedRefKind === 'asset' ||
-            existingPaths.has(s.pinnedRefPath) ||
-            s.pinnedRefPath === s.selectedPath)
-        const pinnedRefPath = pinnedStillExists ? s.pinnedRefPath : null
+        // Reference-pane analog of #384: a background note-list refresh must
+        // never close the pinned reference either. Keying "is it still there?"
+        // off `existingPaths` meant a transient/incomplete list (the same race
+        // that wiped tabs) would null `pinnedRefPath`, closing the reference
+        // pane, and the next refresh would re-pin it — the reported "the
+        // reference file opens and closes on its own" flicker on the right side.
+        // Real deletions are handled precisely elsewhere and clear the pin
+        // there: applyChange('unlink') (watcher, incl. external `rm`) and the
+        // trash/delete actions. So a routine refresh keeps whatever is pinned
+        // instead of second-guessing it against a list that may be mid-scan.
+        const pinnedRefPath = s.pinnedRefPath
         // Prune content caches for paths no longer referenced anywhere.
         const referenced = new Set<string>()
         for (const leaf of allLeaves(nextLayout)) {
