@@ -5085,6 +5085,16 @@ export const useStore = create<Store>((set, get) => {
           for (const tab of leaf.tabs) referenced.add(tab)
         }
         if (pinnedRefPath) referenced.add(pinnedRefPath)
+        // The reference pane also shows *per-note* references (noteRefs, keyed
+        // by the active note) — their body lives in the same path-keyed
+        // noteContents cache. Keep those targets referenced so a background
+        // refresh doesn't prune the reference's content out from under the pane,
+        // blanking and reloading it — the "reference file opens/closes on its
+        // own" flicker on the right side. noteRefs is an explicit, bounded set
+        // the user pinned, so retaining their content is cheap and correct.
+        for (const ref of Object.values(s.noteRefs)) {
+          if (ref?.path) referenced.add(ref.path)
+        }
         const contents: Record<string, NoteContent> = {}
         const dirty: Record<string, boolean> = {}
         for (const [path, content] of Object.entries(s.noteContents)) {
