@@ -333,9 +333,22 @@ function App(): JSX.Element {
   const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
+  const lastActiveRef = useStore((s) => s.lastActiveRef)
+  const setLastActiveRef = useStore((s) => s.setLastActiveRef)
+  // Remember the per-note reference currently in effect, so the pane can keep
+  // showing it while the user browses notes/folders without a reference of
+  // their own (instead of flickering closed on every selection change).
+  useEffect(() => {
+    const ref = selectedPath ? noteRefs[selectedPath] : null
+    if (ref) setLastActiveRef({ path: ref.path, kind: ref.kind, fragment: ref.fragment ?? null })
+  }, [selectedPath, noteRefs, setLastActiveRef])
   const activePinnedRefPath = useMemo(
-    () => (selectedPath ? noteRefs[selectedPath]?.path ?? pinnedRefPath : pinnedRefPath),
-    [noteRefs, pinnedRefPath, selectedPath]
+    () =>
+      (selectedPath ? noteRefs[selectedPath]?.path : null) ??
+      pinnedRefPath ??
+      lastActiveRef?.path ??
+      null,
+    [noteRefs, pinnedRefPath, selectedPath, lastActiveRef]
   )
   const showPinnedReferencePane = !zenMode && pinnedRefVisible && !!activePinnedRefPath
 

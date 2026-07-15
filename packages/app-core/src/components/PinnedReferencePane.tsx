@@ -123,12 +123,22 @@ export function PinnedReferencePane(): JSX.Element | null {
   const globalRefFragment = useStore((s) => s.pinnedRefFragment)
   // Per-note pin (if any) overrides the global one.
   const noteRef = selectedPath ? noteRefs[selectedPath] : null
-  const pinnedRefPath = noteRef?.path ?? globalRefPath
+  // Sticky fallback: while browsing notes/folders that have no reference of
+  // their own (and there is no global pin), keep showing the last per-note
+  // reference instead of closing the pane on every selection change. Mirrors
+  // the resolution in App.tsx that decides whether the pane is mounted.
+  const lastActiveRef = useStore((s) => s.lastActiveRef)
+  const stickyRef = !noteRef && !globalRefPath ? lastActiveRef : null
+  const pinnedRefPath = noteRef?.path ?? globalRefPath ?? stickyRef?.path ?? null
   // Tie the fragment to the same pin as the path: a per-note pin without a
   // fragment must not inherit the global pin's fragment (which belongs to a
   // different asset), or its PDF would open at the wrong page.
-  const pinnedRefFragment = noteRef ? noteRef.fragment ?? null : globalRefFragment
-  const pinnedRefKind = noteRef?.kind ?? globalRefKind
+  const pinnedRefFragment = noteRef
+    ? noteRef.fragment ?? null
+    : globalRefPath
+      ? globalRefFragment
+      : stickyRef?.fragment ?? null
+  const pinnedRefKind = noteRef?.kind ?? (globalRefPath ? globalRefKind : stickyRef?.kind ?? globalRefKind)
   const isPerNotePin = !!noteRef
   const pinnedRefVisible = useStore((s) => s.pinnedRefVisible)
   const pinnedRefWidth = useStore((s) => s.pinnedRefWidth)
@@ -146,21 +156,25 @@ export function PinnedReferencePane(): JSX.Element | null {
     if (isPerNotePin && selectedPath) unpinReferenceForNote(selectedPath)
     else unpinReferenceGlobal()
   }
+  // The per-note-style reference currently shown: the active note's own ref,
+  // or the sticky last-active one while browsing. Both can be promoted.
+  const shownPerNoteRef = noteRef ?? stickyRef
   // Whether the current per-note reference has been promoted to the global pin
   // (so it stays open while browsing other notes).
-  const isKept = !!noteRef && noteRef.path === globalRefPath
-  // Promote the current per-note reference to the global pin (or, when already
-  // kept, drop back to per-note by clearing the global pin). The per-note entry
-  // is left intact — the note keeps owning its reference; the global pin is just
-  // the fallback that survives navigation.
+  const isKept = !!shownPerNoteRef && shownPerNoteRef.path === globalRefPath
+  // Promote the shown reference to the global pin (or, when already kept, drop
+  // back to per-note by clearing the global pin). The per-note entry is left
+  // intact — the note keeps owning its reference; the global pin is just the
+  // fallback that survives navigation and app restarts.
   const keepWhileBrowsing = (): void => {
-    if (!noteRef) return
+    if (!shownPerNoteRef) return
     if (isKept) {
       unpinReferenceGlobal()
       return
     }
-    if (noteRef.kind === 'asset') pinAssetReference(noteRef.path, noteRef.fragment ?? null)
-    else void pinReference(noteRef.path)
+    if (shownPerNoteRef.kind === 'asset') {
+      pinAssetReference(shownPerNoteRef.path, shownPerNoteRef.fragment ?? null)
+    } else void pinReference(shownPerNoteRef.path)
   }
   const content = useStore((s) =>
     pinnedRefPath ? s.noteContents[pinnedRefPath] ?? null : null
@@ -490,7 +504,7 @@ export function PinnedReferencePane(): JSX.Element | null {
                   <ExternalIcon width={14} height={14} />
                 </button>
               )}
-              {isPerNotePin && (
+              {!!shownPerNoteRef && (
                 <button
                   type="button"
                   title={isKept ? 'Stop keeping open' : 'Keep open while browsing (pin globally)'}

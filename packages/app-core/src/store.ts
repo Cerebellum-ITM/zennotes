@@ -2375,6 +2375,12 @@ interface Store {
    *  global pinnedRefPath while that note is open. */
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset'; fragment?: string | null }>
 
+  /** Last per-note reference the pane showed. Keeps the reference pane open
+   *  while browsing notes/folders that have no reference of their own (and no
+   *  global pin), instead of flickering closed on every selection change.
+   *  Ephemeral — not persisted; cleared by unpin actions and vault switches. */
+  lastActiveRef: { path: string; kind: 'note' | 'asset'; fragment: string | null } | null
+
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
   contentAlign: 'center' | 'left'
@@ -2764,6 +2770,9 @@ interface Store {
    *  active note. Switching notes hides it; coming back shows it. */
   pinAssetReferenceForNote: (notePath: string, assetPath: string, fragment?: string | null) => void
   unpinReferenceForNote: (notePath: string) => void
+  /** Remember the per-note reference currently shown, so the pane can keep
+   *  showing it while browsing (see `lastActiveRef`). No-op when unchanged. */
+  setLastActiveRef: (ref: { path: string; kind: 'note' | 'asset'; fragment: string | null }) => void
   togglePinnedRefVisible: () => void
   setPinnedRefWidth: (px: number) => void
   setPanelWidth: (panel: RightPanelId, px: number) => void
@@ -3941,6 +3950,7 @@ export const useStore = create<Store>((set, get) => {
   pinnedRefKind: loadPrefs().pinnedRefKind,
   htmlAttachmentAllowNetwork: loadPrefs().htmlAttachmentAllowNetwork,
   noteRefs: loadPrefs().noteRefs,
+  lastActiveRef: null,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
   autoCalendarPanel: loadPrefs().autoCalendarPanel,
@@ -5319,6 +5329,8 @@ export const useStore = create<Store>((set, get) => {
           noteContents: contents,
           noteDirty: dirty,
           pinnedRefPath: s.pinnedRefPath === ev.path ? null : s.pinnedRefPath,
+          lastActiveRef:
+            s.lastActiveRef?.path === ev.path ? null : s.lastActiveRef,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -6354,17 +6366,39 @@ export const useStore = create<Store>((set, get) => {
   unpinReferenceForNote: (notePath) => {
     set((s) => {
       if (!(notePath in s.noteRefs)) return s
+      const removed = s.noteRefs[notePath]
       const { [notePath]: _drop, ...rest } = s.noteRefs
       void _drop
-      return { noteRefs: rest }
+      // Explicitly unpinning a note's reference also stops the pane from
+      // keeping it around while browsing.
+      const clearSticky = s.lastActiveRef && removed && s.lastActiveRef.path === removed.path
+      return { noteRefs: rest, ...(clearSticky ? { lastActiveRef: null } : {}) }
     })
     savePrefs(collectPrefs(get()))
+  },
+
+  setLastActiveRef: (ref) => {
+    const prev = get().lastActiveRef
+    if (
+      prev &&
+      prev.path === ref.path &&
+      prev.kind === ref.kind &&
+      prev.fragment === ref.fragment
+    ) {
+      return
+    }
+    set({ lastActiveRef: ref })
   },
 
   unpinReference: () => {
     const s = get()
     const path = s.pinnedRefPath
-    if (!path) return
+    if (!path) {
+      // No global pin — the pane may still be showing the sticky last-active
+      // reference; unpinning must close that too.
+      if (s.lastActiveRef) set({ lastActiveRef: null })
+      return
+    }
     // Evict the cached note content only when this was a note-kind
     // pin (assets aren't cached in noteContents anyway) and no pane
     // still has the note open.
@@ -6383,6 +6417,7 @@ export const useStore = create<Store>((set, get) => {
       pinnedRefPath: null,
       pinnedRefFragment: null,
       pinnedRefKind: 'note',
+      lastActiveRef: null,
       noteContents: contents,
       noteDirty: dirty
     })
@@ -7933,6 +7968,7 @@ export const useStore = create<Store>((set, get) => {
         noteForwardstack: [],
         pendingJumpLocation: null,
         pinnedRefPath: null,
+        lastActiveRef: null,
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
@@ -8251,6 +8287,7 @@ export const useStore = create<Store>((set, get) => {
         noteForwardstack: [],
         pendingJumpLocation: null,
         pinnedRefPath: null,
+        lastActiveRef: null,
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
@@ -8332,6 +8369,7 @@ export const useStore = create<Store>((set, get) => {
         noteForwardstack: [],
         pendingJumpLocation: null,
         pinnedRefPath: null,
+        lastActiveRef: null,
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
@@ -8411,6 +8449,7 @@ export const useStore = create<Store>((set, get) => {
         noteForwardstack: [],
         pendingJumpLocation: null,
         pinnedRefPath: null,
+        lastActiveRef: null,
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
