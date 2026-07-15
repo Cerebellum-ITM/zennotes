@@ -56,7 +56,7 @@ function copyText(text: string): void {
  * on every `readMeta` call, so we don't need to re-scan note bodies
  * at render time.
  */
-export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
+export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vimEnabled = useStore((s) => s.vimMode)
   const editorView = useStore((s) => s.editorViewRef)
@@ -82,12 +82,12 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
   }, [editorView, vimEnabled])
 
   const { words, characters, minutes } = useMemo(() => {
-    const body = note.body
+    const body = note?.body ?? ''
     const w = countWords(body)
     const c = body.length
     const m = Math.max(1, Math.round(w / 200))
     return { words: w, characters: c, minutes: m }
-  }, [note.body])
+  }, [note?.body])
 
   // Backlinks depend only on the active note's *path* and the vault's
   // wikilink metadata — never on the note body. Keying the memo on
@@ -95,8 +95,9 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
   // keystroke) keeps this O(n) scan off the typing hot path while producing
   // an identical count.
   const backlinks = useMemo(() => {
+    if (!note) return 0
     return backlinksForNote(notes as NoteMeta[], note).length
-  }, [note.path, notes])
+  }, [note?.path, notes])
 
   const commitShort = appInfo.commit ? appInfo.commit.slice(0, 7) : ''
   const versionLabel = `v${appInfo.version}${commitShort ? ` · ${commitShort}` : ''}`
@@ -131,16 +132,18 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
           {versionLabel}
         </button>
       </div>
-      <div className="flex shrink-0 items-center gap-5">
-        <Stat>
-          {backlinks} {backlinks === 1 ? 'backlink' : 'backlinks'}
-        </Stat>
-        <Stat>
-          {words.toLocaleString()} {words === 1 ? 'word' : 'words'}
-        </Stat>
-        <Stat>{characters.toLocaleString()} characters</Stat>
-        <Stat>{minutes} min read</Stat>
-      </div>
+      {note && (
+        <div className="flex shrink-0 items-center gap-5">
+          <Stat>
+            {backlinks} {backlinks === 1 ? 'backlink' : 'backlinks'}
+          </Stat>
+          <Stat>
+            {words.toLocaleString()} {words === 1 ? 'word' : 'words'}
+          </Stat>
+          <Stat>{characters.toLocaleString()} characters</Stat>
+          <Stat>{minutes} min read</Stat>
+        </div>
+      )}
     </div>
   )
 }
