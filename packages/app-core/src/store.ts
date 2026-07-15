@@ -3375,6 +3375,16 @@ function rememberPrefetchedPath(path: string): void {
 function prunePrefetchedContents(s: Store): Partial<Store> {
   if (prefetchedNotePaths.length <= MAX_PREFETCHED_NOTE_CONTENTS) return {}
 
+  // Per-note references (noteRefs) are shown in the reference pane and read
+  // their body from noteContents — same reasoning as refreshNotes' `referenced`
+  // set. Protect their targets from the prefetch-cache eviction too, or a tree
+  // navigation that triggers prefetch would evict the active reference's content
+  // and blank/reload the pane (the "reference opens/closes on its own" flicker).
+  const noteRefTargets = new Set<string>()
+  for (const ref of Object.values(s.noteRefs)) {
+    if (ref?.path) noteRefTargets.add(ref.path)
+  }
+
   const contents = { ...s.noteContents }
   const dirty = { ...s.noteDirty }
   while (prefetchedNotePaths.length > MAX_PREFETCHED_NOTE_CONTENTS) {
@@ -3383,6 +3393,7 @@ function prunePrefetchedContents(s: Store): Partial<Store> {
     const referenced =
       s.selectedPath === path ||
       s.pinnedRefPath === path ||
+      noteRefTargets.has(path) ||
       allLeaves(s.paneLayout).some((leaf) => leaf.tabs.includes(path))
     if (referenced || dirty[path]) continue
     delete contents[path]
