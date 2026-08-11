@@ -26,6 +26,7 @@ import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
 import { isAppOverlayOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
+import { setMarkdownLooseMathDelimiters, setMarkdownMathRenderer } from './lib/markdown'
 import {
   appUpdateNoticeLabel,
   appUpdatePrimaryActionLabel,
@@ -325,6 +326,8 @@ function App(): JSX.Element {
   const codeBackground = useStore((s) => s.codeBackground)
   const codeBackgroundColor = useStore((s) => s.codeBackgroundColor)
   const completedTaskStyle = useStore((s) => s.completedTaskStyle)
+  const mathRenderer = useStore((s) => s.mathRenderer)
+  const looseMathDelimiters = useStore((s) => s.looseMathDelimiters)
   const lineNumberPosition = useStore((s) => s.lineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -570,6 +573,7 @@ function App(): JSX.Element {
     html.style.setProperty('--z-editor-max-width', `${editorMaxWidth}px`)
     html.dataset.contentAlign = contentAlign
     html.dataset.completedTaskStyle = completedTaskStyle
+    html.dataset.mathRenderer = mathRenderer
     html.dataset.lineNumberPosition = lineNumberPosition
 
     const setFont = (name: string, value: string | null, fallback: string): void => {
@@ -591,7 +595,19 @@ function App(): JSX.Element {
       monoFont,
       '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
     )
-  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, completedTaskStyle, lineNumberPosition, interfaceFont, textFont, monoFont])
+  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, completedTaskStyle, mathRenderer, lineNumberPosition, interfaceFont, textFont, monoFont])
+
+  // Keep the markdown/preview pipeline pointed at the active math engine, even
+  // on surfaces that render markdown without the Preview component mounted
+  // (note hover cards, comments). Preview also sets this inline before its own
+  // render to avoid any effect-ordering race on toggle.
+  useEffect(() => {
+    setMarkdownMathRenderer(mathRenderer)
+  }, [mathRenderer])
+
+  useEffect(() => {
+    setMarkdownLooseMathDelimiters(looseMathDelimiters)
+  }, [looseMathDelimiters])
 
   // The app now always runs fully opaque.
   useEffect(() => {
@@ -898,7 +914,13 @@ function App(): JSX.Element {
         state.outlinePaletteOpen ||
         document.querySelector('[data-ctx-menu]') ||
         document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]')
+        document.querySelector('[data-confirm-modal]') ||
+        // An open autocomplete popup (slash menu, [[ links, the callout [! type
+        // picker) owns the keyboard: its Ctrl+J/Ctrl+K/Ctrl+N/Ctrl+P navigation
+        // must win over a focusPane shortcut a user remapped onto those chords,
+        // rather than switching panes mid-completion. Mirrors the completion
+        // deferral for inline-format shortcuts (#337). Reported by Tornado300.
+        document.querySelector('.cm-tooltip-autocomplete')
       ) {
         return
       }

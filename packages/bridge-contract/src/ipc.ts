@@ -78,6 +78,8 @@ export const IPC = {
   VAULT_DUPLICATE_FOLDER: 'vault:duplicate-folder',
   VAULT_REVEAL_FOLDER: 'vault:reveal-folder',
   VAULT_REVEAL_FILE_PATH: 'vault:reveal-file-path',
+  VAULT_OPEN_EXTERNAL_FILE: 'vault:open-external-file',
+  VAULT_FETCH_LINK_METADATA: 'vault:fetch-link-metadata',
   VAULT_REVEAL_FOLDER_TARGET: 'vault:reveal-folder-target',
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
   VAULT_SCAN_TASKS: 'vault:scan-tasks',
@@ -120,6 +122,7 @@ export const IPC = {
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',
   APP_OPEN_MARKDOWN_FILE: 'app:open-markdown-file',
+  APP_OPEN_FILE_DIALOG: 'app:open-file-dialog',
   APP_OPEN_FOLDER_TEMPORARY: 'app:open-folder-temporary',
   TIKZ_RENDER: 'tikz:render',
   MCP_STATUS: 'mcp:status',
@@ -475,6 +478,9 @@ export interface VaultSettings {
   drawingsLocation?: FileLocationSetting
   /** Where new databases are created; absent means the default (`primary`). (#362) */
   databasesLocation?: FileLocationSetting
+  /** Where new task files (`#task`-tagged notes) are created; absent means the
+   *  default (`primary`, i.e. the inbox). */
+  tasksLocation?: FileLocationSetting
   /** Per-vault view overrides (#292); absent/empty means "inherit global". */
   view?: VaultViewSettings
   /** Map of folder key (`<folder>:<subpath>`) to an {@link IconRef}. */
@@ -573,6 +579,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   },
   drawingsLocation: { mode: 'primary' },
   databasesLocation: { mode: 'primary' },
+  tasksLocation: { mode: 'primary' },
   folderIcons: {},
   folderColors: {},
   favorites: [],
@@ -746,6 +753,22 @@ export interface VaultInfo {
    *  ZenNotes state is written into the folder and it isn't remembered. The
    *  renderer shows a banner and the next launch reopens the saved vault. */
   temporary?: boolean
+}
+
+/** Open-graph-ish metadata for a URL, used to render a bookmark card. All
+ *  fields but `url` are best-effort; `ok: false` means the fetch failed and the
+ *  card should fall back to just the link. */
+export interface LinkMetadata {
+  url: string
+  ok: boolean
+  title?: string
+  description?: string
+  /** Preview image URL (absolute). */
+  image?: string
+  /** Favicon URL (absolute). */
+  favicon?: string
+  /** Human site name, e.g. "GitHub". */
+  siteName?: string
 }
 
 /** A markdown file opened from outside any vault (standalone editor window). */

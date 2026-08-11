@@ -28,7 +28,7 @@ export async function cmdTaskList(vault: string, args: ParsedArgs): Promise<void
     return
   }
   for (const t of tasks) {
-    const box = t.checked ? '[x]' : t.waiting ? '[~]' : '[ ]'
+    const box = t.checked ? '[x]' : t.cancelled ? '[-]' : t.waiting ? '[~]' : '[ ]'
     const due = t.due ? `  due:${t.due}` : ''
     const pri = t.priority ? `  !${t.priority}` : ''
     emitLine(`${box}  ${pad(t.id, 40)}  ${truncate(t.content, 80)}${due}${pri}`)

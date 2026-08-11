@@ -285,6 +285,12 @@ export const SortIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const FilterIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+  </I>
+)
+
 export const TargetIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <circle cx="12" cy="12" r="9" />

@@ -103,6 +103,32 @@ describe('daily-notes task settings round-trip (#288)', () => {
   })
 })
 
+describe('file-location settings round-trip (#446)', () => {
+  it('persists tasksLocation through set/get (drawings/databases already worked)', async () => {
+    const root = await makeTempDir('zennotes-vault-tasksloc-')
+    await mkdir(root, { recursive: true })
+    const base = await getVaultSettings(root)
+    // Before the fix the main process sanitizer dropped tasksLocation on save
+    // (drawings and databases were kept), so the Tasks-location control snapped
+    // back and every new task landed in the inbox regardless of the choice.
+    await setVaultSettings(root, {
+      ...base,
+      tasksLocation: { mode: 'folder', folder: 'Tasks' },
+      drawingsLocation: { mode: 'active-note' }
+    })
+    const saved = await getVaultSettings(root)
+    expect(saved.tasksLocation).toEqual({ mode: 'folder', folder: 'Tasks' })
+    expect(saved.drawingsLocation).toEqual({ mode: 'active-note' })
+  })
+
+  it('defaults tasksLocation to primary when unset', async () => {
+    const root = await makeTempDir('zennotes-vault-tasksloc-default-')
+    await mkdir(root, { recursive: true })
+    const settings = await getVaultSettings(root)
+    expect(settings.tasksLocation).toEqual({ mode: 'primary' })
+  })
+})
+
 describe('absolutePath', () => {
   it('rejects sibling-prefix escapes outside the vault root', async () => {
     const parent = await makeTempDir('zennotes-vault-parent-')

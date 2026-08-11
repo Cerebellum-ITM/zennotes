@@ -27,7 +27,14 @@ import type {
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
-import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody } from '@shared/tasks'
+import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody, toIsoDateLocal } from '@shared/tasks'
+import {
+  composeTaskFile,
+  setTaskFileStatus,
+  setTaskFileCancelled,
+  taskFilePriorityValue,
+  updateFrontmatterFields
+} from '@shared/frontmatter'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
 import {
   databaseTabPath,
@@ -51,12 +58,14 @@ import {
   FENCE_RE,
   TASK_LINE_RE,
   extractUncheckedTaskBlocks,
+  insertTasksUnderTasksHeading,
   moveTaskLine,
   removeTaskAtIndex,
   takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
   setTaskDueAtIndex,
   setTaskForwardedAtIndex,
+  setTaskCancelledAtIndex,
   setTaskPriorityAtIndex,
   setTaskFieldAtIndex,
   setTaskTextAtIndex,
@@ -94,6 +103,7 @@ import {
   defaultTimeFormat,
   type AppConfigPortable,
   type CompletedTaskStyle,
+  type MathRenderer,
   type TimeFormat
 } from '@shared/app-config'
 import {
@@ -419,12 +429,23 @@ interface Prefs {
   /** How a completed task's text is styled (strike / gray / both / none) in the
    *  editor and preview. Applied via `html[data-completed-task-style]`. */
   completedTaskStyle: CompletedTaskStyle
+  /** Typesetter for `$…$` / `$$…$$` math (KaTeX or Typst), in both the editor
+   *  live preview and the reading view. */
+  mathRenderer: MathRenderer
+  /** Relax `$$…$$` display math so prose before the open fence (`Note: $$…$$`)
+   *  or after the close fence (`$$…$$ done`) still renders in the reading view.
+   *  Off by default; the editor keeps showing source for those shapes. */
+  looseMathDelimiters: boolean
   /** Keep the current view mode (Edit / Split / Preview) when switching notes
    *  instead of resolving each note's own last mode. Off = per-note (default). */
   keepViewModeAcrossNotes: boolean
   /** Auto-close markdown delimiters while typing: `**`+Space → `**|**`,
    *  ```` ``` ````+Enter expands a fenced block. Off restores plain typing. */
   markdownSnippets: boolean
+  /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. */
+  autoPairs: boolean
+  /** Also auto-insert matching quotes outside Markdown code spans and blocks. */
+  autoPairQuotesInProse: boolean
   hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -534,6 +555,11 @@ interface Prefs {
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
+  /** Show `/`-separated tags as a collapsible tree (sidebar + Tags view)
+   *  instead of a flat list. Degrades to a flat list when no tag nests. (#439) */
+  nestedTags: boolean
+  /** Full paths of collapsed nodes in the nested-tag tree. */
+  collapsedTagNodes: string[]
   /** Auto-show the calendar panel when the active note is a daily or
    *  weekly note. Persisted. */
   autoCalendarPanel: boolean
@@ -765,8 +791,12 @@ export const DEFAULT_PREFS: Prefs = {
   livePreview: true,
   renderTablesInLivePreview: true,
   completedTaskStyle: 'none',
+  mathRenderer: 'katex',
+  looseMathDelimiters: false,
   keepViewModeAcrossNotes: false,
   markdownSnippets: true,
+  autoPairs: true,
+  autoPairQuotesInProse: false,
   hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
@@ -826,6 +856,8 @@ export const DEFAULT_PREFS: Prefs = {
   noteRefs: {},
   contentAlign: 'center',
   tagsCollapsed: false,
+  nestedTags: true,
+  collapsedTagNodes: [],
   autoCalendarPanel: true,
   calendarWeekStart: 'monday',
   calendarShowWeekNumbers: true,
@@ -914,6 +946,14 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.completedTaskStyle === 'none'
         ? p.completedTaskStyle
         : DEFAULT_PREFS.completedTaskStyle,
+    mathRenderer:
+      p.mathRenderer === 'typst' || p.mathRenderer === 'katex'
+        ? p.mathRenderer
+        : DEFAULT_PREFS.mathRenderer,
+    looseMathDelimiters:
+      typeof p.looseMathDelimiters === 'boolean'
+        ? p.looseMathDelimiters
+        : DEFAULT_PREFS.looseMathDelimiters,
     keepViewModeAcrossNotes:
       typeof p.keepViewModeAcrossNotes === 'boolean'
         ? p.keepViewModeAcrossNotes
@@ -922,6 +962,11 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.markdownSnippets === 'boolean'
         ? p.markdownSnippets
         : DEFAULT_PREFS.markdownSnippets,
+    autoPairs: typeof p.autoPairs === 'boolean' ? p.autoPairs : DEFAULT_PREFS.autoPairs,
+    autoPairQuotesInProse:
+      typeof p.autoPairQuotesInProse === 'boolean'
+        ? p.autoPairQuotesInProse
+        : DEFAULT_PREFS.autoPairQuotesInProse,
     hideBuiltinTemplates:
       typeof p.hideBuiltinTemplates === 'boolean'
         ? p.hideBuiltinTemplates
@@ -1119,6 +1164,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.contentAlign,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
+    nestedTags: typeof p.nestedTags === 'boolean' ? p.nestedTags : DEFAULT_PREFS.nestedTags,
+    collapsedTagNodes: Array.isArray(p.collapsedTagNodes)
+      ? p.collapsedTagNodes.filter((k): k is string => typeof k === 'string')
+      : DEFAULT_PREFS.collapsedTagNodes,
     autoCalendarPanel:
       typeof p.autoCalendarPanel === 'boolean'
         ? p.autoCalendarPanel
@@ -1541,7 +1590,15 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
   for (const m of mutations) {
     switch (m.kind) {
       case 'set-checked':
-        if (next.checked !== m.checked) next = { ...next, checked: m.checked }
+        if (next.checked !== m.checked) {
+          next = { ...next, checked: m.checked }
+          // A file-task's completion lives in its `status`, so keep that (and the
+          // Kanban-grouping field) in sync optimistically too.
+          if (next.kind === 'file') {
+            const status = m.checked ? 'done' : 'open'
+            next = { ...next, status, fields: { ...next.fields, status } }
+          }
+        }
         break
       case 'set-waiting':
         if (next.waiting !== m.waiting) next = { ...next, waiting: m.waiting }
@@ -1573,6 +1630,40 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
     }
   }
   return next
+}
+
+/** Map task mutations onto frontmatter scalar updates for a whole-note file
+ *  task (which has no inline checkbox to edit). Mirrors the inline mutators in
+ *  `applyTaskMutation`. `todayIso` stamps the completion date. */
+function fileTaskMutationUpdates(
+  mutations: TaskMutation[],
+  todayIso: string
+): Record<string, string | null> {
+  const updates: Record<string, string | null> = {}
+  for (const m of mutations) {
+    switch (m.kind) {
+      case 'set-checked':
+        updates.status = m.checked ? 'done' : 'open'
+        updates.completedDate = m.checked ? todayIso : null
+        break
+      case 'set-waiting':
+        updates.status = m.waiting ? 'waiting' : 'open'
+        break
+      case 'set-priority':
+        updates.priority = taskFilePriorityValue(m.priority)
+        break
+      case 'set-due':
+        updates.due = m.due
+        break
+      case 'set-field':
+        updates[m.key] = m.value
+        break
+      case 'set-text':
+        updates.title = m.text.trim()
+        break
+    }
+  }
+  return updates
 }
 
 function yieldForOptimisticPaint(): Promise<void> {
@@ -1724,8 +1815,12 @@ function collectPrefs(s: {
   livePreview: boolean
   renderTablesInLivePreview: boolean
   completedTaskStyle: CompletedTaskStyle
+  mathRenderer: MathRenderer
+  looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
   markdownSnippets: boolean
+  autoPairs: boolean
+  autoPairQuotesInProse: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -1773,6 +1868,8 @@ function collectPrefs(s: {
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
+  nestedTags: boolean
+  collapsedTagNodes: string[]
   autoCalendarPanel: boolean
   calendarWeekStart: CalendarWeekStart
   calendarShowWeekNumbers: boolean
@@ -1809,8 +1906,12 @@ function collectPrefs(s: {
     livePreview: s.livePreview,
     renderTablesInLivePreview: s.renderTablesInLivePreview,
     completedTaskStyle: s.completedTaskStyle,
+    mathRenderer: s.mathRenderer,
+    looseMathDelimiters: s.looseMathDelimiters,
     keepViewModeAcrossNotes: s.keepViewModeAcrossNotes,
     markdownSnippets: s.markdownSnippets,
+    autoPairs: s.autoPairs,
+    autoPairQuotesInProse: s.autoPairQuotesInProse,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
@@ -1858,6 +1959,8 @@ function collectPrefs(s: {
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
+    nestedTags: s.nestedTags,
+    collapsedTagNodes: s.collapsedTagNodes,
     autoCalendarPanel: s.autoCalendarPanel,
     calendarWeekStart: s.calendarWeekStart,
     calendarShowWeekNumbers: s.calendarShowWeekNumbers,
@@ -2280,9 +2383,15 @@ interface Store {
   livePreview: boolean
   renderTablesInLivePreview: boolean
   completedTaskStyle: CompletedTaskStyle
+  mathRenderer: MathRenderer
+  looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
   /** Auto-close markdown delimiters while typing. Persisted. */
   markdownSnippets: boolean
+  /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. Persisted. */
+  autoPairs: boolean
+  /** Also auto-insert matching quotes outside Markdown code spans and blocks. Persisted. */
+  autoPairQuotesInProse: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -2388,6 +2497,11 @@ interface Store {
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
   tagsCollapsed: boolean
+  /** Render `/`-separated tags as a collapsible tree (sidebar + Tags view).
+   *  Persisted. (#439) */
+  nestedTags: boolean
+  /** Full paths of collapsed nodes in the nested-tag tree. Persisted. */
+  collapsedTagNodes: string[]
   /** Auto-show the calendar panel when the active note is a daily or
    *  weekly note. Persisted. */
   autoCalendarPanel: boolean
@@ -2582,6 +2696,9 @@ interface Store {
   /** Flip a task's checkbox. Reuses `toggleTaskAtIndex` so the file round-
    *  trips exactly — works whether or not the note is currently open. */
   toggleTaskFromList: (task: VaultTask) => Promise<void>
+  /** Toggle a task's cancelled state (`[-]` inline, `status: cancelled` for a
+   *  file-task). Cancelled = intentionally abandoned, distinct from done. (#450) */
+  cancelTaskFromList: (task: VaultTask) => Promise<void>
   /** Apply one or more structured mutations to the task line on disk
    *  and reflect them locally. Used by the Kanban DnD pipeline to
    *  flip checked / waiting / priority without forcing the user to
@@ -2650,6 +2767,15 @@ interface Store {
     options?: { focusTitle?: boolean; title?: string }
   ) => Promise<void>
   createDrawingAndOpen: (folder: NoteFolder, subpath?: string) => Promise<void>
+  /** Quick-add a whole-note task file (`#task`-tagged, TaskNotes-style). Prompts
+   *  for a title and creates it at `opts` (an explicit folder/subpath) or, when
+   *  omitted, the configured tasks location. Resolves to the created path, or
+   *  null if cancelled. */
+  newTaskFile: (opts?: { folder: NoteFolder; subpath?: string }) => Promise<string | null>
+  /** Quick-add a task file after first asking which folder to put it in (a
+   *  destination prompt with folder autocomplete), then the title — for keeping
+   *  per-project tasks organized. Resolves to the created path, or null. */
+  newTaskFileInChosenFolder: () => Promise<string | null>
   /**
    * Create a note after asking where to put it: a destination prompt that
    * defaults to `initialPath` (empty = vault root), so the user can press Enter
@@ -2698,8 +2824,12 @@ interface Store {
   setLivePreview: (on: boolean) => void
   setRenderTablesInLivePreview: (on: boolean) => void
   setCompletedTaskStyle: (style: CompletedTaskStyle) => void
+  setMathRenderer: (renderer: MathRenderer) => void
+  setLooseMathDelimiters: (on: boolean) => void
   setKeepViewModeAcrossNotes: (on: boolean) => void
   setMarkdownSnippets: (on: boolean) => void
+  setAutoPairs: (on: boolean) => void
+  setAutoPairQuotesInProse: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
@@ -2842,6 +2972,9 @@ interface Store {
   setHtmlAttachmentAllowNetwork: (on: boolean) => void
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
+  setNestedTags: (enabled: boolean) => void
+  /** Toggle a nested-tag tree node between expanded and collapsed by its full path. */
+  toggleCollapseTagNode: (path: string) => void
   setAutoCalendarPanel: (enabled: boolean) => void
   setCalendarWeekStart: (start: CalendarWeekStart) => void
   setCalendarShowWeekNumbers: (show: boolean) => void
@@ -3894,8 +4027,12 @@ export const useStore = create<Store>((set, get) => {
   livePreview: loadPrefs().livePreview,
   renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
   completedTaskStyle: loadPrefs().completedTaskStyle,
+  mathRenderer: loadPrefs().mathRenderer,
+  looseMathDelimiters: loadPrefs().looseMathDelimiters,
   keepViewModeAcrossNotes: loadPrefs().keepViewModeAcrossNotes,
   markdownSnippets: loadPrefs().markdownSnippets,
+  autoPairs: loadPrefs().autoPairs,
+  autoPairQuotesInProse: loadPrefs().autoPairQuotesInProse,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
@@ -3953,6 +4090,8 @@ export const useStore = create<Store>((set, get) => {
   lastActiveRef: null,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
+  nestedTags: loadPrefs().nestedTags,
+  collapsedTagNodes: loadPrefs().collapsedTagNodes,
   autoCalendarPanel: loadPrefs().autoCalendarPanel,
   calendarWeekStart: loadPrefs().calendarWeekStart,
   calendarShowWeekNumbers: loadPrefs().calendarShowWeekNumbers,
@@ -4306,6 +4445,44 @@ export const useStore = create<Store>((set, get) => {
     )
     await get().createDatabase(folder, subpath)
   },
+  newTaskFile: async (opts) => {
+    const title = (
+      await promptApp({
+        title: 'New task',
+        placeholder: 'Task title, e.g. Buy groceries',
+        okLabel: 'Create task'
+      })
+    )?.trim()
+    if (!title) return null
+    const s = get()
+    const settings = normalizeVaultSettings(s.vaultSettings)
+    // An explicit destination wins; otherwise fall back to the configured tasks
+    // location (the inbox by default).
+    const { folder, subpath } = opts
+      ? { folder: opts.folder, subpath: opts.subpath ?? '' }
+      : resolveCreateLocation(settings.tasksLocation, s.activeNote, settings)
+    try {
+      const meta = await window.zen.createNote(folder, title, subpath)
+      // Overwrite the default `# title` body with the TaskNotes-style frontmatter
+      // so the note is recognized as a task and shows up in the Tasks view.
+      await window.zen.writeNote(
+        meta.path,
+        composeTaskFile({ title, dateCreated: new Date().toISOString() })
+      )
+      await get().refreshTasks()
+      return meta.path
+    } catch (err) {
+      console.error('newTaskFile failed', err)
+      return null
+    }
+  },
+  newTaskFileInChosenFolder: async () => {
+    const state = get()
+    const entered = await promptApp(buildNoteDestinationPrompt('', state.folders))
+    if (entered == null) return null // cancelled
+    const dest = parseTemplateDestination(entered)
+    return get().newTaskFile({ folder: dest.folder, subpath: dest.subpath })
+  },
   renameDatabase: async (csvPath, newTitle) => {
     if (typeof window.zen.renameDatabase !== 'function') return
     try {
@@ -4612,6 +4789,11 @@ export const useStore = create<Store>((set, get) => {
       },
       focusedPanel: 'editor'
     })
+    // Setting focusedPanel above only updates store state; the Tasks view still
+    // holds real DOM focus (opening the source note swaps the pane's content
+    // async), so move keyboard focus to the editor for vim motions / typing.
+    // The event handler retries across the note remount. (#415)
+    requestEditorFocus()
   },
 
   toggleTaskFromList: async (task) => {
@@ -4620,7 +4802,13 @@ export const useStore = create<Store>((set, get) => {
     const openBuffer = state.noteContents[path]
     // Prefer the live buffer for open notes so we don't stomp unsaved edits.
     const body = openBuffer?.body ?? (await window.zen.readNote(path)).body
-    const nextBody = toggleTaskAtIndex(body, task.taskIndex, !task.checked)
+    // A file-task's completion lives in frontmatter (`status`/`completedDate`),
+    // not a checkbox char.
+    const nextChecked = !task.checked
+    const nextBody =
+      task.kind === 'file'
+        ? setTaskFileStatus(body, nextChecked, toIsoDateLocal(new Date()))
+        : toggleTaskAtIndex(body, task.taskIndex, nextChecked)
     if (nextBody === body) return
 
     if (openBuffer) {
@@ -4638,10 +4826,47 @@ export const useStore = create<Store>((set, get) => {
 
     // Optimistically reflect the change locally; the watcher echo will
     // confirm via rescanTasksForPath.
+    const nextStatus = nextChecked ? 'done' : 'open'
     set((s) => ({
       vaultTasks: s.vaultTasks.map((t) =>
         t.sourcePath === path && t.taskIndex === task.taskIndex
-          ? { ...t, checked: !task.checked }
+          ? task.kind === 'file'
+            ? { ...t, checked: nextChecked, status: nextStatus, fields: { ...t.fields, status: nextStatus } }
+            : { ...t, checked: nextChecked }
+          : t
+      )
+    }))
+  },
+
+  cancelTaskFromList: async (task) => {
+    const path = task.sourcePath
+    const openBuffer = get().noteContents[path]
+    const body = openBuffer?.body ?? (await window.zen.readNote(path)).body
+    const nextCancelled = !task.cancelled
+    const nextBody =
+      task.kind === 'file'
+        ? setTaskFileCancelled(body, nextCancelled)
+        : setTaskCancelledAtIndex(body, task.taskIndex, nextCancelled)
+    if (nextBody === body) return
+
+    if (openBuffer) {
+      get().updateNoteBody(path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(path, nextBody)
+      } catch (err) {
+        console.error('writeNote (cancel) failed', err)
+        return
+      }
+    }
+
+    const nextStatus = nextCancelled ? 'cancelled' : 'open'
+    set((s) => ({
+      vaultTasks: s.vaultTasks.map((t) =>
+        t.sourcePath === path && t.taskIndex === task.taskIndex
+          ? task.kind === 'file'
+            ? { ...t, cancelled: nextCancelled, status: nextStatus, fields: { ...t.fields, status: nextStatus } }
+            : { ...t, cancelled: nextCancelled }
           : t
       )
     }))
@@ -4676,26 +4901,35 @@ export const useStore = create<Store>((set, get) => {
     }
 
     let nextBody = body
-    for (const m of mutations) {
-      switch (m.kind) {
-        case 'set-checked':
-          nextBody = setTaskCheckedAtIndex(nextBody, task.taskIndex, m.checked)
-          break
-        case 'set-waiting':
-          nextBody = setTaskWaitingAtIndex(nextBody, task.taskIndex, m.waiting)
-          break
-        case 'set-priority':
-          nextBody = setTaskPriorityAtIndex(nextBody, task.taskIndex, m.priority)
-          break
-        case 'set-due':
-          nextBody = setTaskDueAtIndex(nextBody, task.taskIndex, m.due)
-          break
-        case 'set-field':
-          nextBody = setTaskFieldAtIndex(nextBody, task.taskIndex, m.key, m.value)
-          break
-        case 'set-text':
-          nextBody = setTaskTextAtIndex(nextBody, task.taskIndex, m.text)
-          break
+    if (task.kind === 'file') {
+      // Whole-note task: every field lives in frontmatter, so apply the whole
+      // batch as one frontmatter rewrite rather than per-line edits.
+      nextBody = updateFrontmatterFields(
+        body,
+        fileTaskMutationUpdates(mutations, toIsoDateLocal(new Date()))
+      )
+    } else {
+      for (const m of mutations) {
+        switch (m.kind) {
+          case 'set-checked':
+            nextBody = setTaskCheckedAtIndex(nextBody, task.taskIndex, m.checked)
+            break
+          case 'set-waiting':
+            nextBody = setTaskWaitingAtIndex(nextBody, task.taskIndex, m.waiting)
+            break
+          case 'set-priority':
+            nextBody = setTaskPriorityAtIndex(nextBody, task.taskIndex, m.priority)
+            break
+          case 'set-due':
+            nextBody = setTaskDueAtIndex(nextBody, task.taskIndex, m.due)
+            break
+          case 'set-field':
+            nextBody = setTaskFieldAtIndex(nextBody, task.taskIndex, m.key, m.value)
+            break
+          case 'set-text':
+            nextBody = setTaskTextAtIndex(nextBody, task.taskIndex, m.text)
+            break
+        }
       }
     }
     if (nextBody === body) {
@@ -4718,6 +4952,20 @@ export const useStore = create<Store>((set, get) => {
 
   deleteTaskFromList: async (task) => {
     const path = task.sourcePath
+    // A file-task *is* the note, so "delete" means trash the whole note (with a
+    // confirm, since it may hold body notes). Inline tasks just drop their line.
+    if (task.kind === 'file') {
+      if (!(await confirmMoveToTrash(task.noteTitle))) return
+      set((s) => ({ vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== path) }))
+      try {
+        await window.zen.moveToTrash(path)
+        await get().refreshNotes()
+      } catch (err) {
+        console.error('deleteTaskFromList moveToTrash failed', err)
+        void get().refreshTasks()
+      }
+      return
+    }
     const openBuffer = get().noteContents[path]
     let body: string
     try {
@@ -4750,6 +4998,12 @@ export const useStore = create<Store>((set, get) => {
   moveTaskToDate: async (task, dateIso) => {
     const parsed = parseIsoDateLocal(dateIso)
     if (!parsed) return
+    // A file-task isn't a line that can move into a daily note; rescheduling it
+    // just rewrites its frontmatter `due`.
+    if (task.kind === 'file') {
+      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      return
+    }
     const settings = normalizeVaultSettings(get().vaultSettings)
     // No daily notes to move into — just set the due date instead.
     if (!settings.dailyNotes.enabled) {
@@ -4854,10 +5108,10 @@ export const useStore = create<Store>((set, get) => {
     const nextSrc = setTaskForwardedAtIndex(srcBody, task.taskIndex, forwardLink)
     if (nextSrc === srcBody) return
 
-    // Copy: a fresh open task in the target, backlinked to the origin.
+    // Copy: a fresh open task in the target, backlinked to the origin. Slot it
+    // under the target's `## Tasks` heading when it has one, else append (#452).
     const copyLine = `- [ ] ${task.content} ${backLink}`.replace(/\s+$/u, '')
-    const trimmed = tgtBody.replace(/\s+$/u, '')
-    const nextTgt = trimmed.length ? `${trimmed}\n${copyLine}\n` : `${copyLine}\n`
+    const nextTgt = insertTasksUnderTasksHeading(tgtBody, [copyLine])
 
     if (srcBuffer) get().updateNoteBody(task.sourcePath, nextSrc)
     else {
@@ -6017,12 +6271,28 @@ export const useStore = create<Store>((set, get) => {
     set({ completedTaskStyle: style })
     savePrefs(collectPrefs(get()))
   },
+  setMathRenderer: (renderer) => {
+    set({ mathRenderer: renderer })
+    savePrefs(collectPrefs(get()))
+  },
+  setLooseMathDelimiters: (on) => {
+    set({ looseMathDelimiters: on })
+    savePrefs(collectPrefs(get()))
+  },
   setKeepViewModeAcrossNotes: (on) => {
     set({ keepViewModeAcrossNotes: on })
     savePrefs(collectPrefs(get()))
   },
   setMarkdownSnippets: (on) => {
     set({ markdownSnippets: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setAutoPairs: (on) => {
+    set({ autoPairs: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setAutoPairQuotesInProse: (on) => {
+    set({ autoPairQuotesInProse: on })
     savePrefs(collectPrefs(get()))
   },
   setHideBuiltinTemplates: (hidden) => {
@@ -6630,9 +6900,9 @@ export const useStore = create<Store>((set, get) => {
       console.error('rollover readNote (today) failed', err)
       return 0
     }
-    const trimmed = todayBody.replace(/\s+$/u, '')
-    const block = movedLines.join('\n')
-    const nextBody = trimmed.length ? `${trimmed}\n${block}\n` : `${block}\n`
+    // Group the rolled-over tasks under today's `## Tasks` heading if it has
+    // one, else append them to the end (#452).
+    const nextBody = insertTasksUnderTasksHeading(todayBody, movedLines)
     if (todayBuffer) {
       get().updateNoteBody(todayNote.path, nextBody)
     } else {
@@ -6861,6 +7131,11 @@ export const useStore = create<Store>((set, get) => {
       } else {
         await get().selectNote(meta.path)
       }
+      // Land keyboard focus in the editor so typing starts immediately. This
+      // flow is usually fired from outside the editor — the Leader menu, the
+      // command palette, a folder menu — where focus would otherwise stay on
+      // the picker/prompt that just closed. (#436, mirrors the daily-note flow)
+      requestEditorFocus()
     } catch (err) {
       console.error('createFromTemplate failed', err)
     }
@@ -6949,6 +7224,18 @@ export const useStore = create<Store>((set, get) => {
   },
   setTagsCollapsed: (collapsed) => {
     set({ tagsCollapsed: collapsed })
+    savePrefs(collectPrefs(get()))
+  },
+  setNestedTags: (enabled) => {
+    set({ nestedTags: enabled })
+    savePrefs(collectPrefs(get()))
+  },
+  toggleCollapseTagNode: (path) => {
+    set((s) =>
+      s.collapsedTagNodes.includes(path)
+        ? { collapsedTagNodes: s.collapsedTagNodes.filter((p) => p !== path) }
+        : { collapsedTagNodes: [...s.collapsedTagNodes, path] }
+    )
     savePrefs(collectPrefs(get()))
   },
   setAutoCalendarPanel: (enabled) => {

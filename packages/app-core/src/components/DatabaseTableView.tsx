@@ -91,8 +91,12 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   }, [doc.fields, view.columnOrder, view.hiddenFieldIds, map])
 
   const rows = useMemo(() => {
-    return sortRows(filterRows(doc.rows, view.filters, map), view.sorts, map)
-  }, [doc.rows, view.filters, view.sorts, map])
+    return sortRows(
+      filterRows(doc.rows, view.filters, map, view.filterConjunction),
+      view.sorts,
+      map
+    )
+  }, [doc.rows, view.filters, view.filterConjunction, view.sorts, map])
 
   const anySelected = selected.size > 0
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))

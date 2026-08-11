@@ -13,6 +13,7 @@ import {
   resolveNextPanel,
   shouldYieldToHomeNav
 } from '../lib/vim-nav'
+import { isCalendarToggleAvailable } from '../lib/vault-layout'
 import { focusPaneInDirection } from '../lib/pane-nav'
 import { findLeaf } from '../lib/pane-layout'
 import { boundedIndexCount, clampIndex, moveIndex } from '../lib/index-navigation'
@@ -180,6 +181,12 @@ export function VimNav(): JSX.Element | null {
     setHint(false)
     focusEditor()
   }, [focusEditor, setHint])
+  // The calendar toggle only works when the active pane holds a note (it can't
+  // render in the note-less Tasks/Tags views), so its leader hint is hidden
+  // there rather than shown as a dead key. (#413)
+  const calendarToggleAvailable = useStore((s) =>
+    isCalendarToggleAvailable(s.vaultSettings, s.activeNote)
+  )
   const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
@@ -310,11 +317,15 @@ export function VimNav(): JSX.Element | null {
         label: "This month's note",
         detail: 'Open or create the monthly note for this month.'
       },
-      {
-        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalendar'),
-        label: 'Toggle calendar',
-        detail: 'Show or hide the calendar for the active daily/weekly note.'
-      }
+      ...(calendarToggleAvailable
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalendar'),
+              label: 'Toggle calendar',
+              detail: 'Show or hide the calendar for the active daily/weekly note.'
+            }
+          ]
+        : [])
     ]
     if (whichKeyState.allowEditorActions) {
       items.push({
@@ -518,7 +529,12 @@ export function VimNav(): JSX.Element | null {
         !leaderPending.current &&
         !(
           isEditorFocused(state.editorViewRef) &&
-          isEditorInsertMode(state.editorViewRef, state.vimMode)
+          (isEditorInsertMode(state.editorViewRef, state.vimMode) ||
+            // While Vim is mid-command awaiting an argument (after f/F/t/T/r, an
+            // operator, or a count), the next key is that command's literal
+            // target — e.g. `f[` finds `[`. Don't let the `[b`/`]b` buffer-nav
+            // or `gt`/`gT` prefixes swallow it; let it reach codemirror-vim.
+            isVimAwaitingArgument(state.editorViewRef))
         )
       ) {
         const consumeBufferKey = (): void => {
@@ -812,8 +828,19 @@ export function VimNav(): JSX.Element | null {
       // VimNav consumes the leader keypress before TasksView sees it, so the
       // leader no longer collides with Space-to-toggle. (#151)
       const panelViewActive = isTasksViewActive(state) || isTagsViewActive(state)
+      // Only defer while that view actually holds keyboard focus. After pane
+      // navigation moves focus to another panel (e.g. Ctrl+W h → sidebar), the
+      // Tasks/Tags tab is still "active" but focusedPanel is no longer
+      // 'tasks'/'tags' — so we must NOT bail here, or the target panel's keys
+      // (sidebar j/k) would be handled by nobody (the view now releases them
+      // too). A null panel means "no explicit focus yet", so keep deferring. (#412)
+      const panelViewFocused =
+        state.focusedPanel == null ||
+        state.focusedPanel === 'tasks' ||
+        state.focusedPanel === 'tags'
       if (
         panelViewActive &&
+        panelViewFocused &&
         !leaderPending.current &&
         sequenceTokenFromEvent(e) !== leaderToken
       ) {
@@ -933,12 +960,17 @@ export function VimNav(): JSX.Element | null {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          // If the calendar is opening (not already shown), move focus into it
-          // once it mounts — the CalendarPanel focuses itself when it sees
-          // focusedPanel === 'calendar'. If it's closing, leave focus alone. (#285)
-          const wasOpen = document.querySelector('[data-calendar-panel]') !== null
-          window.dispatchEvent(new Event('zen:toggle-calendar'))
-          if (!wasOpen) state.setFocusedPanel('calendar')
+          // The calendar can't render without a note in the pane (Tasks/Tags,
+          // Quick Notes), so pressing it there just dismisses the leader hint
+          // rather than silently doing nothing or leaking to another binding. (#413)
+          if (isCalendarToggleAvailable(state.vaultSettings, state.activeNote)) {
+            // If the calendar is opening (not already shown), move focus into it
+            // once it mounts — the CalendarPanel focuses itself when it sees
+            // focusedPanel === 'calendar'. If it's closing, leave focus alone. (#285)
+            const wasOpen = document.querySelector('[data-calendar-panel]') !== null
+            window.dispatchEvent(new Event('zen:toggle-calendar'))
+            if (!wasOpen) state.setFocusedPanel('calendar')
+          }
           return
         }
         // Any other key cancels leader and falls through to normal routing.
@@ -983,8 +1015,11 @@ export function VimNav(): JSX.Element | null {
 
       // In the tasks/tags panels, only leader input is handled above; hand
       // every other key (including a just-reset leader sequence) back to the
-      // panel's own capture handler. (#151)
-      if (panelViewActive && sequenceTokenFromEvent(e) !== leaderToken) {
+      // panel's own capture handler — but only while that view actually holds
+      // keyboard focus. Once pane navigation moves focus to another panel
+      // (e.g. Ctrl+W h → sidebar), fall through so the sidebar/etc. handlers
+      // below run instead of the keys going to nobody. (#151, #412)
+      if (panelViewActive && panelViewFocused && sequenceTokenFromEvent(e) !== leaderToken) {
         return
       }
 
@@ -2033,6 +2068,21 @@ export function VimNav(): JSX.Element | null {
     return true
   }
 
+  // Toggle a nested-tag tree node, then keep the roving cursor on it once the
+  // tree re-renders (the row's index shifts as siblings appear/disappear). (#439)
+  function toggleTagNodeKeepingCursor(
+    tag: string,
+    state: ReturnType<typeof useStore.getState>
+  ): void {
+    state.toggleCollapseTagNode(tag)
+    requestAnimationFrame(() => {
+      const fresh = document.querySelector<HTMLElement>(
+        `[data-sidebar-type="tag"][data-sidebar-tag="${escapeForAttr(tag)}"]`
+      )
+      if (fresh) scrollToIndexedElement(fresh, 'sidebarIdx', state.setSidebarCursorIndex)
+    })
+  }
+
   function activateSidebarItem(el: HTMLElement | undefined, state: ReturnType<typeof useStore.getState>): void {
     if (!el) return
     // #301: Daily/Weekly date groups aren't real folders — `l`/Enter/Right
@@ -2065,7 +2115,19 @@ export function VimNav(): JSX.Element | null {
       }
     } else if (itemType === 'tag') {
       const tag = el.dataset.sidebarTag
-      if (tag) void state.openTagView(tag)
+      if (!tag) return
+      const expandable = el.dataset.sidebarTagExpandable === '1'
+      const real = el.dataset.sidebarTagReal === '1'
+      // A real tag selects (and reveals its subtree, if any). A pure grouping
+      // node has nothing to select, so activating it just expands/collapses. (#439)
+      if (real) {
+        if (expandable && state.collapsedTagNodes.includes(tag)) {
+          state.toggleCollapseTagNode(tag)
+        }
+        void state.openTagView(tag)
+      } else if (expandable) {
+        toggleTagNodeKeepingCursor(tag, state)
+      }
     } else if (itemType === 'vault') {
       openContextMenuForIndexedElement(el)
     } else if (itemType === 'tasks') {
@@ -2146,6 +2208,26 @@ export function VimNav(): JSX.Element | null {
       return
     }
 
+    // Nested-tag node: collapse if expanded, otherwise hop to the parent node
+    // (mirrors how `h` on a note steps out to its folder). (#439)
+    if (el.dataset.sidebarType === 'tag') {
+      const tag = el.dataset.sidebarTag
+      if (!tag) return
+      const expandable = el.dataset.sidebarTagExpandable === '1'
+      if (expandable && !state.collapsedTagNodes.includes(tag)) {
+        toggleTagNodeKeepingCursor(tag, state)
+        return
+      }
+      const slash = tag.lastIndexOf('/')
+      if (slash >= 0) {
+        const parentEl = document.querySelector<HTMLElement>(
+          `[data-sidebar-type="tag"][data-sidebar-tag="${escapeForAttr(tag.slice(0, slash))}"]`
+        )
+        if (parentEl) scrollToIndexedElement(parentEl, 'sidebarIdx', state.setSidebarCursorIndex)
+      }
+      return
+    }
+
     const collapseFolder = (folderEl: HTMLElement | null): void => {
       if (!folderEl) return
       const collapseKey = folderEl.dataset.sidebarKey
@@ -2194,6 +2276,11 @@ export function VimNav(): JSX.Element | null {
     const dateNavKey = el.dataset.sidebarDatenavKey
     if (dateNavKey) {
       state.toggleDateNav(dateNavKey)
+      return
+    }
+    if (el.dataset.sidebarType === 'tag') {
+      const tag = el.dataset.sidebarTag
+      if (tag && el.dataset.sidebarTagExpandable === '1') toggleTagNodeKeepingCursor(tag, state)
       return
     }
     if (el.dataset.sidebarType !== 'folder') return

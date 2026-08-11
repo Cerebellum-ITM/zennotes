@@ -53,11 +53,12 @@ import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
-import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
 import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
-import { offerCreateNoteFromLink } from '../lib/create-note-from-link'
+import { followLinkTarget } from '../lib/follow-link'
+import { setHoveredLink } from '../lib/hovered-link'
 import {
   setYankToClipboardEnabled,
   setPasteFromClipboardEnabled,
@@ -78,7 +79,7 @@ import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@code
 import { headingFolding } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
@@ -88,9 +89,14 @@ import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
+import { taskMetadataExtension } from '../lib/cm-task-metadata'
+import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { applyHighlight, HIGHLIGHT_COLORS, highlightExtension } from '../lib/cm-highlight'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { mathRenderExtension } from '../lib/cm-math-render'
+import { embedRenderExtension } from '../lib/cm-embed-render'
+import { urlPasteMenuExtension } from '../lib/cm-url-paste-menu'
+import { mathBlockArrowKeymap } from '../lib/cm-math-nav'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { iconDirectiveSource } from '../lib/cm-icon-complete'
 import { calloutTypeSource } from '../lib/cm-callouts'
@@ -98,14 +104,7 @@ import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
 import { DynamicIcon } from './DynamicIcon'
 import { buildCustomIconIndex, resolveNoteIconRef } from '../lib/icon-resolve'
-import { resolveWikilinkTarget, wikilinkHeadingAnchor } from '../lib/wikilinks'
-import { openDatabaseFromWikilink, openWikilinkHeading } from '../lib/wikilink-navigation'
-import {
-  externalLinkUrl,
-  extractLinkAtCursor,
-  markdownLinkAt,
-  resolveInternalNoteHref
-} from '../lib/internal-links'
+import { extractLinkAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
@@ -134,6 +133,7 @@ import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
 import { AssetsView } from './AssetsView'
 import { QuickNotesView } from './QuickNotesView'
+import type { MathRenderer } from '@shared/app-config'
 import { isTasksTabPath } from '@shared/tasks'
 import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
@@ -299,12 +299,31 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
       run: moveLineDown
     },
+    // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
+    // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
+    // jumplist collision on Linux); in non-Vim mode that handler is disabled, so
+    // bind them here — the mode-agnostic keymap — so they work in both modes as
+    // the docs promise. Matches the Quick Capture window's bindings. (#416)
+    ...(vimMode
+      ? []
+      : [
+          { key: 'Mod-b', run: (v: EditorView): boolean => toggleWrap(v, '**') },
+          { key: 'Mod-i', run: (v: EditorView): boolean => toggleWrap(v, '*') },
+          { key: 'Mod-e', run: (v: EditorView): boolean => toggleWrap(v, '`') },
+          { key: 'Shift-Mod-s', run: (v: EditorView): boolean => toggleWrap(v, '~~') },
+          { key: 'Shift-Mod-h', run: (v: EditorView): boolean => toggleWrap(v, '==') },
+          { key: 'Shift-Mod-m', run: (v: EditorView): boolean => toggleWrap(v, '$') },
+          { key: 'Mod-k', run: (v: EditorView): boolean => wrapLink(v) }
+        ]),
     ...vimHalfPageKeymap(vimMode, overrides),
+    // Step arrows into rendered $$…$$ blocks (insert mode + non-Vim); Vim's
+    // j/k get the same treatment inside the display-line motion.
+    ...mathBlockArrowKeymap,
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
     ...searchKeymap,
-    ...completionKeymap
+    ...completionKeymapForEditor
   ])
 }
 
@@ -342,7 +361,7 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
  * frontmatter-properties panel is intentionally excluded — it depends on
  * the PR's breaking database restructure.
  */
-function wysiwygExtensions(renderTables: boolean): Extension[] {
+function wysiwygExtensions(renderTables: boolean, mathRenderer: MathRenderer): Extension[] {
   return [
     livePreviewPlugin,
     codeBlockFlairPlugin,
@@ -351,10 +370,19 @@ function wysiwygExtensions(renderTables: boolean): Extension[] {
     ...(renderTables ? [tablePlugin, tableVimEntry] : []),
     wysiwygBlocksPlugin,
     ...hashtagExtension,
+    ...taskMetadataExtension,
     ...highlightExtension,
     ...wikilinkRenderExtension,
-    mathRenderExtension
+    mathRenderExtension(mathRenderer),
+    embedRenderExtension,
+    urlPasteMenuExtension
   ]
+}
+
+/** Current live-preview extension set, pulling both gating prefs from the store. */
+function currentWysiwygExtensions(): Extension[] {
+  const s = useStore.getState()
+  return wysiwygExtensions(s.renderTablesInLivePreview, s.mathRenderer)
 }
 
 const paperHighlight = HighlightStyle.define([
@@ -665,39 +693,6 @@ function getEditorContextMenuPosition(view: EditorView): { x: number; y: number 
  * navigates, scrolling to its `#heading` when present. Returns false when the
  * target resolves to nothing (so the click falls through to normal behavior). (#201)
  */
-function followEditorLink(target: string): boolean {
-  const external = externalLinkUrl(target)
-  if (external) {
-    window.open(external, '_blank')
-    return true
-  }
-  const state = useStore.getState()
-  const focusSoon = (): void => {
-    state.setFocusedPanel('editor')
-    requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
-  }
-  const internal = resolveInternalNoteHref(state.selectedPath, target, state.notes)
-  if (internal) {
-    if (internal.heading) void openWikilinkHeading(internal.path, internal.heading).then(focusSoon)
-    else void state.selectNote(internal.path).then(focusSoon)
-    return true
-  }
-  const wikilink = resolveWikilinkTarget(state.notes, target)
-  if (wikilink) {
-    const heading = wikilinkHeadingAnchor(target)
-    if (heading) void openWikilinkHeading(wikilink.path, heading).then(focusSoon)
-    else void state.selectNote(wikilink.path).then(focusSoon)
-    return true
-  }
-  if (openDatabaseFromWikilink(target)) {
-    focusSoon()
-    return true
-  }
-  // Dead link — don't leave it a silent dead end. Offer to create the note (with
-  // a confirmation), matching the `gd` follow-link path. (Discord: dead links)
-  void offerCreateNoteFromLink(target)
-  return true
-}
 
 const EMPTY_PANE_MODES: PaneModesByPath = {}
 
@@ -774,6 +769,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const livePreview = useStore((s) => s.livePreview)
   const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
+  const mathRenderer = useStore((s) => s.mathRenderer)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const editorScrollOff = useStore((s) => s.editorScrollOff)
@@ -850,6 +846,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     x: number
     y: number
     hasSelection: boolean
+    // Snapshot the selection at open time; the menu steals focus, so the live
+    // selection can't be trusted when an item (e.g. Highlight) runs. (#416)
+    selFrom: number
+    selTo: number
   } | null>(null)
   const [editorHydration, setEditorHydration] = useState<EditorHydrationState | null>(null)
   const [assetDropActive, setAssetDropActive] = useState(false)
@@ -934,7 +934,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setEditorMenu({
       x: pos.x,
       y: pos.y,
-      hasSelection: !sel.empty
+      hasSelection: !sel.empty,
+      selFrom: sel.from,
+      selTo: sel.to
     })
     view.focus()
     return true
@@ -1660,18 +1662,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ),
           livePreviewCompartment.of(
             s0.livePreview && !deferInitialRichMarkdown
-              ? wysiwygExtensions(s0.renderTablesInLivePreview)
+              ? wysiwygExtensions(s0.renderTablesInLivePreview, s0.mathRenderer)
               : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
+            // Don't install @codemirror/autocomplete's stock keymap — it binds
+            // mac-only `Alt-`` / `Alt-i` to completion and swallows the char
+            // those combos type on AltGr-style layouts (#429). Our filtered
+            // `completionKeymapForEditor` (in buildEditorKeymap) covers the rest.
+            defaultKeymap: false,
             override: [
               slashCommandSource,
               iconDirectiveSource,
               calloutTypeSource,
               dateShortcutSource,
               atNoteSource,
+              hashtagSource,
               wikilinkSource,
               wikilinkHeadingSource
             ],
@@ -1701,7 +1709,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   const doc = view.state.doc.toString()
                   if (event.metaKey || event.ctrlKey) {
                     const linkTarget = extractLinkAtCursor(doc, pos)
-                    if (linkTarget && followEditorLink(linkTarget)) {
+                    if (linkTarget && followLinkTarget(linkTarget)) {
                       event.preventDefault()
                       return true
                     }
@@ -1710,7 +1718,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     if (link) {
                       const sel = view.state.selection.main
                       const rendered = sel.to < link.from || sel.from > link.to
-                      if (rendered && followEditorLink(link.href)) {
+                      if (rendered && followLinkTarget(link.href)) {
                         event.preventDefault()
                         return true
                       }
@@ -1730,6 +1738,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               setCommentDraft(null)
               setSelectionCommentAction(null)
               return true
+            },
+            // Show the link under the pointer in the status bar (browser-style).
+            // Scoped to the pointer's line so this stays cheap on every move,
+            // even in a large note (no full-document toString).
+            mousemove: (event, view) => {
+              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+              if (pos == null) {
+                setHoveredLink(null)
+                return false
+              }
+              const line = view.state.doc.lineAt(pos)
+              setHoveredLink(extractLinkAtCursor(line.text, pos - line.from))
+              return false
+            },
+            mouseleave: () => {
+              setHoveredLink(null)
+              return false
             },
             click: (event) => {
               const target = event.target as HTMLElement | null
@@ -1825,7 +1850,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
           if (useStore.getState().livePreview) {
-            restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
+            restoreEffects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
         }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
@@ -1918,7 +1943,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
       if (livePreviewEnabled && livePreviewCompartment) {
-        effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
+        effects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
       }
     }
     const dispatchStartedAt = performance.now()
@@ -1982,7 +2007,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (useStore.getState().livePreview && livePreviewCompartment) {
-          restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
+          restoreEffects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
         }
         view.dispatch({
           effects: restoreEffects
@@ -2037,13 +2062,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
+        effects.push(comp.reconfigure(currentWysiwygExtensions()))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(livePreview ? wysiwygExtensions(useStore.getState().renderTablesInLivePreview) : []) })
-  }, [livePreview, renderTablesInLivePreview])
+    view.dispatch({ effects: comp.reconfigure(livePreview ? currentWysiwygExtensions() : []) })
+  }, [livePreview, renderTablesInLivePreview, mathRenderer])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current
@@ -2906,7 +2931,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             className={[
               // Flat, full-height segmented tabs (VS Code-style): right-border
               // separators, no rounded tops; the active tab is filled. (#185)
-              'group relative flex h-full min-h-8 min-w-0 items-center gap-1.5 border-r border-paper-300/60 px-[var(--z-tab-pad-x)] text-sm transition-colors',
+              'group relative flex h-full min-w-0 items-center gap-1.5 border-r border-paper-300/60 px-[var(--z-tab-pad-x)] text-sm transition-colors',
+              // `min-h-8` gives wrapped rows a consistent floor. In no-wrap mode
+              // the strip is a fixed-height single row with a horizontal
+              // scrollbar; forcing the tab to that same min-height made it
+              // overflow the area the scrollbar leaves and clipped the title in
+              // Compact density (#421). Let `h-full` size it to the scroll area
+              // there instead.
+              wrapTabs ? 'min-h-8' : '',
               tab.pinned ? 'max-w-[140px]' : 'max-w-[220px]',
               active && isActive
                 ? focusedPanel === 'tabs'
@@ -3026,7 +3058,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       reorderTabInPane,
       tabDropIndicator,
       tabs,
-      unpinTabInPane
+      unpinTabInPane,
+      wrapTabs
     ]
   )
 
@@ -3599,7 +3632,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   setEditorMenu({
                     x: e.clientX,
                     y: e.clientY,
-                    hasSelection: !sel.empty
+                    hasSelection: !sel.empty,
+                    selFrom: sel.from,
+                    selTo: sel.to
                   })
                 }}
                 >
@@ -3743,7 +3778,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           items={buildEditorContextItems(
             viewRef.current,
             editorMenu.hasSelection,
-            captureCommentDraft
+            captureCommentDraft,
+            { from: editorMenu.selFrom, to: editorMenu.selTo }
           )}
           onClose={() => setEditorMenu(null)}
         />
@@ -3838,7 +3874,10 @@ function HighlightSwatch({ color }: { color: string }): JSX.Element {
 function buildEditorContextItems(
   view: EditorView | null,
   hasSelection: boolean,
-  onAddComment: () => void
+  onAddComment: () => void,
+  // Selection snapshotted when the menu opened, applied by the highlight actions
+  // so they don't depend on the live selection surviving the menu. (#416)
+  selRange: { from: number; to: number }
 ): ContextMenuItem[] {
   if (!view) return []
 
@@ -3850,18 +3889,18 @@ function buildEditorContextItems(
           label: 'Highlight',
           hint: formatKeyToken('Mod+Shift+H'),
           icon: <HighlighterIcon width={14} height={14} />,
-          onSelect: async () => applyHighlight(view, 'yellow')
+          onSelect: async () => applyHighlight(view, 'yellow', selRange)
         },
         ...HIGHLIGHT_COLORS.filter((c) => c.id !== 'yellow').map(
           (c): ContextMenuItem => ({
             label: `Highlight: ${c.label}`,
             icon: <HighlightSwatch color={c.id} />,
-            onSelect: async () => applyHighlight(view, c.id)
+            onSelect: async () => applyHighlight(view, c.id, selRange)
           })
         ),
         {
           label: 'Remove highlight',
-          onSelect: async () => applyHighlight(view, 'remove')
+          onSelect: async () => applyHighlight(view, 'remove', selRange)
         },
         { kind: 'separator' }
       ]

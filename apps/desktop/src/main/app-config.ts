@@ -102,6 +102,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'markdown_snippets',
     comment: 'auto-close markdown delimiters while typing'
   },
+  autoPairs: {
+    section: 'editor',
+    tomlKey: 'auto_pairs',
+    comment: 'auto-insert matching [] () and {} while typing'
+  },
+  autoPairQuotesInProse: {
+    section: 'editor',
+    tomlKey: 'auto_pair_quotes_in_prose',
+    comment: 'also auto-insert matching quotes outside Markdown code'
+  },
   hideBuiltinTemplates: {
     section: 'editor',
     tomlKey: 'hide_builtin_templates',
@@ -143,6 +153,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'editor',
     tomlKey: 'completed_task_style',
     comment: 'none | strikethrough | gray | gray-strikethrough — style checked-task text'
+  },
+  mathRenderer: {
+    section: 'editor',
+    tomlKey: 'math_renderer',
+    comment: 'katex | typst: typesetter for $…$ / $$…$$ math'
+  },
+  looseMathDelimiters: {
+    section: 'editor',
+    tomlKey: 'loose_math_delimiters',
+    comment: 'render $$…$$ display math even with text before/after the fences'
   },
   lineNumberMode: {
     section: 'editor',
@@ -227,6 +247,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
       'none | manual | updated-desc | updated-asc | created-desc | created-asc | name-asc | name-desc'
   },
   groupByKind: { section: 'view', tomlKey: 'group_by_kind', comment: 'group notes by kind in the list' },
+  nestedTags: {
+    section: 'view',
+    tomlKey: 'nested_tags',
+    comment: 'show /-separated tags as a collapsible tree (sidebar + Tags view)'
+  },
   viewSettingsScope: {
     section: 'view',
     tomlKey: 'view_settings_scope',

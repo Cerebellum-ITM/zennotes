@@ -59,6 +59,9 @@ const imageSourceHide = Decoration.replace({})
 // Marks the text of a completed task (`- [x] …`) so CSS can strike/gray it,
 // gated by the `data-completed-task-style` setting on the document root.
 const taskDoneMark = Decoration.mark({ class: 'cm-task-done' })
+// Marks the text of a cancelled task (`- [-] …`) so CSS can strike/mute it.
+// Always applied (not gated by a setting) — cancelled always reads as struck. (#450)
+const taskCancelledMark = Decoration.mark({ class: 'cm-task-cancelled' })
 // Stamped on an image line only while its raw source is hidden, so the host
 // line stops reserving a blank text row above/below the block figure (#261).
 const imageEmbedLine = Decoration.line({ class: 'cm-image-embed-line' })
@@ -711,7 +714,9 @@ class TaskCheckboxWidget extends WidgetType {
     if (this.forwarded) {
       const marker = document.createElement('span')
       marker.className = 'cm-task-forwarded'
-      marker.textContent = '→' // → forwarded marker
+      // The arrow glyph is drawn via the `.cm-task-forwarded::before` rule
+      // (absolutely centred), the same as the broken-link path — so no
+      // textContent here, or the two would double up.
       marker.title = 'Forwarded to another note'
       wrap.append(marker)
       return wrap
@@ -762,10 +767,25 @@ class ForwardedMarkerWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    // The glyph is drawn via CSS `::before` (absolutely centred) so it aligns
+    // with the checkbox column regardless of the arrow glyph's font metrics.
     const span = document.createElement('span')
     span.className = 'cm-task-forwarded'
-    span.textContent = '→'
     span.title = 'Forwarded to another note'
+    span.setAttribute('contenteditable', 'false')
+    return span
+  }
+}
+
+class CancelledMarkerWidget extends WidgetType {
+  eq(): boolean {
+    return true
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'cm-task-cancelled-marker'
+    span.title = 'Cancelled'
     span.setAttribute('contenteditable', 'false')
     return span
   }
@@ -954,6 +974,27 @@ function computeDecorations(view: EditorView): DecorationSet {
           }
         }
 
+        // #450: `[-]` at the start of a list item is a cancelled-task marker.
+        // Also parsed as a broken link (not a TaskMarker). Render a `✕` off the
+        // active line and strike the task text (always, like Obsidian's cancel).
+        if (name === 'Link' && state.doc.sliceString(node.from, node.to) === '[-]') {
+          const markerLine = state.doc.lineAt(node.from)
+          const before = state.doc.sliceString(markerLine.from, node.from)
+          if (/^\s*(?:[-+*]|\d+[.)])[ \t]+$/.test(before)) {
+            if (markerLine.to > node.to) {
+              pending.push({ from: node.to, to: markerLine.to, deco: taskCancelledMark })
+            }
+            if (!activeLines.has(markerLine.number) && !replacedLines.has(markerLine.number)) {
+              pending.push({
+                from: node.from,
+                to: node.to,
+                deco: Decoration.replace({ widget: new CancelledMarkerWidget() })
+              })
+            }
+            return false
+          }
+        }
+
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE
@@ -1015,9 +1056,12 @@ function computeDecorations(view: EditorView): DecorationSet {
           const linkRange = enclosingLinkRange(node)
           if (linkRange && selectionTouchesRange(state, linkRange.from, linkRange.to)) return
         } else if (activeLines.has(line)) {
-          const keepHeadingMarkerHidden =
-            name === 'HeaderMark' && !selectionTouchesRange(state, node.from, node.to)
-          if (!keepHeadingMarkerHidden) return
+          // Reveal every marker on the active line, headings included: the
+          // cursor anywhere in a heading shows its `##` prefix, matching the
+          // list/quote/task markers and the other markdown elements (a heading
+          // used to reveal only when the selection touched the marker itself,
+          // which read as "works differently from everything else").
+          return
         }
 
         let start = node.from

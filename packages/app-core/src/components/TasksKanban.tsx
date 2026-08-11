@@ -220,7 +220,7 @@ function fieldColumns(tasks: VaultTask[], fieldKey: string, order: string[]): Co
   const byValue = new Map<string, VaultTask[]>()
   const noValue: VaultTask[] = []
   for (const task of tasks) {
-    if (task.checked || task.forwarded) continue
+    if (task.checked || task.forwarded || task.cancelled) continue
     const value = task.fields?.[fieldKey]
     if (value) {
       const list = byValue.get(value)

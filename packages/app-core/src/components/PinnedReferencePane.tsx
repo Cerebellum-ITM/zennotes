@@ -34,7 +34,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
@@ -43,7 +43,8 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
-import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { hashtagSource } from '../lib/cm-hashtag-complete'
+import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../lib/local-assets'
 import { HtmlAttachmentFrame } from './HtmlAttachmentFrame'
 import { LazyPreview as Preview } from './LazyPreview'
@@ -238,10 +239,14 @@ export function PinnedReferencePane(): JSX.Element | null {
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
+            // See EditorPane: skip the stock keymap so mac `Alt-`` / `Alt-i`
+            // don't swallow those characters on AltGr-style layouts (#429).
+            defaultKeymap: false,
             override: [
               slashCommandSource,
               calloutTypeSource,
               dateShortcutSource,
+              hashtagSource,
               wikilinkSource,
               wikilinkHeadingSource
             ],
@@ -269,7 +274,7 @@ export function PinnedReferencePane(): JSX.Element | null {
             ...vimAwareDefaultKeymap(s0.vimMode),
             ...historyKeymap,
             ...searchKeymap,
-            ...completionKeymap
+            ...completionKeymapForEditor
           ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return

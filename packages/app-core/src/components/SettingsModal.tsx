@@ -417,6 +417,14 @@ export function SettingsModal(): JSX.Element {
   const setPreviewSmoothScroll = useStore((s) => s.setPreviewSmoothScroll)
   const completedTaskStyle = useStore((s) => s.completedTaskStyle)
   const setCompletedTaskStyle = useStore((s) => s.setCompletedTaskStyle)
+  const mathRenderer = useStore((s) => s.mathRenderer)
+  const setMathRenderer = useStore((s) => s.setMathRenderer)
+  const looseMathDelimiters = useStore((s) => s.looseMathDelimiters)
+  const setLooseMathDelimiters = useStore((s) => s.setLooseMathDelimiters)
+  const autoPairs = useStore((s) => s.autoPairs)
+  const setAutoPairs = useStore((s) => s.setAutoPairs)
+  const autoPairQuotesInProse = useStore((s) => s.autoPairQuotesInProse)
+  const setAutoPairQuotesInProse = useStore((s) => s.setAutoPairQuotesInProse)
   const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes)
   const setKeepViewModeAcrossNotes = useStore((s) => s.setKeepViewModeAcrossNotes)
   const cursorBlink = useStore((s) => s.cursorBlink)
@@ -577,6 +585,8 @@ export function SettingsModal(): JSX.Element {
   const setDailyDayThemes = useStore((s) => s.setDailyDayThemes)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
+  const nestedTags = useStore((s) => s.nestedTags)
+  const setNestedTags = useStore((s) => s.setNestedTags)
   const iconPickerPerSectionFilter = useStore((s) => s.iconPickerPerSectionFilter)
   const setIconPickerPerSectionFilter = useStore((s) => s.setIconPickerPerSectionFilter)
   const pdfExportUseTheme = useStore((s) => s.pdfExportUseTheme)
@@ -1149,6 +1159,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['chevrons', 'disclosure']
         },
         {
+          id: 'nested-tags',
+          title: 'Nested tags (tree view)',
+          description: 'Show /-separated tags as a collapsible tree in the sidebar and Tags view instead of a flat list.',
+          keywords: ['hierarchical', 'tree', 'tags', 'nested', 'hierarchy']
+        },
+        {
           id: 'daily-day-themes',
           title: 'Daily note day themes',
           description: 'Tint each daily note and restyle its headings by weekday.',
@@ -1522,6 +1538,13 @@ export function SettingsModal(): JSX.Element {
               onChange={setShowSidebarChevrons}
             />
             <ToggleRow
+              label="Nested tags (tree view)"
+              description="Show /-separated tags (like project/compiler) as a collapsible tree in the sidebar and Tags view. Turn off for a flat list of full tag names."
+              value={nestedTags}
+              settingId="nested-tags"
+              onChange={setNestedTags}
+            />
+            <ToggleRow
               label="Daily note day themes"
               description="Tint each daily note's background and restyle its headings by weekday (Monday through Sunday). Affects daily notes only."
               value={dailyDayThemes}
@@ -1643,6 +1666,30 @@ export function SettingsModal(): JSX.Element {
           title: 'Markdown snippets',
           description: 'Auto-close markdown delimiters as you type (** then Space, ``` then Enter).',
           keywords: ['overrides', 'auto close', 'autoclose', 'auto-pair', 'brackets', 'markdown', 'completion']
+        },
+        {
+          id: 'auto-pairs',
+          title: 'Auto-pair brackets and delimiters',
+          description: 'Insert matching [] () and {} as you type; quotes pair in Markdown code.',
+          keywords: ['auto pair', 'autopair', 'parentheses', 'braces', 'brackets', 'quotes', 'code blocks', 'completion', 'vim']
+        },
+        {
+          id: 'auto-pair-quotes-in-prose',
+          title: 'Auto-pair quotes in prose',
+          description: 'Also insert matching quotes outside Markdown code.',
+          keywords: ['auto pair', 'autopair', 'quotes', 'prose', 'code blocks']
+        },
+        {
+          id: 'math-renderer',
+          title: 'Math renderer',
+          description: 'Choose KaTeX or Typst to typeset $…$ and $$…$$ math in the editor and reading view.',
+          keywords: ['math', 'katex', 'typst', 'latex', 'equation', 'formula', 'renderer', 'typesetter']
+        },
+        {
+          id: 'loose-math-delimiters',
+          title: 'Relaxed $$ math delimiters',
+          description: 'Render $$…$$ display math even with text before or after the fences, like LaTeX.',
+          keywords: ['math', 'display', 'dollar', 'delimiter', 'fence', 'inline', 'latex', 'relaxed', 'loose']
         },
         {
           id: 'completed-task-style',
@@ -1903,6 +1950,10 @@ export function SettingsModal(): JSX.Element {
             'live-preview',
             'render-tables',
             'markdown-overrides',
+            'auto-pairs',
+            'auto-pair-quotes-in-prose',
+            'math-renderer',
+            'loose-math-delimiters',
             'completed-task-style',
             'keep-view-mode',
             'note-tabs',
@@ -1941,6 +1992,40 @@ export function SettingsModal(): JSX.Element {
               value={markdownSnippets}
               settingId="markdown-overrides"
               onChange={setMarkdownSnippets}
+            />
+            <ToggleRow
+              label="Auto-pair brackets and delimiters"
+              description="Insert matching [] () and {} as you type, wrap selected text, and skip over a closing delimiter that is already present. Quotes pair inside inline code and fenced code blocks. In Vim mode this only applies in insert mode."
+              value={autoPairs}
+              settingId="auto-pairs"
+              onChange={setAutoPairs}
+            />
+            {autoPairs && (
+              <ToggleRow
+                label="Auto-pair quotes in prose"
+                description={'Also insert matching "" and \'\' outside inline code and fenced code blocks.'}
+                value={autoPairQuotesInProse}
+                settingId="auto-pair-quotes-in-prose"
+                onChange={setAutoPairQuotesInProse}
+              />
+            )}
+            <SegmentedRow
+              label="Math renderer"
+              description="Which typesetter draws $…$ and $$…$$ math, in both the editor and the reading view. KaTeX reads the math as LaTeX; Typst reads it as Typst markup, so switching reinterprets existing formulas, and each note's math is written for whichever engine you pick."
+              value={mathRenderer}
+              settingId="math-renderer"
+              options={[
+                { value: 'katex', label: 'KaTeX' },
+                { value: 'typst', label: 'Typst' }
+              ]}
+              onChange={(next) => setMathRenderer(next)}
+            />
+            <ToggleRow
+              label="Relaxed $$ math delimiters"
+              description="Render a $$…$$ display block even when text sits before the opening $$ (`Note: $$…$$`) or after the closing $$ (`$$…$$ done`), like LaTeX. Off by default; the surrounding text moves to its own line in the reading view, while the editor keeps showing the raw source. Leave off if you write literal $$ in prose."
+              value={looseMathDelimiters}
+              settingId="loose-math-delimiters"
+              onChange={setLooseMathDelimiters}
             />
             <SegmentedRow
               label="Completed task style"
@@ -2496,6 +2581,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['database', 'db', 'location', 'folder', 'new']
         },
         {
+          id: 'tasks-location',
+          title: 'Default tasks location',
+          description: 'Where new task files are created (primary, active note folder, or a specific folder).',
+          keywords: ['task', 'tasks', 'todo', 'newtask', 'location', 'folder', 'new']
+        },
+        {
           id: 'view-settings-scope',
           title: 'View settings',
           description: 'Apply note-list & view preferences (sort, grouping, the Tasks view) the same everywhere, or independently per vault.',
@@ -2862,6 +2953,7 @@ export function SettingsModal(): JSX.Element {
             'primary-notes-location',
             'drawings-location',
             'databases-location',
+            'tasks-location',
             'enable-daily-notes',
             'daily-notes-directory',
             'daily-note-title-pattern',
@@ -2971,6 +3063,39 @@ export function SettingsModal(): JSX.Element {
                   void persistVaultSettings({
                     ...vaultSettings,
                     databasesLocation: { mode: 'folder', folder: next ?? '' }
+                  })
+                }
+              />
+            )}
+            <SegmentedRow
+              label="Default tasks location"
+              description="Where new task files (from `+ New task`, the `a` key, `:newtask`, or the command palette) are created. `New Task in Folder…` and `:newtask <folder>` still override this per task."
+              value={vaultSettings.tasksLocation?.mode ?? 'primary'}
+              settingId="tasks-location"
+              options={[
+                { value: 'primary', label: 'Primary location' },
+                { value: 'active-note', label: "Active note's folder" },
+                { value: 'folder', label: 'Specific folder' }
+              ]}
+              onChange={(mode) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  tasksLocation: { ...vaultSettings.tasksLocation, mode }
+                })
+              }
+            />
+            {vaultSettings.tasksLocation?.mode === 'folder' && (
+              <TextInputRow
+                label="Tasks folder"
+                description="Vault-relative subfolder for new task files, e.g. `Tasks` or `Projects/Inbox`."
+                value={vaultSettings.tasksLocation?.folder ?? ''}
+                placeholder="Tasks"
+                settingId="tasks-folder"
+                commitOnBlur
+                onChange={(next) =>
+                  void persistVaultSettings({
+                    ...vaultSettings,
+                    tasksLocation: { mode: 'folder', folder: next ?? '' }
                   })
                 }
               />

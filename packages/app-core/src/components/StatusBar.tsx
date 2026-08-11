@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { backlinksForNote } from '../lib/wikilinks'
 import { countWords } from '../lib/word-count'
+import { useHoveredLinkStore } from '../lib/hovered-link'
 import {
   formatVimMode,
   readVimStateMode,
@@ -102,12 +103,15 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   const commitShort = appInfo.commit ? appInfo.commit.slice(0, 7) : ''
   const versionLabel = `v${appInfo.version}${commitShort ? ` · ${commitShort}` : ''}`
 
+  // The target of the link the mouse is over (browser-style), shown on the left.
+  const hoveredLink = useHoveredLinkStore((s) => s.href)
+
   return (
     <div
       className="flex h-8 shrink-0 items-center justify-between gap-5 px-6 text-xs text-ink-500"
       style={{ borderTop: '1px solid var(--glass-stroke)' }}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         {vimStatus && (
           <span
             className="rounded px-1.5 font-mono text-2xs font-semibold tracking-wide"
@@ -132,6 +136,13 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
           {versionLabel}
         </button>
       </div>
+      {/* Target of the hovered link (browser-style), between app context and stats. */}
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-ink-400"
+        title={hoveredLink ?? undefined}
+      >
+        {hoveredLink}
+      </span>
       {note && (
         <div className="flex shrink-0 items-center gap-5">
           <Stat>

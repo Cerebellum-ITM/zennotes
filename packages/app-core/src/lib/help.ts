@@ -109,7 +109,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Make and edit your own templates',
     body:
-      'Open Settings → Templates. Press "New template" to author one: a template is just markdown with optional YAML frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and a body. Use the variables `{{title}}`, `{{date}}`, `{{date:YYYY-MM-DD}}` (any moment-style format), `{{time}}`, `{{week}}`, and `{{cursor}}` (where the caret lands). Custom templates are saved as plain `.md` files under `.zennotes/templates/`. You can also fork a built-in by pressing Edit on it — that creates an editable copy that shadows the original, and Reset restores the built-in. From any note, the "Save Current Note as Template…" command captures it as a new template.'
+      'Open Settings → Templates. Press "New template" to author one: a template is just markdown with optional YAML frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and a body. Use the variables `{{title}}`, `{{date}}`, `{{date:FORMAT}}` (e.g. `{{date:YYYY-MM-DD}}`), `{{time}}`, `{{week}}`, and `{{cursor}}` (where the caret lands). The date format accepts the same tokens as the daily/weekly note directory and title patterns — `yyyy`/`yy`, `MMMM`/`MMM`/`MM`/`M`, `dd`/`d`, `EEEE`/`EEE` (weekday), `ww`/`w` (ISO week) — as well as moment-style `YYYY`/`DD`/`dddd`; wrap literal letters in `[brackets]`. Custom templates are saved as plain `.md` files under `.zennotes/templates/`. You can also fork a built-in by pressing Edit on it — that creates an editable copy that shadows the original, and Reset restores the built-in. From any note, the "Save Current Note as Template…" command captures it as a new template.'
   },
   {
     title: 'Draw diagrams with Excalidraw',
@@ -235,6 +235,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'Tasks scans every note for checkboxes, Tags lets you browse notes that carry all of the selected tags (toggle Match to Any for a union), Archive gives you a dedicated list of cold-storage notes, and Trash gives you a recovery surface for deleted notes without turning the left rail into a second browser. Selected tags accumulate so you can narrow across several at once; clear them with the Selected strip’s “Clear all”, the `c` key, or a right-click on any tag chip (which also offers “Unselect others” to keep just that one).'
   },
   {
+    title: 'A whole note can be a task (task files)',
+    body:
+      'Besides inline `- [ ]` checkboxes, a whole note can itself be a task: give its frontmatter a `task` tag (`tags: [task]`) and its metadata lives in frontmatter — `status` (open / in-progress / done…), `priority` (high / normal / low), `due` and `scheduled` (`YYYY-MM-DD`), plus any `tags`, while the note body holds free-form detail or sub-checkboxes. These "task files" show up in the Tasks views right alongside inline tasks, so both styles live in one vault. This is the TaskNotes convention, so a vault stays interoperable with TaskForge and Obsidian. Quick-add one from the command palette (**New Task**, or **New Task in Folder…** to choose where it lands), the "+ New task" button in the Tasks header, the `a` key (Vim mode), or the `:newtask` / `:task` ex command — and `:newtask Projects/Website` drops it straight into a folder so multiple projects stay organized. New task files default to your configured tasks location (Settings → New Drawings, Databases & Tasks; the inbox by default), and the folder-picking options override that per task. Checking a task file off rewrites its frontmatter (`status: done` and a `completedDate`) rather than a checkbox character, and rescheduling from the calendar or changing its column on the Kanban board updates the matching frontmatter field. Delete on a task file trashes the whole note (after a confirm).'
+  },
+  {
     title: 'The Tasks calendar schedules and reschedules',
     body:
       "Switch Tasks to Calendar (button or `2`) to see tasks laid out by due date. A task written inside a daily note automatically shows on that day — no `due:` needed — so the day you wrote it on is the day it lands. Type in the box under the grid to add a task to the selected day (it’s created in that day’s daily note, offering to create the note first for a day that has none). Reschedule by dragging a task onto another day, or from the keyboard: `Tab` picks a task in the day list, `<` / `>` shifts it a day earlier/later, and `T` moves it to today."
@@ -248,6 +253,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: 'Forward a task to another note',
     body:
       'Forwarding moves a task to a different note while leaving a record behind — the bullet-journal “migrate” gesture. Type `>` inside a task’s checkbox (turning `- [ ]` into `- [>]`) to open a note picker, run “Forward Task to Note…” from the command palette with the cursor on a task, or press `>` on a task in the Tasks list. The original stays as `- [>] … [[Target]]` (a forwarded marker linking to where it went), and a fresh `- [ ] … [[Source]]` copy is added to the note you pick, backlinked home. Forwarded tasks collect under their own “Forwarded” group in the Tasks list, kept out of Today and Done.'
+  },
+  {
+    title: 'Cancel a task',
+    body:
+      'Cancelling marks a task as intentionally abandoned — distinct from done (finished) or forwarded (moved). Write `- [-]` directly, run “Cancel Task” from the command palette with the cursor on a task, or press `c` on a task in the Tasks list (press `c` again to un-cancel). A cancelled task renders with a muted `✕` and struck-through text, and collects under its own “Cancelled” group in the Tasks list, kept out of Today, Done, and the Kanban board. A whole-note task file cancels the same way, writing `status: cancelled` to its frontmatter.'
   },
   {
     title: 'Style completed tasks',
@@ -322,7 +332,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Math, diagrams, and plots render from plain fences',
     body:
-      'Inline `$…$` and display `$$…$$` math render via KaTeX. Beyond math, four fenced block languages turn into live diagrams in preview and split mode: `mermaid` for flow, sequence, state, gantt, and graph diagrams; `tikz` for LaTeX-native coordinate systems, commutative diagrams, and figure-quality plots (the TeX engine runs on-device so no network is required); `jsxgraph` for interactive geometry and function plots driven by a small JSON config; and `function-plot` for compact Cartesian function plotting. Each block is ordinary markdown on disk, so the source remains portable and diffable.'
+      'Inline `$…$` and display `$$…$$` math render via KaTeX by default. Settings ▸ Editor ▸ Math renderer switches the typesetter to Typst, which reads the same `$…$` / `$$…$$` blocks as Typst markup instead of LaTeX (a note’s math is written for whichever engine you pick). Beyond math, four fenced block languages turn into live diagrams in preview and split mode: `mermaid` for flow, sequence, state, gantt, and graph diagrams; `tikz` for LaTeX-native coordinate systems, commutative diagrams, and figure-quality plots (the TeX engine runs on-device so no network is required); `jsxgraph` for interactive geometry and function plots driven by a small JSON config; and `function-plot` for compact Cartesian function plotting. Each block is ordinary markdown on disk, so the source remains portable and diffable.'
   },
   {
     title: 'Footer actions expose utility views',
@@ -766,7 +776,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family — Apple, Gruvbox, Catppuccin, GitHub, Solarized, One, Nord, Tokyo Night, Kanagawa (Wave / Dragon / Paper Ink (Custom) / Lotus), Rosé Pine (Rosé Pine / Moon / Dawn), or the monochrome, true-black (OLED-friendly) Black Metal — plus light or dark mode and the active flavor or contrast where the theme supports it.' },
       { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
       { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' },
-      { label: 'Use theme for PDF export', detail: 'Under Settings → Appearance → PDF export. Off by default, so exported PDFs use a clean light print theme. Turn it on to render the PDF in your current theme instead — colors and dark/light, including custom themes — as a full-bleed page.' }
+      { label: 'Use theme for PDF export', detail: 'Under Settings → Appearance → PDF export. Off by default, so exported PDFs use a clean light print theme. Turn it on to export in your current look instead: your theme (colors and dark/light, including custom themes), plus your enabled CSS snippets and color tweaks, as a full-bleed page. This toggle is the single switch for how the PDF looks; your CSS snippets style the export only while it is on, so you customize the PDF by editing your snippets, not with a separate print stylesheet.' }
     ]
   },
   {

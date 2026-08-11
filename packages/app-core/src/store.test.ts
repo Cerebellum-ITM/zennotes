@@ -19,6 +19,7 @@ function makeTask(content: string, taskIndex = 0): VaultTask {
     content,
     checked: false,
     forwarded: false,
+    cancelled: false,
     waiting: false,
     tags: []
   }
@@ -695,6 +696,38 @@ describe('importDroppedMarkdownFiles (web import-as-note)', () => {
 
     expect(createNote).toHaveBeenCalledWith('inbox', 'Empty')
     expect(writeNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('cancelTaskFromList (#450)', () => {
+  it('cancels an inline task by writing `[-]` to the note', async () => {
+    const note = { ...makeNote('- [ ] Write the proposal'), path: 'inbox/Note.md', title: 'Note' }
+    const writeNote = vi.fn().mockResolvedValue(note)
+    installZen({
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([note]),
+      readNote: vi.fn().mockResolvedValue({ ...note, body: '- [ ] Write the proposal' })
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().cancelTaskFromList(makeTask('Write the proposal', 0))
+
+    expect(writeNote).toHaveBeenCalledWith('inbox/Note.md', '- [-] Write the proposal')
+  })
+
+  it('un-cancels a `[-]` task back to `[ ]`', async () => {
+    const note = { ...makeNote('- [-] Write the proposal'), path: 'inbox/Note.md', title: 'Note' }
+    const writeNote = vi.fn().mockResolvedValue(note)
+    installZen({
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([note]),
+      readNote: vi.fn().mockResolvedValue({ ...note, body: '- [-] Write the proposal' })
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().cancelTaskFromList({ ...makeTask('Write the proposal', 0), cancelled: true })
+
+    expect(writeNote).toHaveBeenCalledWith('inbox/Note.md', '- [ ] Write the proposal')
   })
 })
 
