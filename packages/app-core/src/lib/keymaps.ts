@@ -39,6 +39,7 @@ export type KeymapId =
   | "global.zoomReset"
   | "global.historyBack"
   | "global.historyForward"
+  | "global.toggleRecentNote"
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderWorkflows"
@@ -107,7 +108,10 @@ export type KeymapId =
   | "editor.moveLineUp"
   | "editor.moveLineDown"
   | "editor.hopMarkerForward"
-  | "editor.hopMarkerBackward";
+  | "editor.hopMarkerBackward"
+  | "editor.foldHeading"
+  | "editor.unfoldHeading"
+  | "editor.toggleCheckbox";
 
 export type KeymapOverrides = Partial<Record<KeymapId, string>>;
 
@@ -130,7 +134,6 @@ export interface KeymapDefinition {
   nonVimOnly?: boolean;
   maxTokens?: number;
 }
-
 const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
   {
     id: "global.searchNotes",
@@ -402,6 +405,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Go forward in note history",
     description: "Jump forward in note history. Works in any mode.",
     defaultBinding: "Alt+ArrowRight",
+  },
+  {
+    id: "global.toggleRecentNote",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Switch to previous note",
+    description:
+      "Switch to the most recently used note. Press again to alternate between the last two notes.",
+    defaultBinding: "Mod+Tab",
+    defaultBindingMac: "Ctrl+Tab",
   },
   {
     id: "vim.leaderPrefix",
@@ -1098,6 +1112,24 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBindingMac: "Ctrl+,",
   },
   {
+    id: "editor.foldHeading",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Fold heading",
+    description: "Fold the heading section containing the cursor.",
+    defaultBinding: "Mod+Alt+F",
+  },
+  {
+    id: "editor.unfoldHeading",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Unfold heading",
+    description: "Unfold the heading section containing the cursor.",
+    defaultBinding: "Mod+Alt+U",
+  },
+  {
     id: "editor.moveLineUp",
     kind: "shortcut",
     scope: "vim-editor",
@@ -1116,6 +1148,16 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Move the current line (or selected lines) down in the note editor — reorders the markdown, so it sticks in the file. Works with Vim mode on or off.",
     defaultBinding: "Alt+ArrowDown",
+  },
+  {
+    id: "editor.toggleCheckbox",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Toggle checkbox",
+    description:
+      "Turn the current line (or selected lines) into a checkbox, and toggle it between unchecked and checked on repeat. Plain text becomes `- [ ]`, keeping any list marker or blockquote prefix. Works with Vim mode on or off.",
+    defaultBinding: "Mod+L",
   },
   {
     id: "nav.localEx",

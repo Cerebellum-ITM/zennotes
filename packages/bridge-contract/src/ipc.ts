@@ -90,6 +90,7 @@ export const IPC = {
   VAULT_REVEAL_FOLDER: 'vault:reveal-folder',
   VAULT_REVEAL_FILE_PATH: 'vault:reveal-file-path',
   VAULT_OPEN_EXTERNAL_FILE: 'vault:open-external-file',
+  VAULT_OPEN_ASSET_EXTERNALLY: 'vault:open-asset-externally',
   VAULT_FETCH_LINK_METADATA: 'vault:fetch-link-metadata',
   VAULT_REVEAL_FOLDER_TARGET: 'vault:reveal-folder-target',
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
@@ -480,6 +481,7 @@ export interface VaultViewSettings {
   kanbanGroupBy?: string
   kanbanColumnTitles?: Record<string, string>
   kanbanColumnOrder?: Record<string, string[]>
+  kanbanCardOrder?: Record<string, string[]>
   kanbanStatuses?: string[]
   autoReveal?: boolean
   systemFolderLabels?: Record<string, unknown>
@@ -532,6 +534,14 @@ export interface VaultSettings {
    * internal ID (`inbox`).
    */
   systemFolderPaths?: Partial<Record<NoteFolder, string>>
+  /**
+   * Tasks-system settings (#458). `excludedFolders` lists vault-relative
+   * directory paths (as they exist on disk) whose notes never feed the Tasks
+   * surfaces, on any runtime. Absent means nothing is excluded. An object
+   * rather than a bare list so the deferred per-vault `mode: all | tagged`
+   * can land beside it without another migration.
+   */
+  tasks?: { excludedFolders?: string[] }
   /**
    * Vault-relative note paths (POSIX) that have git-backed version history
    * enabled (opt-in per note). Snapshots for these notes live in a git repo
@@ -833,6 +843,10 @@ export interface ServerCapabilities {
    *  because no server before 2.20.2 said so, and its ABSENCE is the useful
    *  half: it marks the servers whose 500 might only mean "missing". */
   reportsMissingAsNotFound?: boolean
+  /** The full asset mutation family incl. the deleted-assets store
+   *  (delete/duplicate/restore/purge). Absent on servers before 2.24, which
+   *  is what turns a bare 404 into a "server needs an update" message. */
+  supportsAssetOps?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -903,6 +917,10 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
+/** `resync` is synthesized client-side after a change-feed gap (a dropped
+ *  watch socket that reconnected): anything may have happened while the feed
+ *  was down, so the renderer re-pulls every surface the feed keeps fresh.
+ *  Servers never emit it. */
 export type VaultChangeScope =
   | 'content'
   | 'vault-settings'
@@ -910,6 +928,7 @@ export type VaultChangeScope =
   | 'database'
   | 'folder'
   | 'custom-icons'
+  | 'resync'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind

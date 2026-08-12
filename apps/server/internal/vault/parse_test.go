@@ -146,3 +146,111 @@ func TestParseTaskFileCancelledStatus(t *testing.T) {
 		t.Errorf("Cancelled=%v Checked=%v, want Cancelled=true Checked=false", task.Cancelled, task.Checked)
 	}
 }
+
+// #512: `[/]` in-progress tasks parse as open work, flagged InProgress. The
+// server mirrors shared-domain here, so a web client sees the same states the
+// desktop app does.
+func TestParseTasksRecognizesInProgress(t *testing.T) {
+	body := "- [ ] open\n- [/] started\n- [x] done\n- [-] scrapped\n1. [/] numbered\n"
+	tasks := ParseTasks("inbox/t.md", "t", FolderInbox, body)
+	if len(tasks) != 5 {
+		t.Fatalf("expected 5 tasks (none dropped), got %d", len(tasks))
+	}
+	byContent := map[string]Task{}
+	for _, tk := range tasks {
+		byContent[tk.Content] = tk
+	}
+	for _, name := range []string{"started", "numbered"} {
+		tk, ok := byContent[name]
+		if !ok {
+			t.Fatalf("in-progress task %q was dropped", name)
+		}
+		if !tk.InProgress {
+			t.Errorf("%s: InProgress=false, want true", name)
+		}
+		if tk.Checked || tk.Cancelled {
+			t.Errorf("%s: Checked=%v Cancelled=%v, want both false", name, tk.Checked, tk.Cancelled)
+		}
+	}
+	if byContent["open"].InProgress || byContent["done"].InProgress || byContent["scrapped"].InProgress {
+		t.Error("open/done/cancelled tasks should not be in progress")
+	}
+}
+
+func TestParseTaskFileInProgressStatus(t *testing.T) {
+	for _, status := range []string{"in-progress", "doing", "started", "wip"} {
+		body := "---\ntags: [task]\ntitle: Rewrite\nstatus: " + status + "\n---\n\nHalf done.\n"
+		task, ok := parseTaskFile("inbox/x.md", "x", FolderInbox, body)
+		if !ok {
+			t.Fatalf("%s: expected a file task", status)
+		}
+		if !task.InProgress {
+			t.Errorf("%s: InProgress=false, want true", status)
+		}
+		if task.Checked || task.Cancelled {
+			t.Errorf("%s: Checked=%v Cancelled=%v, want both false", status, task.Checked, task.Cancelled)
+		}
+	}
+}
+
+// #458: the frontmatter `tasks:` key turns a note's checkboxes back into plain
+// checkboxes. The server mirrors noteTasksMode in shared-domain; the accepted
+// values must stay byte-identical across runtimes.
+func TestParseTasksFrontmatterTasksOptOut(t *testing.T) {
+	checklist := "- [ ] Dune\n- [x] Hyperion\n- [ ] Blindsight due:2026-09-01\n"
+	for _, val := range []string{"false", "off", "False", "OFF", "\"false\""} {
+		body := "---\ntasks: " + val + "\n---\n" + checklist
+		if tasks := ParseTasks("inbox/t.md", "t", FolderInbox, body); len(tasks) != 0 {
+			t.Errorf("tasks: %s: expected no tasks, got %d", val, len(tasks))
+		}
+	}
+	// Unrecognized values fall back to the pre-#458 behavior.
+	for _, val := range []string{"true", "yes", "everything"} {
+		body := "---\ntasks: " + val + "\n---\n" + checklist
+		if tasks := ParseTasks("inbox/t.md", "t", FolderInbox, body); len(tasks) != 3 {
+			t.Errorf("tasks: %s: expected 3 tasks, got %d", val, len(tasks))
+		}
+	}
+}
+
+func TestParseTasksFrontmatterTasksFalseWinsOverTaskTag(t *testing.T) {
+	body := "---\ntags: [task]\ntasks: false\n---\n\n- [ ] hidden\n"
+	if tasks := ParseTasks("inbox/t.md", "t", FolderInbox, body); len(tasks) != 0 {
+		t.Fatalf("expected tasks: false to suppress the file task too, got %d tasks", len(tasks))
+	}
+}
+
+func TestParseTasksFrontmatterTasksNoteKeepsFileTaskOnly(t *testing.T) {
+	body := "---\ntags: [task]\ntasks: note\nstatus: in-progress\ndue: 2026-09-01\n---\n\n- [ ] research\n- [x] outline\n"
+	tasks := ParseTasks("inbox/t.md", "t", FolderInbox, body)
+	if len(tasks) != 1 {
+		t.Fatalf("expected exactly the file task, got %d tasks", len(tasks))
+	}
+	tk := tasks[0]
+	if tk.Kind != "file" || tk.ID != "inbox/t.md#task" {
+		t.Errorf("Kind=%q ID=%q, want file task", tk.Kind, tk.ID)
+	}
+	if !tk.InProgress || tk.Due != "2026-09-01" {
+		t.Errorf("InProgress=%v Due=%q, want frontmatter metadata intact", tk.InProgress, tk.Due)
+	}
+	// On a note without the task tag, `tasks: note` simply silences checkboxes.
+	plain := "---\ntasks: note\n---\n\n- [ ] a\n- [ ] b\n"
+	if tasks := ParseTasks("inbox/p.md", "p", FolderInbox, plain); len(tasks) != 0 {
+		t.Errorf("expected no tasks for tasks: note without a task tag, got %d", len(tasks))
+	}
+}
+
+func TestParseTasksWithIncludeExcluded(t *testing.T) {
+	body := "---\ntags: [task]\ntasks: false\n---\n\n- [ ] hidden\n- [ ] also hidden\n"
+	tasks := ParseTasksWith("inbox/t.md", "t", FolderInbox, body, ParseTasksOptions{IncludeExcluded: true})
+	if len(tasks) != 3 {
+		t.Fatalf("expected file task + 2 inline with IncludeExcluded, got %d", len(tasks))
+	}
+	if tasks[0].ID != "inbox/t.md#task" {
+		t.Errorf("first task ID=%q, want the file task", tasks[0].ID)
+	}
+	// Index counting is untouched by the gate, so ids stay stable.
+	if tasks[1].ID != "inbox/t.md#0" || tasks[2].ID != "inbox/t.md#1" {
+		t.Errorf("inline ids %q, %q, want #0 and #1", tasks[1].ID, tasks[2].ID)
+	}
+}

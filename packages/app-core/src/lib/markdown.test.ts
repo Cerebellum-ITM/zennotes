@@ -146,7 +146,6 @@ describe('renderMarkdown', () => {
     expect(html).toContain('green')
   })
 })
-
 describe('table column widths (#294)', () => {
   it('renders a <colgroup> from a trailing zen:cols comment', () => {
     const html = renderMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |\n<!-- zen:cols=120,200 -->\n')
@@ -227,6 +226,27 @@ describe('currency vs inline math (reading view matches the editor)', () => {
 
   it('still renders block math', () => {
     expect(renderMarkdown('$$\n\\int_0^1 x\\,dx\n$$')).toContain('katex')
+  })
+
+  it('numbers equation environments in document order', () => {
+    const html = renderMarkdown(
+      [
+        '$$',
+        '\\begin{equation}a=b\\end{equation}',
+        '$$',
+        '',
+        '$$',
+        '\\begin{equation}c=d\\end{equation}',
+        '$$'
+      ].join('\n')
+    )
+    const host = document.createElement('div')
+    host.innerHTML = html
+    expect(
+      Array.from(host.querySelectorAll('.katex-html .tag')).map((node) =>
+        node.textContent?.replace(/[\s\u200b]/g, '')
+      )
+    ).toEqual(['(1)', '(2)'])
   })
 })
 
@@ -318,5 +338,124 @@ describe('Typst math renderer', () => {
     const html = renderMarkdown('I paid $5 and got $10 back.')
     expect(html).not.toContain('zen-typst-math')
     expect(html).toContain('$5 and got $10 back.')
+  })
+})
+
+describe('display math inside a table cell (reading view matches the editor)', () => {
+  // The reported shape: a worked answer living in a table cell. Mid-line
+  // `$$…$$` can never be currency, so the guard must let it through, and the
+  // editor's table widget shows it as display math, so the reading view must
+  // agree.
+  const table = [
+    '| # | Ans | Working |',
+    '| --- | --- | --- |',
+    '| 9 | B | $$\\frac{800}{10000} \\times 100\\% = 8\\%$$ |'
+  ].join('\n')
+
+  it('renders $$…$$ in a cell as display math instead of literal source', () => {
+    setMarkdownMathRenderer('katex')
+    const html = renderMarkdown(table)
+    expect(html).toContain('katex')
+    expect(html).toContain('katex-display')
+    expect(html).not.toContain('$$\\frac')
+  })
+
+  it('renders a display placeholder under Typst', () => {
+    setMarkdownMathRenderer('typst')
+    const html = renderMarkdown(table)
+    expect(html).toContain('zen-typst-math')
+    expect(html).toContain('zen-typst-display')
+    setMarkdownMathRenderer('katex')
+  })
+
+  it('still leaves single-dollar currency in cells literal', () => {
+    setMarkdownMathRenderer('katex')
+    const html = renderMarkdown('| item | price |\n| --- | --- |\n| tea | $5 and $10 |')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$5 and $10')
+  })
+})
+
+describe('non-GFM task states in the reading view (#512)', () => {
+  it('renders [/], [-] and [>] as markers instead of literal text', () => {
+    const html = renderMarkdown(
+      '- [ ] open\n- [x] done\n- [/] started\n- [-] scrapped\n- [>] gone\n'
+    )
+    // The literal brackets are gone; each state gets a marker span and the
+    // `task-list-item` class that lines it up with the real checkboxes.
+    expect(html).not.toContain('[/]')
+    expect(html).not.toContain('[-]')
+    expect(html).not.toContain('[&#x3C;')
+    expect(html).toContain('zen-task-state-in-progress')
+    expect(html).toContain('zen-task-state-cancelled')
+    expect(html).toContain('zen-task-state-forwarded')
+    expect(html).toContain('zen-task-in-progress')
+    // The task text itself survives.
+    for (const text of ['open', 'done', 'started', 'scrapped', 'gone']) {
+      expect(html).toContain(text)
+    }
+  })
+
+  it('chips the metadata on an in-progress task, like a checked one', () => {
+    const html = renderMarkdown('- [/] Ship it due:2026-08-04 !high\n')
+    expect(html).toContain('zen-task-due')
+    expect(html).toContain('data-due="2026-08-04"')
+    expect(html).toContain('zen-task-prio-high')
+  })
+
+  it('leaves ordinary list items and mid-line brackets alone', () => {
+    const html = renderMarkdown('- plain item\n- see [-] in the middle\n- [-]nospace\n')
+    expect(html).not.toContain('zen-task-state')
+    expect(html).toContain('[-]nospace')
+  })
+
+  it('keeps a wikilink on a forwarded task', () => {
+    const html = renderMarkdown('- [>] gone [[Target]]\n')
+    expect(html).toContain('zen-task-state-forwarded')
+    expect(html).toContain('wikilink')
+    expect(html).toContain('Target')
+  })
+})
+
+describe('callout titles keep their inline markup (#549)', () => {
+  const titleOf = (html: string): string => {
+    const m = html.match(/<div class="callout-title">([\s\S]*?)<\/div>/)
+    return m ? m[1] : ''
+  }
+
+  it('keeps a link inside the title line, with no orphaned body paragraph', () => {
+    const html = renderMarkdown('> [!warning] This is warning [with](https://example.com) that is not multiline')
+    const title = titleOf(html)
+    expect(title).toContain('This is warning')
+    expect(title).toContain('<a')
+    expect(title).toContain('that is not multiline')
+    // The whole line is the title: nothing left over as a body paragraph.
+    expect(html).not.toMatch(/callout-title[\s\S]*?<\/div><p/)
+  })
+
+  it('keeps inline math inside the title line', () => {
+    const html = renderMarkdown('> [!note] This can also be reproduced with a $3+1=4$ formula inline.')
+    const title = titleOf(html)
+    expect(title).toContain('katex')
+    expect(title).toContain('formula inline.')
+  })
+
+  it('splits a multiline callout into title and a compact body without a stray <br>', () => {
+    const html = renderMarkdown('> [!note] line 1\n> line 2')
+    expect(titleOf(html)).toContain('line 1')
+    expect(html).toMatch(/<p[^>]*>line 2<\/p>/)
+    // The title/body soft break is a delimiter, not content: a leading <br>
+    // in the body paragraph rendered as a phantom empty line.
+    expect(html).not.toMatch(/<p[^>]*><br>/)
+  })
+
+  it('falls back to the capitalized type when the title line is empty', () => {
+    expect(titleOf(renderMarkdown('> [!note]\n> body only'))).toBe('Note')
+    expect(titleOf(renderMarkdown('> [!tip]'))).toBe('Tip')
+  })
+
+  it('leaves ordinary blockquotes and non-marker text alone', () => {
+    expect(renderMarkdown('> just a quote')).not.toContain('callout')
+    expect(renderMarkdown('> [!note]x is not a marker')).not.toContain('callout')
   })
 })

@@ -3,7 +3,9 @@ import {
   findKeymapConflict,
   getDefaultKeymapBinding,
   getKeymapDefinition,
+  getKeymapDefinitions,
   normalizeKeymapOverrides,
+  normalizeShortcutBinding,
   shortcutBindingFromEvent,
   sequenceTokenFromEvent
 } from './keymaps'
@@ -157,6 +159,43 @@ describe('sequenceTokenFromEvent', () => {
 })
 
 describe('leader keymap definitions', () => {
+  it('keeps the recent-note toggle portable with a literal Ctrl+Tab Mac default', () => {
+    withPlatform('darwin', () => {
+      expect(getDefaultKeymapBinding('global.toggleRecentNote')).toBe('Ctrl+Tab')
+    })
+    withPlatform('linux', () => {
+      expect(getDefaultKeymapBinding('global.toggleRecentNote')).toBe('Mod+Tab')
+    })
+    withPlatform('win32', () => {
+      expect(getDefaultKeymapBinding('global.toggleRecentNote')).toBe('Mod+Tab')
+    })
+  })
+
+  it('keeps every shortcut default in the portable Mod spelling', () => {
+    // The shortcut normalizer canonicalizes the platform-primary modifier to
+    // Mod (Ctrl on Windows/Linux, Meta on the Mac), so a default written as
+    // "Ctrl+..." reads back differently on Linux CI than on the Mac this
+    // suite usually runs on, and the shared-domain catalog can only mirror
+    // one of the two spellings. Every shortcut default must round-trip
+    // unchanged on every platform.
+    for (const def of getKeymapDefinitions()) {
+      if (def.kind !== 'shortcut') continue
+      // An empty default means "ships unbound" (this fork's history commands
+      // do that; the user assigns a key). There is no spelling to round-trip,
+      // and the normalizer answers null for it — portability only constrains
+      // defaults that actually carry a binding.
+      if (!def.defaultBinding) continue
+      for (const platform of ['darwin', 'linux', 'win32'] as const) {
+        const roundTripped = withPlatform(platform, () =>
+          normalizeShortcutBinding(def.defaultBinding)
+        )
+        expect(roundTripped, `${def.id} default is not portable on ${platform}`).toBe(
+          def.defaultBinding
+        )
+      }
+    }
+  })
+
   it('includes switch vault in leader bindings', () => {
     expect(getKeymapDefinition('vim.leaderSwitchVault')).toMatchObject({
       title: 'Leader: switch vault',

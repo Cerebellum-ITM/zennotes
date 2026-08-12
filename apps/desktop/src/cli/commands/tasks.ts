@@ -10,9 +10,13 @@ import { emitJson, emitLine, emitOk, pad, truncate } from '../format.js'
 export async function cmdTaskList(vault: VaultBackend, args: ParsedArgs): Promise<void> {
   const showAll = getBool(args, 'all')
   const onlyUnchecked = getBool(args, 'unchecked')
+  // `--all` was taken (it means every STATUS), so the exclusion escape hatch
+  // (#458) gets its own flag: also scan notes opted out via frontmatter
+  // `tasks:` and folders on the vault's excluded list.
+  const includeExcluded = getBool(args, 'include-excluded')
   const tag = getString(args, 'tag')?.replace(/^#/, '').toLowerCase()
 
-  let tasks = await vault.scanAllTasks()
+  let tasks = await vault.scanAllTasks(includeExcluded ? { includeExcluded: true } : undefined)
   if (!showAll) {
     if (onlyUnchecked) tasks = tasks.filter((t) => !t.checked)
     else tasks = tasks.filter((t) => !t.checked && !t.waiting)
@@ -28,7 +32,15 @@ export async function cmdTaskList(vault: VaultBackend, args: ParsedArgs): Promis
     return
   }
   for (const t of tasks) {
-    const box = t.checked ? '[x]' : t.cancelled ? '[-]' : t.waiting ? '[~]' : '[ ]'
+    const box = t.checked
+      ? '[x]'
+      : t.cancelled
+        ? '[-]'
+        : t.inProgress
+          ? '[/]'
+          : t.waiting
+            ? '[~]'
+            : '[ ]'
     const due = t.due ? `  due:${t.due}` : ''
     const pri = t.priority ? `  !${t.priority}` : ''
     emitLine(`${box}  ${pad(t.id, 40)}  ${truncate(t.content, 80)}${due}${pri}`)
@@ -48,6 +60,12 @@ export async function cmdTaskToggle(vault: VaultBackend, args: ParsedArgs): Prom
     emitJson(next)
     return
   }
-  const state = next.checked ? 'done' : next.waiting ? 'waiting' : 'open'
+  const state = next.checked
+    ? 'done'
+    : next.inProgress
+      ? 'in progress'
+      : next.waiting
+        ? 'waiting'
+        : 'open'
   emitOk(`Toggled ${id} → ${state}`)
 }

@@ -55,6 +55,7 @@ import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languag
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { hopMarkerBackward, hopMarkerForward } from '../lib/cm-marker-hop'
+import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
 import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
@@ -77,8 +78,16 @@ import {
   orderedListRenumber,
   skipOrderedListRenumber
 } from '../lib/cm-ordered-list-renumber'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { headingFolding } from '../lib/cm-heading-fold'
+import {
+  syntaxHighlighting,
+  HighlightStyle,
+  defaultHighlightStyle
+} from '@codemirror/language'
+import {
+  foldHeadingAtCursor,
+  headingFolding,
+  unfoldHeadingAtCursor
+} from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
@@ -92,10 +101,17 @@ import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { taskMetadataExtension } from '../lib/cm-task-metadata'
+import { taskRollupExtension } from '../lib/cm-task-rollup'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { applyHighlight, HIGHLIGHT_COLORS, highlightExtension } from '../lib/cm-highlight'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { mathRenderExtension } from '../lib/cm-math-render'
+import { mermaidRenderExtension } from '../lib/cm-mermaid-render'
+import {
+  documentDiagramTheme,
+  useDiagramTheme,
+  type DiagramTheme
+} from '../lib/use-diagram-theme-mode'
 import { embedRenderExtension } from '../lib/cm-embed-render'
 import { urlPasteMenuExtension } from '../lib/cm-url-paste-menu'
 import { mathBlockArrowKeymap } from '../lib/cm-math-nav'
@@ -265,6 +281,7 @@ import {
   type KeymapOverrides
 } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
+import { editorTabSize } from '../lib/editor-tab-size'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -312,6 +329,12 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
       run: moveLineDown
     },
+    // Obsidian-style checkbox toggle: line -> `- [ ]` -> `[x]` and back.
+    // Mode-agnostic like the line moves.
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.toggleCheckbox')),
+      run: toggleCheckbox
+    },
     // Step across inline markers, so a formatted word can be finished without
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
     {
@@ -321,6 +344,14 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     {
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerBackward')),
       run: hopMarkerBackward
+    },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.foldHeading')),
+      run: foldHeadingAtCursor
+    },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.unfoldHeading')),
+      run: unfoldHeadingAtCursor
     },
     // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
     // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
@@ -350,7 +381,7 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
   ])
 }
 
-function markdownEditingExtensions(): Extension[] {
+function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] {
   return [
     markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
     customCodeFenceHighlightExtension,
@@ -359,7 +390,7 @@ function markdownEditingExtensions(): Extension[] {
     frontmatterStyle,
     orderedListRenumber,
     forwardOnCheckboxArrow,
-    headingFolding(),
+    headingFolding({ showLevelLabels: showHeadingLevelLabels }),
     codeBlockFontPlugin,
     linkIconsPlugin,
     langIconsPlugin,
@@ -388,7 +419,8 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
 function wysiwygExtensions(
   renderTables: boolean,
   mathRenderer: MathRenderer,
-  typstPreamble: string
+  typstPreamble: string,
+  diagramTheme: DiagramTheme
 ): Extension[] {
   return [
     livePreviewPlugin,
@@ -399,9 +431,13 @@ function wysiwygExtensions(
     wysiwygBlocksPlugin,
     ...hashtagExtension,
     ...taskMetadataExtension,
+    ...taskRollupExtension,
     ...highlightExtension,
     ...wikilinkRenderExtension,
     mathRenderExtension(mathRenderer, typstPreamble),
+    // Diagrams bake their colours in, so the palette rides along and a theme
+    // switch redraws them (#530).
+    mermaidRenderExtension(diagramTheme.mode, diagramTheme.key),
     embedRenderExtension,
     urlPasteMenuExtension
   ]
@@ -414,7 +450,8 @@ function currentWysiwygExtensions(notePath: string | null): Extension[] {
   return wysiwygExtensions(
     s.renderTablesInLivePreview,
     s.mathRenderer,
-    selectTypstPreambleFor(s, notePath)
+    selectTypstPreambleFor(s, notePath),
+    documentDiagramTheme()
   )
 }
 
@@ -801,10 +838,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const livePreview = useStore((s) => s.livePreview)
+  const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
   const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
+  // Diagrams carry their palette inside the SVG, so a theme switch has to
+  // reconfigure this pane and redraw them (#530).
+  const diagramTheme = useDiagramTheme()
   const mathRenderer = useStore((s) => s.mathRenderer)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
+  const editorTabSizeValue = useStore((s) => s.editorTabSize)
   const editorScrollOff = useStore((s) => s.editorScrollOff)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const textFont = useStore((s) => s.textFont)
@@ -831,14 +873,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const modesByPath = useStore((s) => s.paneModes[paneId]) ?? EMPTY_PANE_MODES
   const setPaneModeForPath = useStore((s) => s.setPaneModeForPath)
   const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes)
+  const defaultPaneMode = useStore((s) => s.defaultPaneMode)
   const paneStickyMode = useStore((s) => s.paneStickyModes[paneId])
   // With "keep view mode across notes" on, every note in this pane follows the
   // pane's current mode instead of its own remembered one (falls back to the
-  // per-note mode until a mode has been picked in this pane).
+  // per-note mode until a mode has been picked in this pane). A note with no
+  // remembered mode opens in the Default view mode preference. (#543)
   const mode =
     keepViewModeAcrossNotes && paneStickyMode
       ? paneStickyMode
-      : paneModeForPath(modesByPath, activeTab)
+      : paneModeForPath(modesByPath, activeTab, defaultPaneMode)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
@@ -908,6 +952,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // lets us tell our own restore scroll apart from a user scroll, so we never
   // yank a reader who scrolled during the render window.
   const previewRestoreTargetRef = useRef<{ path: string; top: number } | null>(null)
+  // Set when the user switches Edit/Split → Preview: the reading view opens on
+  // the line the cursor was on, instead of the top of the note. Applied (and
+  // cleared) once the preview has rendered blocks to anchor against. (#543)
+  const pendingPreviewCursorLineRef = useRef<{ path: string; line: number } | null>(null)
   const lastProgrammaticPreviewTopRef = useRef<number | null>(null)
   const lastRestoredPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
@@ -919,6 +967,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
   const scrolloffCompartmentRef = useRef<Compartment | null>(null)
   const drawSelectionCompartmentRef = useRef<Compartment | null>(null)
+  const tabSizeCompartmentRef = useRef<Compartment | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
   const historyCompartmentRef = useRef<Compartment | null>(null)
@@ -1078,6 +1127,22 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
+    // Capture the cursor's line NOW, while the editor is still mounted:
+    // preview-only mode tears the editor down, and "continue reading where I
+    // was editing" needs this anchor to land the preview there. (#543)
+    const view = viewRef.current
+    if (
+      nextMode === 'preview' &&
+      modeRef.current !== 'preview' &&
+      activeTab &&
+      view &&
+      viewPathRef.current === activeTab
+    ) {
+      pendingPreviewCursorLineRef.current = {
+        path: activeTab,
+        line: view.state.doc.lineAt(view.state.selection.main.head).number
+      }
+    }
     setPaneModeForPath(paneId, activeTab, nextMode)
     setActivePane(paneId)
     setFocusedPanel('editor')
@@ -1304,6 +1369,31 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     })
   }, [lockOutlinePreviewSync, mode, scrollPreviewToOutlineLine])
 
+  // Scroll the preview so the rendered block for `line` sits near the top:
+  // the nearest data-source-line block at or above the line, like the split
+  // sync's anchor walk, but from a bare line number (no live editor needed).
+  const scrollPreviewToSourceLine = useCallback((line: number): boolean => {
+    const previewEl = previewScrollRef.current
+    if (!previewEl) return false
+    const blocks = previewEl.querySelectorAll<HTMLElement>('[data-source-line]')
+    if (blocks.length === 0) return false
+    let anchor: HTMLElement | null = null
+    for (const el of blocks) {
+      const ln = Number(el.dataset.sourceLine)
+      if (Number.isFinite(ln) && ln <= line) {
+        anchor = el
+      } else if (ln > line) {
+        break
+      }
+    }
+    const nextTop = anchor
+      ? scrollTopForElementRelativeTop(previewEl, anchor, OUTLINE_JUMP_TOP_MARGIN)
+      : 0
+    previewEl.scrollTop = nextTop
+    lastProgrammaticPreviewTopRef.current = previewEl.scrollTop
+    return true
+  }, [])
+
   const handlePreviewRendered = useCallback((): void => {
     if (previewIsStaleRef.current) return
     const pendingLine = pendingPreviewOutlineJumpLineRef.current
@@ -1312,6 +1402,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         pendingPreviewOutlineJumpLineRef.current = null
       }
       return
+    }
+    // A mode switch out of editing carries the cursor's line into the
+    // reading view; the live editing position outranks a remembered
+    // preview offset from an earlier visit. (#543)
+    const cursorTarget = pendingPreviewCursorLineRef.current
+    if (cursorTarget && cursorTarget.path === content?.path) {
+      if (scrollPreviewToSourceLine(cursorTarget.line)) {
+        pendingPreviewCursorLineRef.current = null
+        previewRestoreTargetRef.current = null
+        return
+      }
     }
     // Re-apply a remembered scroll now that the preview has reached full
     // height — async diagrams grow the page after first paint, which would
@@ -1335,7 +1436,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     content?.path,
     mode,
     syncPreviewToEditorScroll,
-    scrollPreviewToOutlineLine
+    scrollPreviewToOutlineLine,
+    scrollPreviewToSourceLine
   ])
 
   useEffect(() => {
@@ -1661,6 +1763,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const wordWrapCompartment = new Compartment()
       const scrolloffCompartment = new Compartment()
       const drawSelectionCompartment = new Compartment()
+      const tabSizeCompartment = new Compartment()
       const historyCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
@@ -1671,6 +1774,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       wordWrapCompartmentRef.current = wordWrapCompartment
       scrolloffCompartmentRef.current = scrolloffCompartment
       drawSelectionCompartmentRef.current = drawSelectionCompartment
+      tabSizeCompartmentRef.current = tabSizeCompartment
       historyCompartmentRef.current = historyCompartment
       const s0 = useStore.getState()
       const initialPath = findLeaf(s0.paneLayout, paneId)?.activeTab ?? null
@@ -1689,6 +1793,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           drawSelectionCompartment.of(
             drawSelection({ cursorBlinkRate: s0.cursorBlink ? 1200 : 0 })
           ),
+          tabSizeCompartment.of(editorTabSize(s0.editorTabSize)),
           highlightActiveLine(),
           taskJumpHighlightField,
           yankHighlightExtension,
@@ -1697,7 +1802,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           flashJump(),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
-          markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
+          markdownCompartment.of(
+            deferInitialRichMarkdown
+              ? []
+              : markdownEditingExtensions(s0.showHeadingLevelLabels)
+          ),
           markdownSyntaxCompartment.of(
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
@@ -1706,7 +1815,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               ? wysiwygExtensions(
                   s0.renderTablesInLivePreview,
                   s0.mathRenderer,
-                  selectTypstPreambleFor(s0, initialPath)
+                  selectTypstPreambleFor(s0, initialPath),
+                  documentDiagramTheme()
                 )
               : []
           ),
@@ -1891,7 +2001,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           if (viewPathRef.current !== initialPath) return
           richMarkdownDeferredRef.current = false
           const restoreEffects = [
-            markdownCompartment.reconfigure(markdownEditingExtensions()),
+            markdownCompartment.reconfigure(
+              markdownEditingExtensions(useStore.getState().showHeadingLevelLabels)
+            ),
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
           if (useStore.getState().livePreview) {
@@ -1986,7 +2098,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     ) {
       richMarkdownDeferredRef.current = false
       effects.push(
-        markdownCompartment.reconfigure(markdownEditingExtensions()),
+        markdownCompartment.reconfigure(
+          markdownEditingExtensions(useStore.getState().showHeadingLevelLabels)
+        ),
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
       if (livePreviewEnabled && livePreviewCompartment) {
@@ -2050,7 +2164,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (viewPathRef.current !== nextPath) return
         richMarkdownDeferredRef.current = false
         const restoreEffects = [
-          markdownCompartment.reconfigure(markdownEditingExtensions()),
+          markdownCompartment.reconfigure(
+            markdownEditingExtensions(useStore.getState().showHeadingLevelLabels)
+          ),
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (useStore.getState().livePreview && livePreviewCompartment) {
@@ -2104,7 +2220,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         const markdownCompartment = markdownCompartmentRef.current
         const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
         if (markdownCompartment) {
-          effects.push(markdownCompartment.reconfigure(markdownEditingExtensions()))
+          effects.push(
+            markdownCompartment.reconfigure(
+              markdownEditingExtensions(useStore.getState().showHeadingLevelLabels)
+            )
+          )
         }
         if (markdownSyntaxCompartment) {
           effects.push(
@@ -2124,7 +2244,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // `typstPreamble` is in the deps so retagging a note — or editing the
     // preamble note it points at — reconfigures this pane and repaints its
     // formulas with the new definitions. (#486)
-  }, [livePreview, renderTablesInLivePreview, mathRenderer, typstPreamble])
+  }, [livePreview, renderTablesInLivePreview, mathRenderer, typstPreamble, diagramTheme.key])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = markdownCompartmentRef.current
+    if (!view || !comp || richMarkdownDeferredRef.current) return
+    view.dispatch({
+      effects: comp.reconfigure(markdownEditingExtensions(showHeadingLevelLabels))
+    })
+  }, [showHeadingLevelLabels])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current
@@ -2157,6 +2285,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       )
     })
   }, [cursorBlink])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = tabSizeCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({ effects: comp.reconfigure(editorTabSize(editorTabSizeValue)) })
+  }, [editorTabSizeValue])
 
   // Re-measure CM on prefs that change line geometry.
   useEffect(() => {

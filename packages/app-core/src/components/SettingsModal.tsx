@@ -91,6 +91,8 @@ import { DynamicIcon } from './DynamicIcon'
 import { LANG_ICON_LIST, DEFAULT_LANG_ICONS } from '../lib/lang-icons'
 import { normalizeIconRules } from '../lib/vault-layout'
 import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palette'
+import { normalizeTasksExcludedFolder } from '@shared/tasks-excluded-folders'
+import { TextReplacementsSettings } from './TextReplacementsSettings'
 import { WORKFLOW_PRESETS, hiddenPresetsInOrder } from '@shared/workflows/presets'
 import { startWorkflowTutorial } from '../lib/workflow-tutorial-flow'
 
@@ -423,6 +425,18 @@ export function SettingsModal(): JSX.Element {
   const setMathRenderer = useStore((s) => s.setMathRenderer)
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters)
   const setLooseMathDelimiters = useStore((s) => s.setLooseMathDelimiters)
+  const defaultPaneMode = useStore((s) => s.defaultPaneMode)
+  const setDefaultPaneMode = useStore((s) => s.setDefaultPaneMode)
+  const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
+  const setShowHeadingLevelLabels = useStore((s) => s.setShowHeadingLevelLabels)
+  const editorTabSize = useStore((s) => s.editorTabSize)
+  const setEditorTabSize = useStore((s) => s.setEditorTabSize)
+  const textReplacementsEnabled = useStore((s) => s.textReplacementsEnabled)
+  const setTextReplacementsEnabled = useStore((s) => s.setTextReplacementsEnabled)
+  const textReplacements = useStore((s) => s.textReplacements)
+  const setTextReplacements = useStore((s) => s.setTextReplacements)
+  const showArchivedTasks = useStore((s) => s.showArchivedTasks)
+  const setShowArchivedTasks = useStore((s) => s.setShowArchivedTasks)
   const typstTagPreambles = useStore((s) => s.typstTagPreambles)
   const setTypstTagPreambles = useStore((s) => s.setTypstTagPreambles)
   const syncTitleHeadingOnRename = useStore((s) => s.syncTitleHeadingOnRename)
@@ -1702,6 +1716,30 @@ export function SettingsModal(): JSX.Element {
           keywords: ['typst', 'preamble', 'definitions', 'tags', 'math', 'notation']
         },
         {
+          id: 'default-view-mode',
+          title: 'Default view mode',
+          description: 'The mode a note opens in before you have picked one for it.',
+          keywords: ['view', 'mode', 'default', 'edit', 'preview', 'split', 'open']
+        },
+        {
+          id: 'heading-level-labels',
+          title: 'Heading level labels',
+          description: 'Show H1, H2, H3 labels before headings in the editor.',
+          keywords: ['heading', 'level', 'label', 'h1', 'h2', 'h3', 'outline']
+        },
+        {
+          id: 'editor-tab-size',
+          title: 'Tab size',
+          description: 'How many spaces a tab occupies in the editor and when indenting.',
+          keywords: ['tab', 'size', 'indent', 'spaces', 'width']
+        },
+        {
+          id: 'text-replacements-enabled',
+          title: 'Text replacements',
+          description: 'Expand snippets as you type (the default rule turns -> into →).',
+          keywords: ['text', 'replacement', 'snippet', 'expand', 'abbreviation', 'autocorrect']
+        },
+        {
           id: 'sync-title-heading-on-rename',
           title: 'Sync title heading on rename',
           description: 'Renaming a note rewrites its leading # heading to the new name.',
@@ -1990,6 +2028,9 @@ export function SettingsModal(): JSX.Element {
             'live-preview',
             'render-tables',
             'markdown-overrides',
+            'default-view-mode',
+            'heading-level-labels',
+            'editor-tab-size',
             'auto-pairs',
             'auto-pair-quotes-in-prose',
             'math-renderer',
@@ -2034,6 +2075,24 @@ export function SettingsModal(): JSX.Element {
               value={markdownSnippets}
               settingId="markdown-overrides"
               onChange={setMarkdownSnippets}
+            />
+            <ToggleRow
+              label="Heading level labels"
+              description="Show H1, H2, H3, and other level labels before headings. Heading fold arrows remain available either way."
+              value={showHeadingLevelLabels}
+              settingId="heading-level-labels"
+              onChange={setShowHeadingLevelLabels}
+            />
+            <SliderRow
+              label="Tab size"
+              description="How many spaces a tab occupies in the editor and when indenting."
+              value={editorTabSize}
+              min={1}
+              max={8}
+              step={1}
+              unit=" spaces"
+              settingId="editor-tab-size"
+              onChange={setEditorTabSize}
             />
             <ToggleRow
               label="Auto-pair brackets and delimiters"
@@ -2097,6 +2156,18 @@ export function SettingsModal(): JSX.Element {
                 { value: 'gray-strikethrough', label: 'Both' }
               ]}
               onChange={(next) => setCompletedTaskStyle(next)}
+            />
+            <SegmentedRow
+              label="Default view mode"
+              description="The mode a note opens in before you have picked one for it: Edit to write, Preview to read, Split for both. Each note still remembers the mode you last used on it."
+              value={defaultPaneMode}
+              settingId="default-view-mode"
+              options={[
+                { value: 'edit', label: 'Edit' },
+                { value: 'split', label: 'Split' },
+                { value: 'preview', label: 'Preview' }
+              ]}
+              onChange={(next) => setDefaultPaneMode(next)}
             />
             <ToggleRow
               label="Keep view mode when switching notes"
@@ -2183,6 +2254,31 @@ export function SettingsModal(): JSX.Element {
               placeholder="Quick Note"
               settingId="quick-note-prefix"
               onChange={setQuickNoteTitlePrefix}
+            />
+          </Section>
+        </div>
+          )
+        },
+        {
+          id: 'text-replacements',
+          title: 'Text replacements',
+          searchIds: ['text-replacements-enabled'],
+          content: (
+        <div className="space-y-6">
+          <Section
+            title="Text replacements"
+            description="Create snippets that expand immediately in the note editor."
+          >
+            <ToggleRow
+              label="Enable text replacements"
+              description="Replace matching text as you type. The default rule turns -> into →. In Vim mode, replacements run only in insert mode."
+              value={textReplacementsEnabled}
+              settingId="text-replacements-enabled"
+              onChange={setTextReplacementsEnabled}
+            />
+            <TextReplacementsSettings
+              replacements={textReplacements}
+              onChange={setTextReplacements}
             />
           </Section>
         </div>
@@ -2291,6 +2387,18 @@ export function SettingsModal(): JSX.Element {
       keywords: ['kanban', 'status', 'board', 'columns', 'tasks', 'workflow', 'sprint', 'area'],
       searchItems: [
         {
+          id: 'show-archived-tasks',
+          title: 'Show tasks from archived notes',
+          description: "Keep archived notes' tasks in the Tasks list, boards, and calendars.",
+          keywords: ['archive', 'archived', 'tasks', 'hide', 'retire', 'board', 'calendar']
+        },
+        {
+          id: 'tasks-excluded-folders',
+          title: 'Folders excluded from Tasks',
+          description: 'Folders whose notes never feed the Tasks list, boards, or calendars.',
+          keywords: ['exclude', 'folder', 'checklist', 'checkbox', 'tasks', 'ignore', 'reading list']
+        },
+        {
           id: 'kanban-statuses',
           title: 'Custom Kanban statuses',
           description:
@@ -2315,6 +2423,24 @@ export function SettingsModal(): JSX.Element {
             description="Set up the columns for the Tasks Kanban Custom status board. Other @field boards (sprint, area, …) appear automatically as you tag tasks — no setup needed."
           >
             <KanbanStatusesRow settingId="kanban-statuses" />
+          </Section>
+          <Section
+            title="Archived notes"
+            description="What happens to a note's tasks when the note moves to the Archive."
+          >
+            <ToggleRow
+              label="Show tasks from archived notes"
+              description="Keep archived notes' tasks in the Tasks list, boards, and calendars. Off by default: archiving a note retires its tasks with it (the markdown is untouched, and un-archiving brings them back). Archiving a note that still has open tasks always asks first."
+              value={showArchivedTasks}
+              settingId="show-archived-tasks"
+              onChange={setShowArchivedTasks}
+            />
+          </Section>
+          <Section
+            title="Checklists"
+            description="Not every checkbox is a task. Exclude whole folders here, or opt out a single note with tasks: false in its frontmatter (tasks: note keeps a #task note on the board while silencing its checklist)."
+          >
+            <TasksExcludedFoldersRow settingId="tasks-excluded-folders" />
           </Section>
           <button
             type="button"
@@ -6695,6 +6821,77 @@ function FontRow({
           </div>,
           document.body
         )}
+    </div>
+  )
+}
+
+const NO_EXCLUDED_FOLDERS: string[] = []
+
+function TasksExcludedFoldersRow({ settingId }: { settingId?: string }): JSX.Element {
+  const excluded = useStore((s) => s.vaultSettings.tasks?.excludedFolders ?? NO_EXCLUDED_FOLDERS)
+  const toggleTasksExcludedFolder = useStore((s) => s.toggleTasksExcludedFolder)
+  const [draft, setDraft] = useState('')
+
+  const addDraft = (): void => {
+    const cleaned = normalizeTasksExcludedFolder(draft)
+    if (!cleaned || excluded.includes(cleaned)) return
+    setDraft('')
+    void toggleTasksExcludedFolder(cleaned)
+  }
+
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Folders excluded from Tasks</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        Notes in these folders never feed the Tasks list, boards, or calendars (their checkboxes
+        stay plain checkboxes). Right-click a folder in the sidebar and choose “Exclude from
+        Tasks”, or add its vault path here. Saved in the vault itself, so the CLI, MCP, and the
+        self-hosted server respect it too.
+      </div>
+      <div className="mt-3 space-y-2">
+        {excluded.length === 0 && (
+          <div className="rounded-md border border-dashed border-paper-300 px-3 py-2 text-xs text-ink-500">
+            No folders excluded. Reading lists and media backlogs are the usual candidates.
+          </div>
+        )}
+        {excluded.map((relDir) => (
+          <div key={relDir} className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 truncate rounded-md border border-paper-300 bg-paper-100 px-2.5 py-1.5 font-mono text-xs text-ink-900">
+              {relDir}
+            </div>
+            <button
+              type="button"
+              onClick={() => void toggleTasksExcludedFolder(relDir)}
+              aria-label={`Include ${relDir} in Tasks again`}
+              className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-rose-500/15 hover:text-rose-400"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              addDraft()
+            }
+          }}
+          placeholder="Folder path, e.g. inbox/Books"
+          aria-label="Folder path to exclude from Tasks"
+          className="min-w-0 flex-1 rounded-md border border-paper-300 bg-paper-100 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent/60"
+        />
+        <button
+          type="button"
+          onClick={addDraft}
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+        >
+          Exclude folder
+        </button>
+      </div>
     </div>
   )
 }

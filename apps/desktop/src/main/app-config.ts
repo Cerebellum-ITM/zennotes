@@ -93,6 +93,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'live_preview',
     comment: 'hide markdown syntax on inactive lines'
   },
+  showHeadingLevelLabels: {
+    section: 'editor',
+    tomlKey: 'show_heading_level_labels',
+    comment: 'show H1 through H6 badges before headings'
+  },
   renderTablesInLivePreview: {
     section: 'editor',
     tomlKey: 'render_tables',
@@ -107,6 +112,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'editor',
     tomlKey: 'markdown_snippets',
     comment: 'auto-close markdown delimiters while typing'
+  },
+  textReplacementsEnabled: {
+    section: 'editor',
+    tomlKey: 'text_replacements_enabled',
+    comment: 'expand configured text triggers while typing'
   },
   autoPairs: {
     section: 'editor',
@@ -135,6 +145,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'editor + preview font size (px)'
   },
   editorLineHeight: { section: 'editor', tomlKey: 'line_height', comment: 'line-height multiplier' },
+  editorTabSize: {
+    section: 'editor',
+    tomlKey: 'tab_size',
+    comment: 'tab width in columns, from 1 through 8'
+  },
   editorScrollOff: {
     section: 'editor',
     tomlKey: 'scroll_off',
@@ -174,6 +189,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'editor',
     tomlKey: 'loose_math_delimiters',
     comment: 'render $$…$$ display math even with text before/after the fences'
+  },
+  defaultPaneMode: {
+    section: 'editor',
+    tomlKey: 'default_view_mode',
+    comment: 'edit | split | preview — the mode a note opens in before it has a remembered one'
   },
   lineNumberMode: {
     section: 'editor',
@@ -310,6 +330,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'show ISO week numbers in the calendar'
   },
   tasksViewMode: { section: 'view', tomlKey: 'tasks_view_mode', comment: 'list | calendar | kanban' },
+  showArchivedTasks: {
+    section: 'view',
+    tomlKey: 'show_archived_tasks',
+    comment: 'keep tasks from archived notes in the Tasks views'
+  },
   kanbanGroupBy: {
     section: 'view',
     tomlKey: 'kanban_group_by',
@@ -379,6 +404,11 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'tweaks',
     comment: ['Visual color tweaks from Settings → Appearance (token slug = color).'],
     example: '"accent" = "#ff3b30"'
+  },
+  textReplacements: {
+    table: 'text_replacements',
+    comment: ['Text replacements expanded while typing, keyed by trigger.'],
+    example: '"->" = "→"'
   }
 }
 

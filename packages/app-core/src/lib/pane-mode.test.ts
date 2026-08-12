@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   nextPaneMode,
+  isPaneMode,
   paneModeForPath,
   paneModesWithPathMode,
   type PaneModesByPath
@@ -32,5 +33,26 @@ describe('nextPaneMode', () => {
 
   it('loops back to the start in three steps', () => {
     expect(nextPaneMode(nextPaneMode(nextPaneMode('edit')))).toBe('edit')
+  })
+})
+
+describe('paneModeForPath fallback (#543)', () => {
+  it('opens an unremembered note in the given default mode', () => {
+    expect(paneModeForPath({}, 'a.md', 'preview')).toBe('preview')
+    expect(paneModeForPath({}, 'a.md', 'split')).toBe('split')
+    expect(paneModeForPath({}, null, 'preview')).toBe('preview')
+  })
+
+  it('a remembered per-note mode outranks the default', () => {
+    const modes = paneModesWithPathMode({}, 'a.md', 'edit')
+    expect(paneModeForPath(modes, 'a.md', 'preview')).toBe('edit')
+  })
+
+  it('isPaneMode accepts only the three modes', () => {
+    expect(isPaneMode('edit')).toBe(true)
+    expect(isPaneMode('preview')).toBe(true)
+    expect(isPaneMode('split')).toBe(true)
+    expect(isPaneMode('reading')).toBe(false)
+    expect(isPaneMode(undefined)).toBe(false)
   })
 })

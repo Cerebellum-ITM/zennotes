@@ -14,6 +14,11 @@ import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { removeFrontmatterKey, setFrontmatterKey } from '@shared/template-files'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
+import { noteTasksMode, type NoteTasksMode } from '@shared/tasks'
+import {
+  isPathExcludedFromTasks,
+  normalizeTasksExcludedFolders
+} from '@shared/tasks-excluded-folders'
 import {
   isObsidianExcalidrawMarkdown,
   isObsidianExcalidrawPath
@@ -246,9 +251,10 @@ async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
 }
 
 const FENCE_LINE_RE = /^(\s{0,3})(`{3,}|~{3,})/
-// `>` = forwarded (#316), `-` = cancelled (#450) — both recognized so those
-// tasks aren't invisible to the MCP scanner. Kept in sync with @shared/tasklists.
-const TASK_LINE_RE = /^\s*[-*+]\s+\[([ xX>-])\](.*)$/
+// `>` = forwarded (#316), `-` = cancelled (#450), `/` = in progress (#512) —
+// all recognized so those tasks aren't invisible to the MCP scanner. Kept in
+// sync with @shared/tasklists.
+const TASK_LINE_RE = /^\s*[-*+]\s+\[([ xX>/-])\](.*)$/
 
 export interface NoteMeta {
   path: string
@@ -284,6 +290,9 @@ export interface VaultTask {
   checked: boolean
   /** True for a `[-]` cancelled task — intentionally abandoned (#450). */
   cancelled?: boolean
+  /** True for a `[/]` task in progress: started, not finished (#512). Still
+   *  open work, unlike checked/cancelled. */
+  inProgress?: boolean
   due?: string
   priority?: 'high' | 'med' | 'low'
   waiting: boolean
@@ -1194,10 +1203,16 @@ function normalizeDueDate(raw: string | undefined): string | undefined {
   return isValidIsoDate(cleaned) ? cleaned : undefined
 }
 
-function parseNoteDefaults(body: string): { due?: string; priority?: 'high' | 'med' | 'low' } {
+function parseNoteDefaults(body: string): {
+  due?: string
+  priority?: 'high' | 'med' | 'low'
+  tasksMode: NoteTasksMode
+} {
   const m = body.match(FRONTMATTER_RE)
-  if (!m) return {}
-  const out: { due?: string; priority?: 'high' | 'med' | 'low' } = {}
+  if (!m) return { tasksMode: 'all' }
+  const out: { due?: string; priority?: 'high' | 'med' | 'low'; tasksMode: NoteTasksMode } = {
+    tasksMode: 'all'
+  }
   for (const rawLine of m[1].split('\n')) {
     const line = rawLine.trim()
     if (!line || line.startsWith('#')) continue
@@ -1212,17 +1227,29 @@ function parseNoteDefaults(body: string): { due?: string; priority?: 'high' | 'm
     else if (key === 'priority') {
       const p = normalizePriority(value)
       if (p) out.priority = p
-    }
+    } else if (key === 'tasks') out.tasksMode = noteTasksMode(value)
   }
   return out
 }
 
+interface ParseTasksOptions {
+  /** Scan past the note-level `tasks:` opt-out (#458): the `list_tasks`
+   *  includeExcluded / `zn task list --include-excluded` escape hatch. */
+  includeExcluded?: boolean
+}
+
 function parseTasksFromBody(
   body: string,
-  ctx: { path: string; title: string; folder: NoteFolder }
+  ctx: { path: string; title: string; folder: NoteFolder },
+  opts?: ParseTasksOptions
 ): VaultTask[] {
   const normalized = body.replace(/\r\n/g, '\n')
   const defaults = parseNoteDefaults(normalized)
+
+  // Frontmatter `tasks:` opt-out (#458): 'none' and 'note-only' both silence
+  // inline checkboxes. Kept in sync with packages/shared-domain/src/tasks.ts;
+  // the value set itself comes from the shared noteTasksMode.
+  if (defaults.tasksMode !== 'all' && !opts?.includeExcluded) return []
   const lines = normalized.split('\n')
   const tasks: VaultTask[] = []
 
@@ -1253,6 +1280,7 @@ function parseTasksFromBody(
     const tail = m[2]
     const checked = checkedChar === 'x' || checkedChar === 'X'
     const cancelled = checkedChar === '-'
+    const inProgress = checkedChar === '/'
 
     let due: string | undefined
     let priority: 'high' | 'med' | 'low' | undefined
@@ -1294,6 +1322,7 @@ function parseTasksFromBody(
       content,
       checked,
       cancelled,
+      inProgress,
       due: due ?? defaults.due,
       priority: priority ?? defaults.priority,
       waiting,
@@ -1315,6 +1344,16 @@ const DONE_STATUSES = new Set(['done', 'complete', 'completed', 'x'])
 
 /** Frontmatter `status:` values treated as cancelled — abandoned (#450). */
 const CANCELLED_STATUSES = new Set(['cancelled', 'canceled'])
+
+/** Frontmatter `status:` values treated as in progress (#512). Still open work. */
+const IN_PROGRESS_STATUSES = new Set([
+  'in-progress',
+  'in progress',
+  'inprogress',
+  'doing',
+  'started',
+  'wip'
+])
 
 /** Parse a leading frontmatter block into flat fields, handling scalars, inline
  *  arrays (`tags: [a, b]`) and block lists (`tags:` then `  - a`). Keys are
@@ -1377,12 +1416,18 @@ function firstScalar(v: string | string[] | undefined): string | undefined {
  */
 function parseTaskFile(
   body: string,
-  ctx: { path: string; title: string; folder: NoteFolder }
+  ctx: { path: string; title: string; folder: NoteFolder },
+  opts?: ParseTasksOptions
 ): VaultTask | null {
   const normalized = body.replace(/\r\n/g, '\n')
   const m = normalized.match(FRONTMATTER_RE)
   if (!m) return null
   const fm = parseTaskFrontmatter(m[1])
+
+  // `tasks: false` wins over `tags: [task]`; `tasks: note` deliberately falls
+  // through, keeping the file task while parseTasksFromBody drops the
+  // checkboxes. (#458)
+  if (noteTasksMode(fm.tasks) === 'none' && !opts?.includeExcluded) return null
 
   const tags = asArray(fm.tags).map((t) => t.replace(/^#/, '').toLowerCase())
   if (!tags.includes(TASK_FILE_TAG)) return null
@@ -1402,6 +1447,7 @@ function parseTaskFile(
     content: title,
     checked: DONE_STATUSES.has(status),
     cancelled: CANCELLED_STATUSES.has(status),
+    inProgress: IN_PROGRESS_STATUSES.has(status),
     due: normalizeDueDate(firstScalar(fm.due)),
     priority: normalizePriority(firstScalar(fm.priority)),
     waiting: status === 'waiting',
@@ -1449,8 +1495,32 @@ function todayIsoLocal(): string {
   return `${y}-${mo}-${day}`
 }
 
-export async function scanAllTasks(root: string): Promise<VaultTask[]> {
-  const metas = (await listNotes(root)).filter((m) => m.folder !== 'trash')
+/** The vault's `tasks.excludedFolders` list (#458), read straight off
+ *  vault.json like readSystemFolderPaths above; validation comes from the
+ *  shared normalizer, so the rules cannot drift from the other runtimes. */
+async function readTasksExcludedFolders(root: string): Promise<string[]> {
+  const settingsPath = path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE)
+  let raw: Record<string, unknown>
+  try {
+    raw = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>
+  } catch {
+    return []
+  }
+  const tasks = raw['tasks']
+  if (!tasks || typeof tasks !== 'object') return []
+  return normalizeTasksExcludedFolders(
+    (tasks as { excludedFolders?: unknown }).excludedFolders
+  )
+}
+
+export async function scanAllTasks(
+  root: string,
+  opts?: ParseTasksOptions
+): Promise<VaultTask[]> {
+  const excluded = opts?.includeExcluded ? [] : await readTasksExcludedFolders(root)
+  const metas = (await listNotes(root)).filter(
+    (m) => m.folder !== 'trash' && !isPathExcludedFromTasks(m.path, excluded)
+  )
   const out: VaultTask[] = []
   await Promise.all(
     metas.map(async (meta) => {
@@ -1466,8 +1536,8 @@ export async function scanAllTasks(root: string): Promise<VaultTask[]> {
         title: meta.title,
         folder: meta.folder
       }
-      const fileTask = parseTaskFile(body, ctx)
-      const inline = parseTasksFromBody(body, ctx)
+      const fileTask = parseTaskFile(body, ctx, opts)
+      const inline = parseTasksFromBody(body, ctx, opts)
       // File task first, then any inline `- [ ]` checkboxes acting as subtasks.
       if (fileTask) out.push(fileTask, ...inline)
       else out.push(...inline)
@@ -1494,11 +1564,13 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
       title: path.basename(abs, path.extname(abs)),
       folder
     }
-    const current = parseTaskFile(body, ctx)
+    // Exclusion-blind on purpose: an explicit task id is an explicit ask, and
+    // ids for excluded tasks only circulate via the includeExcluded listing.
+    const current = parseTaskFile(body, ctx, { includeExcluded: true })
     if (!current) return null
     const next = toggleFileTaskInBody(body, current.checked)
     await fs.writeFile(abs, next, 'utf8')
-    return parseTaskFile(next, ctx)
+    return parseTaskFile(next, ctx, { includeExcluded: true })
   }
 
   const targetIndex = parseTaskIndex(taskId, indexStr)
@@ -1509,11 +1581,17 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
   await fs.writeFile(abs, newBody, 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
-  const parsed = parseTasksFromBody(newBody, {
-    path: toPosix(path.relative(root, abs)),
-    title: path.basename(abs, path.extname(abs)),
-    folder
-  })
+  const parsed = parseTasksFromBody(
+    newBody,
+    {
+      path: toPosix(path.relative(root, abs)),
+      title: path.basename(abs, path.extname(abs)),
+      folder
+    },
+    // The toggle already landed on disk; this re-parse only returns the
+    // toggled task, so it must see past a note-level `tasks:` opt-out.
+    { includeExcluded: true }
+  )
   return parsed[targetIndex] ?? null
 }
 

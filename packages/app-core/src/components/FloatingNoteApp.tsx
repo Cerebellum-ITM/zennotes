@@ -32,6 +32,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { registerDisplayLineMotion } from '../lib/cm-vim-display-line'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
@@ -50,6 +51,7 @@ import {
   type ThemeFamily,
   type ThemeMode
 } from '../lib/themes'
+import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const SAVE_DEBOUNCE_MS = 350
@@ -100,6 +102,8 @@ export interface FloatingPrefs {
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
+  editorTabSize: number
+  showHeadingLevelLabels: boolean
   lineNumberMode: LineNumberMode
   wordWrap: boolean
   interfaceFont: string | null
@@ -117,6 +121,8 @@ export function loadFloatingPrefs(): FloatingPrefs {
     themeMode: 'dark',
     editorFontSize: 16,
     editorLineHeight: 1.7,
+    editorTabSize: 4,
+    showHeadingLevelLabels: false,
     lineNumberMode: 'off',
     wordWrap: true,
     interfaceFont: null,
@@ -138,7 +144,8 @@ export function loadFloatingPrefs(): FloatingPrefs {
       ...parsed,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
-      lineNumberMode
+      lineNumberMode,
+      editorTabSize: normalizeEditorTabSize(parsed.editorTabSize)
     }
   } catch {
     return fallback
@@ -236,6 +243,26 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
   // Sync to external changes (file watcher broadcasts to all windows).
   useEffect(() => {
     const off = window.zen.onVaultChange((ev: VaultChangeEvent) => {
+      // A resync fires after a change-feed gap (a reconnected watch socket)
+      // and carries no path: this note's own events, if any, were swallowed
+      // by the gap, so re-read unconditionally. Bailing on the path filter
+      // below left the window rendering the pre-gap body forever, and a
+      // save from it would overwrite what another device wrote meanwhile.
+      if (ev.scope === 'resync') {
+        void window.zen
+          .readNote(notePath)
+          .then((c) => {
+            if (lastWrittenBodyRef.current === c.body) return
+            dirtyBodyRef.current = c.body
+            setContent(c)
+          })
+          .catch(() => {
+            // Unreadable right after a reconnect: could be deleted on the
+            // server, could be a blip. Keep the window open; closing it
+            // would drop unsaved keystrokes on a guess.
+          })
+        return
+      }
       if (ev.path !== notePath) return
       if (ev.kind === 'unlink') {
         // Note deleted — close the window.
@@ -298,13 +325,14 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),
+          editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
           markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
           customCodeFenceHighlightExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
-          headingFolding(),
+          headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           prefs.livePreview ? livePreviewPlugin : [],
@@ -518,6 +546,8 @@ function deferredClose(): void {
 function registerFloatingVimCommands(): void {
   if (floatingVimRegistered) return
   floatingVimRegistered = true
+
+  registerDisplayLineMotion()
 
   Vim.defineEx('write', 'w', () => {
     void floatingHandlers.persist?.()

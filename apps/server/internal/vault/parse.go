@@ -250,7 +250,7 @@ func localAssetTargetKind(target string) string {
 // --- Task parsing (mirrors shared/tasks.ts parseTasksFromBody) ---
 
 var (
-	taskLineRe      = regexp.MustCompile(`^(\s*(?:[-*+]|\d+\.)\s+)\[( |x|X|>|-)\](.*)$`)
+	taskLineRe      = regexp.MustCompile(`^(\s*(?:[-*+]|\d+\.)\s+)\[( |x|X|>|-|/)\](.*)$`)
 	inlineDueRe     = regexp.MustCompile(`(?i)(?:^|\s)due:\s*(\S+)`)
 	inlinePriority  = regexp.MustCompile(`(?i)(?:^|\s)!(high|med|medium|low|h|m|l)\b`)
 	inlineWaitingRe = regexp.MustCompile(`(?i)(?:^|\s)@waiting\b`)
@@ -282,17 +282,40 @@ func normalizePriority(raw string) string {
 }
 
 type noteDefaults struct {
-	Due      string
-	Priority string
-	Status   string
+	Due       string
+	Priority  string
+	Status    string
+	TasksMode string
+}
+
+// Note-level participation in the Tasks system, from the frontmatter `tasks:`
+// key (#458). Mirrors noteTasksMode in packages/shared-domain/src/tasks.ts;
+// keep the accepted values byte-identical. No runtime in this app types YAML
+// scalars, so `tasks: false` arrives as the string "false"; matching is exact
+// string comparison after lower-casing, anything unrecognized falls back to
+// "all" (the pre-#458 behavior).
+const (
+	tasksModeAll      = "all"
+	tasksModeNoteOnly = "note-only"
+	tasksModeNone     = "none"
+)
+
+func noteTasksMode(val string) string {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "false", "off":
+		return tasksModeNone
+	case "note":
+		return tasksModeNoteOnly
+	}
+	return tasksModeAll
 }
 
 func parseNoteDefaults(body string) noteDefaults {
 	m := frontmatterRe.FindStringSubmatch(body)
 	if len(m) < 2 {
-		return noteDefaults{}
+		return noteDefaults{TasksMode: tasksModeAll}
 	}
-	var d noteDefaults
+	d := noteDefaults{TasksMode: tasksModeAll}
 	for _, line := range strings.Split(m[1], "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -315,6 +338,8 @@ func parseNoteDefaults(body string) noteDefaults {
 			}
 		case "status":
 			d.Status = strings.ToLower(val)
+		case "tasks":
+			d.TasksMode = noteTasksMode(val)
 		}
 	}
 	return d
@@ -345,6 +370,14 @@ var doneStatuses = map[string]bool{
 // cancelledStatuses are frontmatter `status:` values treated as cancelled (#450).
 var cancelledStatuses = map[string]bool{
 	"cancelled": true, "canceled": true,
+}
+
+// inProgressStatuses are frontmatter `status:` values treated as in progress
+// (#512). `in-progress` is TaskNotes' spelling; the rest are what people type
+// by hand. These stay open work, unlike done/cancelled.
+var inProgressStatuses = map[string]bool{
+	"in-progress": true, "in progress": true, "inprogress": true,
+	"doing": true, "started": true, "wip": true,
 }
 
 var (
@@ -467,6 +500,7 @@ func parseTaskFile(path, title string, folder NoteFolder, body string) (Task, bo
 		Content:       content,
 		Checked:       doneStatuses[status],
 		Cancelled:     cancelledStatuses[status],
+		InProgress:    inProgressStatuses[status],
 		Due:           normalizeDueDate(firstScalar(fm["due"])),
 		Priority:      normalizePriority(firstScalar(fm["priority"])),
 		Waiting:       status == "waiting",
@@ -477,17 +511,45 @@ func parseTaskFile(path, title string, folder NoteFolder, body string) (Task, bo
 	}, true
 }
 
+// ParseTasksOptions controls scanning past task exclusions (#458).
+type ParseTasksOptions struct {
+	// IncludeExcluded scans past the note-level frontmatter `tasks:` opt-out:
+	// the GET /tasks?includeExcluded=1 escape hatch. Default listing never sets
+	// it.
+	IncludeExcluded bool
+}
+
 // ParseTasks walks a markdown body and returns every checkbox task.
 func ParseTasks(path, title string, folder NoteFolder, body string) []Task {
+	return ParseTasksWith(path, title, folder, body, ParseTasksOptions{})
+}
+
+// ParseTasksWith is ParseTasks honoring options. The frontmatter `tasks:`
+// gate lives here rather than in the parse helpers (the TS mirrors gate
+// inside parseTaskFile/parseTasksFromBody because their callers invoke the
+// two separately); the semantics are identical: `tasks: false`/`off` emits
+// nothing and wins over `tags: [task]`, `tasks: note` keeps only the file
+// task, anything else emits everything.
+func ParseTasksWith(path, title string, folder NoteFolder, body string, opts ParseTasksOptions) []Task {
 	normalized := strings.ReplaceAll(body, "\r\n", "\n")
 	defaults := parseNoteDefaults(normalized)
 	lines := strings.Split(normalized, "\n")
 
+	mode := defaults.TasksMode
+	if opts.IncludeExcluded {
+		mode = tasksModeAll
+	}
+
 	out := []Task{}
 	// A whole-note "file task" (if the frontmatter is tagged `task`) is emitted
 	// before the inline checkbox tasks in the same note, which act as subtasks.
-	if fileTask, ok := parseTaskFile(path, title, folder, normalized); ok {
-		out = append(out, fileTask)
+	if mode != tasksModeNone {
+		if fileTask, ok := parseTaskFile(path, title, folder, normalized); ok {
+			out = append(out, fileTask)
+		}
+	}
+	if mode != tasksModeAll {
+		return out
 	}
 	taskIndex := 0
 	inFence := false
@@ -518,6 +580,7 @@ func ParseTasks(path, title string, folder NoteFolder, body string) []Task {
 		tail := strings.TrimPrefix(m[3], "]")
 		checked := checkedChar == "x" || checkedChar == "X"
 		cancelled := checkedChar == "-"
+		inProgress := checkedChar == "/"
 
 		due := ""
 		priority := ""
@@ -578,6 +641,7 @@ func ParseTasks(path, title string, folder NoteFolder, body string) []Task {
 			Content:    content,
 			Checked:    checked,
 			Cancelled:  cancelled,
+			InProgress: inProgress,
 			Due:        due,
 			Priority:   priority,
 			Waiting:    waiting,
