@@ -19,6 +19,16 @@ import { classifyLocalAssetHref } from './local-assets'
 import { highlightLinesAttr, parseFenceMeta } from './code-fence-meta'
 import { parseEmbedSizeHint } from './excalidraw-preview'
 import { parseColWidthsComment } from './markdown-table'
+import { scanTaskMetadata, type TaskMetaToken } from './task-metadata-tokens'
+import {
+  customCodeLanguageRegistry,
+  PREVIEW_TOKEN_CLASS
+} from './custom-code-languages'
+import {
+  markdownLooseMathDelimiters,
+  markdownMathRenderer,
+  markdownSettingsRevision
+} from './markdown-settings'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -104,6 +114,18 @@ function remarkWikilinks() {
       return {
         type: 'html',
         value: `<div class="excalidraw-embed-host" data-excalidraw-embed="${safeTarget}"${w}${h}></div>`
+      }
+    }
+    // A generic non-previewable file embedded as `![[file.tldraw]]` becomes an
+    // image node so it flows through the same attachment-chip path as
+    // `![](file.tldraw)`. PDF/audio/video keep their rich embeds (link node
+    // below → media embed). (#463)
+    if (bang === '!' && assetKind === 'file') {
+      return {
+        type: 'image',
+        url: target,
+        title: null,
+        alt: label
       }
     }
     if (bang === '!' && assetKind) {
@@ -259,6 +281,78 @@ function remarkHashtags() {
       }
       p.children.splice(index, 1, ...next)
       return [SKIP, index + next.length]
+    })
+  }
+}
+
+/**
+ * Remark plugin: task metadata (`!high`, `due:2026-01-31`, `@waiting`) inside a
+ * task list item becomes chips, matching what the editor shows for the same
+ * line (#454, #479). Only GFM task items are scanned — `listItem.checked` is
+ * non-null exactly for those — and only their own content: nested lists are
+ * skipped here because each nested item is visited in its own right.
+ *
+ * Inline code is a separate mdast node, so `` `!high` `` is never touched.
+ * The due chip carries `data-due` rather than an overdue class: whether a date
+ * is overdue depends on today, which the rendered HTML outlives (it is cached),
+ * so the Preview component decides that when it attaches the DOM.
+ */
+function remarkTaskMetadata() {
+  const SKIP_TYPES = new Set(['list', 'link', 'linkReference', 'inlineCode', 'code', 'html'])
+
+  const chipFor = (token: TaskMetaToken): AnyNode => {
+    const className =
+      token.kind === 'priority'
+        ? ['zen-task-prio', `zen-task-prio-${token.level}`]
+        : token.kind === 'due'
+          ? ['zen-task-meta', 'zen-task-due']
+          : ['zen-task-meta', 'zen-task-field']
+    const hProperties: Record<string, unknown> = { className }
+    if (token.kind === 'due' && token.date) hProperties['data-due'] = token.date
+    return {
+      type: 'emphasis',
+      data: { hName: 'span', hProperties },
+      children: [{ type: 'text', value: token.text }]
+    } as AnyNode
+  }
+
+  const splitText = (parent: AnyParent, index: number): number => {
+    const value = (parent.children[index] as unknown as { value: string }).value
+    const tokens = scanTaskMetadata(value)
+    if (tokens.length === 0) return 1
+    const next: AnyNode[] = []
+    let last = 0
+    for (const token of tokens) {
+      if (token.start > last) {
+        next.push({ type: 'text', value: value.slice(last, token.start) } as AnyNode)
+      }
+      next.push(chipFor(token))
+      last = token.end
+    }
+    if (last < value.length) {
+      next.push({ type: 'text', value: value.slice(last) } as AnyNode)
+    }
+    parent.children.splice(index, 1, ...next)
+    return next.length
+  }
+
+  const walk = (parent: AnyParent): void => {
+    for (let i = 0; i < parent.children.length; i++) {
+      const child = parent.children[i] as AnyNode & { children?: AnyNode[] }
+      if (SKIP_TYPES.has(child.type)) continue
+      if (child.type === 'text') {
+        i += splitText(parent, i) - 1
+        continue
+      }
+      if (Array.isArray(child.children)) walk(child as unknown as AnyParent)
+    }
+  }
+
+  return (tree: MdRoot): void => {
+    visit(tree, 'listItem', (node) => {
+      const item = node as unknown as AnyParent & { checked?: boolean | null }
+      if (item.checked === null || item.checked === undefined) return
+      walk(item)
     })
   }
 }
@@ -484,6 +578,48 @@ function rehypeMathDiagrams() {
   }
 }
 
+/** Highlight unknown fenced tags through the user-installed TextMate registry. */
+function rehypeCustomCodeLanguages() {
+  return (tree: HastRoot): void => {
+    // Skip the tree walk when no grammar is installed — the usual case.
+    if (customCodeLanguageRegistry.isEmpty) return
+    visit(tree, 'element', (node) => {
+      if (node.tagName !== 'code') return
+      const classNames = (node.properties?.className as string[] | undefined) ?? []
+      const languageClass = classNames.find((name) => name.startsWith('language-'))
+      if (!languageClass) return
+      const tag = languageClass.slice('language-'.length)
+      if (!customCodeLanguageRegistry.resolve(tag)) return
+      const textContent = (child: HastElement['children'][number]): string => {
+        if (child.type === 'text') return child.value
+        if (child.type === 'element') return child.children.map(textContent).join('')
+        return ''
+      }
+      const source = node.children.map(textContent).join('')
+      const tokens = customCodeLanguageRegistry.tokenize(tag, source)
+      if (tokens.length === 0) return
+      const children: HastElement['children'] = []
+      let offset = 0
+      for (const token of tokens) {
+        if (token.from > offset) children.push({ type: 'text', value: source.slice(offset, token.from) })
+        children.push({
+          type: 'element',
+          tagName: 'span',
+          properties: { className: PREVIEW_TOKEN_CLASS[token.kind].split(' ') },
+          children: [{ type: 'text', value: source.slice(token.from, token.to) }]
+        })
+        offset = token.to
+      }
+      if (offset < source.length) children.push({ type: 'text', value: source.slice(offset) })
+      node.children = children
+      node.properties = {
+        ...node.properties,
+        className: Array.from(new Set([...classNames, 'hljs']))
+      }
+    })
+  }
+}
+
 /**
  * Honor a `<!-- zen:cols=120,auto,90 -->` width hint that follows a table (#294):
  * turn it into a <colgroup> so the preview and PDF export render the columns at
@@ -625,6 +761,7 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
   const rehyped = withTypst
     .use(remarkWikilinks)
     .use(remarkHashtags)
+    .use(remarkTaskMetadata)
     .use(remarkHighlight)
     .use(remarkCallouts)
     .use(remarkCodeMeta)
@@ -635,6 +772,9 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
     .use(rehypeMermaid)
     .use(rehypeMathDiagrams)
     .use(rehypeHighlight, { detect: true, ignoreMissing: true })
+    // After rehype-highlight so a user-installed TextMate grammar wins over
+    // highlight.js' guess for a fence tag it does not actually know.
+    .use(rehypeCustomCodeLanguages)
 
   const withKatex =
     mathRenderer === 'katex' ? rehyped.use(rehypeKatex) : rehyped
@@ -645,37 +785,14 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
 const katexProcessor = createProcessor('katex')
 let typstProcessor: ReturnType<typeof createProcessor> | null = null
 
-// Which typesetter `renderMarkdown` uses. Driven by the `mathRenderer` setting
-// (App.tsx pushes changes here). Default KaTeX keeps existing notes unchanged.
-let activeMathRenderer: 'katex' | 'typst' = 'katex'
-
-/**
- * Point the preview pipeline at KaTeX or Typst. Clears the render cache so the
- * current note re-renders under the new engine on the next `renderMarkdown`.
- */
-export function setMarkdownMathRenderer(mathRenderer: 'katex' | 'typst'): void {
-  if (mathRenderer === activeMathRenderer) return
-  activeMathRenderer = mathRenderer
-  markdownRenderCache.clear()
-}
-
-// When on, a `$$…$$` display block also renders when prose sits before the
-// opening fence (`Note: $$…$$`) or after the closing fence (`$$…$$ done`); the
-// prose is split onto its own paragraph so the fence owns its line. Off by
-// default (the `looseMathDelimiters` setting drives it); the editor keeps
-// showing source for those shapes, so this only relaxes the reading view.
-let looseMathDelimiters = false
-
-/** Toggle relaxed `$$` display-math delimiters (prose before/after the fence).
- *  Clears the render cache so the current note re-renders under the new rule. */
-export function setMarkdownLooseMathDelimiters(loose: boolean): void {
-  if (loose === looseMathDelimiters) return
-  looseMathDelimiters = loose
-  markdownRenderCache.clear()
-}
-
+// Which typesetter `renderMarkdown` uses, and whether `$$` delimiters are
+// relaxed, both live in `./markdown-settings` so that pushing a setting down
+// (App.tsx does, on every pref change) does not make this whole module — and
+// with it remark/rehype/highlight — a static dependency of the app entry.
+// A switch invalidates cached HTML through the revision in the cache key rather
+// than by clearing the cache from the setter.
 function activeProcessor() {
-  if (activeMathRenderer === 'typst') {
+  if (markdownMathRenderer() === 'typst') {
     return (typstProcessor ??= createProcessor('typst'))
   }
   return katexProcessor
@@ -881,7 +998,8 @@ function normalizeBlockMathFences(src: string, loose = false): string {
 }
 
 export function renderMarkdown(src: string): string {
-  const cached = getCachedMarkdown(src)
+  const cacheKey = `${customCodeLanguageRegistry.revision}\0${markdownSettingsRevision()}\0${src}`
+  const cached = getCachedMarkdown(cacheKey)
   if (cached != null) {
     recordRendererPerf('markdown.render.cache-hit', 0, { chars: src.length })
     return cached
@@ -892,11 +1010,11 @@ export function renderMarkdown(src: string): string {
     const html = sanitizeRenderedHtml(
       String(
         activeProcessor().processSync(
-          escapeTableMathPipes(normalizeBlockMathFences(src, looseMathDelimiters))
+          escapeTableMathPipes(normalizeBlockMathFences(src, markdownLooseMathDelimiters()))
         )
       )
     )
-    cacheRenderedMarkdown(src, html)
+    cacheRenderedMarkdown(cacheKey, html)
     recordRendererPerf('markdown.render', performance.now() - startedAt, {
       chars: src.length
     })

@@ -2,12 +2,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { NoteMeta } from "@shared/ipc";
+import { renderMarkdown } from "../lib/markdown";
 import {
-  renderMarkdown,
   setMarkdownLooseMathDelimiters,
   setMarkdownMathRenderer,
-} from "../lib/markdown";
+} from "../lib/markdown-settings";
 import { expandEmbeds, hasNoteEmbeds } from "../lib/transclusion";
+import { todayIso } from "../lib/task-metadata-tokens";
+import { selectTypstPreambleFor } from "../lib/typst-preamble-select";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
 import {
@@ -413,6 +415,7 @@ export const Preview = memo(function Preview({
     [folders, vaultSettings],
   );
   const assetFiles = useStore((s) => s.assetFiles);
+  const customCodeLanguagesRevision = useStore((s) => s.customCodeLanguagesRevision);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
   const effectiveMode = usePreviewDiagramThemeMode();
@@ -533,11 +536,24 @@ export const Preview = memo(function Preview({
     setMarkdownMathRenderer(mathRenderer);
     setMarkdownLooseMathDelimiters(looseMathDelimiters);
     return renderMarkdown(expandedForCurrent ?? markdown);
-  }, [expandedForCurrent, markdown, mathRenderer, looseMathDelimiters]);
+    // customCodeLanguagesRevision re-renders when a grammar is installed,
+    // toggled, or removed; renderMarkdown keys its cache on it too.
+  }, [
+    expandedForCurrent,
+    markdown,
+    mathRenderer,
+    looseMathDelimiters,
+    customCodeLanguagesRevision,
+  ]);
   const assetFilesKey = useMemo(
     () => assetFiles.map((asset) => asset.path).join("\n"),
     [assetFiles],
   );
+  // Tag-driven Typst definitions for this note (#486). Empty unless the setting
+  // is on and the note's tags match a preamble, so most notes pay one lookup.
+  const typstPreamble = useStore((s) => selectTypstPreambleFor(s, notePath));
+  const typstPreambleRef = useRef(typstPreamble);
+  typstPreambleRef.current = typstPreamble;
   const notesRef = useRef(notes);
   const markdownRef = useRef(markdown);
   const notePathRef = useRef(notePath);
@@ -1020,6 +1036,19 @@ export const Preview = memo(function Preview({
         const li = input.closest<HTMLLIElement>("li.task-list-item");
         if (li) {
           li.classList.toggle("task-self-done", input.checked);
+          // Due chips are rendered date-neutral (the HTML is cached and outlives
+          // "today"), so the overdue tint is decided here, at attach time, the
+          // same rule the editor uses: past due and the task still open. (#479)
+          const today = todayIso();
+          li.querySelectorAll<HTMLElement>(":scope .zen-task-due[data-due]").forEach(
+            (chip) => {
+              const due = chip.dataset.due ?? "";
+              chip.classList.toggle(
+                "zen-task-due-overdue",
+                !input.checked && due !== "" && due < today,
+              );
+            },
+          );
           if (!li.querySelector(":scope > .task-item-body")) {
             const own = Array.from(li.childNodes).filter((node) => {
               if (node === input) return false;
@@ -1096,7 +1125,7 @@ export const Preview = memo(function Preview({
       // Typst math (a no-op when the KaTeX renderer is active, since it emits no
       // `.zen-typst-math` placeholders). Recolored to currentColor, so a theme
       // switch needs no re-render.
-      await renderTypstMath(root);
+      await renderTypstMath(root, typstPreambleRef.current);
       if (cancelled) return;
       renderEmbeds(root);
       renderBookmarks(root);
@@ -1169,6 +1198,9 @@ export const Preview = memo(function Preview({
     pinnedAssetPath,
     pinnedRefVisible,
     togglePinnedRefVisible,
+    // Editing a note's tags, or the preamble note itself, changes the Typst
+    // definitions its formulas compile against — re-render when it moves (#486).
+    typstPreamble,
     vault?.root,
     vaultSettings,
   ]);

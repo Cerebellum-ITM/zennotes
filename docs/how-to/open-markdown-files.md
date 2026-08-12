@@ -23,14 +23,23 @@ If no vault is open, ZenNotes asks you to open one first, then try again.
 
 ## From the terminal
 
-If you've installed the `zen` CLI (Settings → CLI), you can open files from a shell:
+If you've installed the `zn` CLI (Settings → CLI), you can open files from a shell:
 
 ```bash
-zen open ~/Downloads/notes.md
-zen open inbox/Today.md other.markdown   # one or more files
+zn open ~/Downloads/notes.md
+zn open inbox/Today.md other.markdown   # one or more files
 ```
 
-`zen open` hands the files to the ZenNotes app, which opens each one the same way as a double-click — as a vault note if it's inside a vault, otherwise in a standalone editor window.
+`zn open` hands the files to the ZenNotes app, which opens each one the same way as a double-click — as a vault note if it's inside a vault, otherwise in a standalone editor window.
+
+Folders work too, since 2.17.0:
+
+```bash
+zn open ~/code/myproject/docs   # a folder → focused, non-persisted session
+zn open ~/notes                 # a whole vault, the same way
+```
+
+A folder opens as a temporary session scoped to just that folder: browse and edit its notes in place, close the window, and your saved vault is untouched. Nothing is written into the folder except your own note edits, and it is never registered as a vault.
 
 ## Make ZenNotes the default app for markdown
 

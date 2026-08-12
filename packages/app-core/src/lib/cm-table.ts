@@ -95,6 +95,32 @@ function colWidthsAfter(
   return widths ? { widths, to: next.to } : null
 }
 
+/**
+ * The table block containing `pos`, found by reading the document rather than
+ * the syntax tree: the run of `|` rows around that line, plus a trailing
+ * `zen:cols` marker.
+ *
+ * Backs up `tableRangeAt`. Markdown parsing is incremental, so a table that was
+ * just created or restructured can still be outside the parsed tree when the
+ * next action commits — and a commit that can't find its range throws the
+ * user's edit away without a word. Reported as an alignment that only takes
+ * effect the second time you choose it. (#485)
+ */
+export function tableBlockAt(doc: Text, pos: number): { from: number; to: number } | null {
+  const isRow = (text: string): boolean => text.trimStart().startsWith('|')
+  const line = doc.lineAt(Math.max(0, Math.min(pos, doc.length)))
+  if (!isRow(line.text)) return null
+  let first = line.number
+  while (first > 1 && isRow(doc.line(first - 1).text)) first--
+  let last = line.number
+  while (last < doc.lines && isRow(doc.line(last + 1).text)) last++
+  // A table is at least a header and its delimiter row; one `|` line on its own
+  // is prose, and rewriting it as a table would be a worse failure than none.
+  if (last - first < 1) return null
+  const ext = colWidthsAfter(doc, doc.line(last).to)
+  return { from: doc.line(first).from, to: ext ? ext.to : doc.line(last).to }
+}
+
 /** Find the enclosing `Table` node range for a doc position, or null. The range
  *  is extended over a trailing `zen:cols` width marker so re-serialization
  *  replaces both (no duplicate markers, no leaked raw comment). */
@@ -108,23 +134,46 @@ function tableRangeAt(view: EditorView, pos: number): { from: number; to: number
     if (!node.parent) break
     node = node.parent
   }
-  return null
+  return tableBlockAt(view.state.doc, pos)
 }
 
 /**
  * Re-serialize `table` and write it over whichever Table node currently sits
  * under the widget's DOM. Resolving the range live (via posAtDOM) keeps the
  * write correct even when edits elsewhere have shifted the document.
+ *
+ * `anchor` is the table's document position captured when the caller still
+ * had a live widget (the context menu records it at open). Any doc change
+ * while the menu is up (most commonly the dirty-cell commit that opening
+ * the menu itself triggers via focusout) rebuilds the decorations and
+ * detaches this widget's DOM, so posAtDOM can no longer answer. The anchor
+ * re-resolves the table from the CURRENT document instead (its start does
+ * not move: those mid-menu edits land inside or after the block), so the
+ * user's action still lands. Third and hopefully final act of #485.
  */
-function commitTable(view: EditorView, dom: HTMLElement, table: MarkdownTable): void {
-  let pos: number
-  try {
-    pos = view.posAtDOM(dom)
-  } catch {
+function commitTable(
+  view: EditorView,
+  dom: HTMLElement | null,
+  table: MarkdownTable,
+  anchor?: number
+): void {
+  let range: { from: number; to: number } | null = null
+  if (dom && dom.isConnected) {
+    try {
+      range = tableRangeAt(view, view.posAtDOM(dom))
+    } catch {
+      range = null
+    }
+  }
+  if (!range && anchor != null) {
+    range = tableBlockAt(view.state.doc, anchor)
+  }
+  if (!range) {
+    // Never silently discard a user's edit again: every earlier act of #485
+    // hid behind a bare return on this path.
+    console.warn('[zen:table] commit dropped: could not locate the table block')
     return
   }
-  const range = tableRangeAt(view, pos)
-  if (!range) return
   const next = serializeTable(table)
   if (next === view.state.sliceDoc(range.from, range.to)) return
   view.dispatch({
@@ -193,12 +242,12 @@ class TableWidget extends WidgetType {
    *  The dispatch rebuilds the decorations (a fresh widget), so we refocus the
    *  requested cell on the next frame. Used by the context menu, which has
    *  already computed `next` from the current model. */
-  private applyModel(next: MarkdownTable, focus?: CellAddress): void {
+  private applyModel(next: MarkdownTable, focus?: CellAddress, anchor?: number): void {
     // Capture the live range BEFORE the dispatch detaches our DOM.
-    const dom = this.dom as HTMLElement
+    const dom = this.dom
     this.model = next
     this.dirty = false
-    commitTable(this.view, dom, next)
+    commitTable(this.view, dom, next, anchor)
     if (focus) {
       requestAnimationFrame(() => this.focusCellAt(focus))
     }
@@ -207,9 +256,11 @@ class TableWidget extends WidgetType {
   /** Apply a context-menu action, then keep keyboard focus usable. Actions with
    *  a target cell (insert/move/duplicate/align) focus it via `applyModel`;
    *  actions without one (delete row/column, sort) would otherwise drop focus to
-   *  the body, so return it to the editor once the widget has re-rendered. (#437) */
-  private applyMenuAction(next: MarkdownTable, focus?: CellAddress): void {
-    this.applyModel(next, focus)
+   *  the body, so return it to the editor once the widget has re-rendered. (#437)
+   *  `anchor` (captured at menu open) lets the commit land even when this
+   *  widget instance was rebuilt while the menu was up (#485). */
+  private applyMenuAction(next: MarkdownTable, focus?: CellAddress, anchor?: number): void {
+    this.applyModel(next, focus, anchor)
     if (!focus) {
       requestAnimationFrame(() => this.view.focus())
     }
@@ -224,6 +275,20 @@ class TableWidget extends WidgetType {
   ): void {
     this.syncFromDom()
     this.applyModel(fn(this.model), focus)
+  }
+
+  /** The table's current document position, captured while this widget is
+   *  still live. A context menu outlives the widget instance that opened it:
+   *  the focus moving into the menu commits any dirty cell, that dispatch
+   *  rebuilds the decorations and detaches this DOM, and a later menu action
+   *  would then have nothing to resolve its commit against. The anchor lets
+   *  commitTable re-find the table in the current document instead (#485). */
+  private captureTableAnchor(): number | undefined {
+    try {
+      return this.dom && this.dom.isConnected ? this.view.posAtDOM(this.dom) : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private focusCellAt(addr: CellAddress): void {
@@ -508,13 +573,14 @@ class TableWidget extends WidgetType {
       // Pull pending edits into the model (no dispatch) so the menu acts on
       // the current contents; the chosen action commits in one write.
       this.syncFromDom()
+      const anchor = this.captureTableAnchor()
       openTableContextMenu({
         x: event.clientX,
         y: event.clientY,
         row,
         col,
         model: this.model,
-        apply: (next, focus) => this.applyMenuAction(next, focus)
+        apply: (next, focus) => this.applyMenuAction(next, focus, anchor)
       })
     })
     cell.append(editable)
@@ -1402,6 +1468,7 @@ class TableWidget extends WidgetType {
    *  anchored at the cell. The menu itself is keyboard-navigable. */
   private openCellMenu(editable: HTMLElement, row: number, col: number): void {
     this.syncFromDom()
+    const anchor = this.captureTableAnchor()
     const rect = editable.getBoundingClientRect()
     openTableContextMenu({
       x: rect.left,
@@ -1409,7 +1476,7 @@ class TableWidget extends WidgetType {
       row,
       col,
       model: this.model,
-      apply: (next, focus) => this.applyMenuAction(next, focus)
+      apply: (next, focus) => this.applyMenuAction(next, focus, anchor)
     })
   }
 

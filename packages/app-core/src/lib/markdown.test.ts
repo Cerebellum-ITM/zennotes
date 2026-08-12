@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { renderMarkdown, setMarkdownMathRenderer } from './markdown'
+import { renderMarkdown } from './markdown'
+import { setMarkdownMathRenderer } from './markdown-settings'
 
 describe('renderMarkdown', () => {
   it('hides leading YAML/TOML frontmatter in preview output', () => {
@@ -92,6 +93,20 @@ describe('renderMarkdown', () => {
     expect(html).toContain('data-excalidraw-embed="diagram.excalidraw"')
     expect(html).toContain('class="excalidraw-embed-host"')
     expect(html).not.toContain('<img')
+  })
+
+  it('#463: a generic-file Obsidian embed becomes an image node (→ attachment chip)', () => {
+    // `![[file.tldraw]]` flows through the same <img> path as `![](file.tldraw)`
+    // so the asset enhancer denotes it as a chip.
+    const html = renderMarkdown('![[attachments/diagram.tldraw]]')
+    expect(html).toContain('<img')
+    expect(html).toContain('src="attachments/diagram.tldraw"')
+  })
+
+  it('#463: a PDF Obsidian embed stays a link (keeps its rich embed), not an image', () => {
+    const html = renderMarkdown('![[attachments/report.pdf]]')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('attachments/report.pdf')
   })
 
   it('parses size hints on excalidraw embeds', () => {

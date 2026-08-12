@@ -5,16 +5,27 @@ import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
   clearEditorPendingVimStatus,
-  getVisiblePanels,
+  getVisiblePanelsNow,
   hintTargetOpensNote,
-  isEditorInsertMode,
   isEditorFocused,
+  isEditorInsertMode,
+  isEditorVisualMode,
+  jumplistKeepsChord,
   isVimAwaitingArgument,
   resolveNextPanel,
   shouldYieldToHomeNav
 } from '../lib/vim-nav'
 import { isCalendarToggleAvailable } from '../lib/vault-layout'
-import { focusPaneInDirection } from '../lib/pane-nav'
+import { focusPanel, focusPaneInDirection } from '../lib/pane-nav'
+import {
+  findPositionByIndex,
+  getIndexedElementByIndex,
+  getIndexedElements,
+  getIndexedValue,
+  scrollToIndexedElement,
+  scrollToIndexedIndex,
+  type IndexedDatasetKey
+} from '../lib/panel-rows'
 import { findLeaf } from '../lib/pane-layout'
 import { boundedIndexCount, clampIndex, moveIndex } from '../lib/index-navigation'
 import {
@@ -46,7 +57,6 @@ function escapeForAttr(value: string): string {
   return value.replace(/["\\]/g, '\\$&')
 }
 
-type IndexedDatasetKey = 'sidebarIdx' | 'notelistIdx' | 'connectionsIdx' | 'commentsIdx'
 
 /**
  * Global vim-style keyboard navigation layer.
@@ -58,6 +68,31 @@ type IndexedDatasetKey = 'sidebarIdx' | 'notelistIdx' | 'connectionsIdx' | 'comm
 // #309: how quickly a Space press+release inside an Excalidraw canvas counts as
 // a "tap" (arm the leader) rather than a hold (let Excalidraw's Hand tool pan).
 // Tuned so a deliberate hold-to-pan clears it while a natural tap stays under it.
+/**
+ * Surfaces that run their own keyboard, which this listener must not touch.
+ *
+ * This handler is CAPTURE-PHASE on window and calls stopImmediatePropagation,
+ * so by default it wins every key in the app and routes it into sidebar and
+ * note-list navigation. Any panel with its own focus and its own keys has to be
+ * excluded here, and forgetting does not look like a routing bug: the panel
+ * simply appears to have no keyboard at all. Both Workflows surfaces shipped
+ * with exactly that symptom (arrows moved the SIDEBAR cursor, Backspace
+ * "focused the left sidebar", m opened the sidebar folder menu), and each was
+ * diagnosed from scratch because the previous fix was an anonymous copy of the
+ * same three lines.
+ *
+ * One list and one condition, so a new surface is one entry rather than a
+ * fourth near-identical block, and the Ctrl+W passthrough cannot be got wrong
+ * per surface. Ctrl+W and its pending direction key always survive, so a panel
+ * can still hand off to pane and tab navigation.
+ */
+const SELF_KEYED_SURFACES = [
+  // Runs its own vim-style motion grid.
+  '[data-zen-db-grid]',
+  '[data-workflow-list-pane]',
+  '[data-workflow-canvas]'
+].join(', ')
+
 const EXCALIDRAW_LEADER_TAP_MS = 250
 
 export function VimNav(): JSX.Element | null {
@@ -370,7 +405,12 @@ export function VimNav(): JSX.Element | null {
       if (
         document.querySelector('[data-ctx-menu]') ||
         document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]')
+        document.querySelector('[data-confirm-modal]') ||
+        // The workflow import review focuses a BUTTON, not a text field, so
+        // the INPUT/TEXTAREA escape below does not cover it: without this
+        // marker, Space armed the leader instead of pressing the focused
+        // button and leader chords fired underneath the dialog.
+        document.querySelector('[data-workflow-import]')
       ) return
 
       // Hint mode — handled entirely by HintOverlay's own listener
@@ -401,12 +441,10 @@ export function VimNav(): JSX.Element | null {
       ) {
         return
       }
-      // The database/table view runs its own vim-style motion grid; yield to it
-      // so sidebar/note-list navigation doesn't steal j/k/h/l etc. — EXCEPT the
-      // pane prefix (Ctrl+W) and its pending direction key, so the grid can hand
-      // off to pane/tab navigation (Ctrl+W k → tabs) like every other surface.
+      // Yield to any surface that runs its own keyboard. See
+      // SELF_KEYED_SURFACES for the list and why it is one list.
       if (
-        target?.closest('[data-zen-db-grid]') &&
+        target?.closest(SELF_KEYED_SURFACES) &&
         !ctrlWPending.current &&
         sequenceTokenFromEvent(e) !== panePrefixToken
       ) {
@@ -465,14 +503,24 @@ export function VimNav(): JSX.Element | null {
       // Vim jumplist navigation (Ctrl+O back / Ctrl+I forward) is checked BEFORE
       // the inline-format shortcuts below: on Linux/Windows `Mod` is Ctrl, so
       // Vim's forward binding (Ctrl+I) collides with the italic shortcut (Mod+I).
-      // In Vim normal/visual mode the jumplist must win; only in insert mode (or
-      // with Vim off) does Ctrl+I fall through to italic. (#373)
+      // In Vim normal mode the jumplist must win; in insert mode (or with Vim
+      // off) Ctrl+I falls through to italic. (#373)
+      //
+      // Visual mode sides with italic: a selection is standing and every other
+      // format chord (Mod+B and friends) already applies to it, so having this
+      // one jump to another note instead — discarding the selection — was the
+      // odd one out. Ctrl+O keeps its jumplist meaning in visual mode; only the
+      // chord that collides with a format shortcut yields. (#488)
       const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
       const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')
       if (
         (wantsJumpBack || wantsJumpForward) &&
-        state.vimMode &&
-        !isEditorInsertMode(state.editorViewRef, state.vimMode)
+        jumplistKeepsChord({
+          vimMode: state.vimMode,
+          insertMode: isEditorInsertMode(state.editorViewRef, state.vimMode),
+          visualMode: isEditorVisualMode(state.editorViewRef, state.vimMode),
+          chordIsFormatShortcut: matchesShortcutBinding(e, 'Mod+I')
+        })
       ) {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -687,15 +735,12 @@ export function VimNav(): JSX.Element | null {
           return
         }
 
-        const panels = getVisiblePanels(
-          state.sidebarOpen,
-          state.noteListOpen,
-          state.unifiedSidebar,
-          document.querySelector('[data-connections-panel]') !== null,
-          document.querySelector('[data-comments-panel]') !== null,
-          isTasksViewActive(state),
-          document.querySelector('[data-calendar-panel]') !== null
-        )
+        const panels = getVisiblePanelsNow({
+          sidebarOpen: state.sidebarOpen,
+          noteListOpen: state.noteListOpen,
+          unifiedSidebar: state.unifiedSidebar,
+          tasksViewOpen: isTasksViewActive(state)
+        })
         const direction =
           matchesSequenceToken(e, overrides, 'vim.paneFocusLeft') ||
           matchesSequenceToken(e, overrides, 'vim.paneFocusUp') ||
@@ -718,64 +763,9 @@ export function VimNav(): JSX.Element | null {
         const next = direction ? resolveNextPanel(currentPanel, direction, panels) : null
         if (!next) return
 
-        if (next === 'sidebar' && !state.sidebarOpen) state.toggleSidebar()
-        state.setFocusedPanel(next)
-        if (next === 'editor') {
-          state.editorViewRef?.focus()
-        } else if (next === 'tasks') {
-          // Tasks panel doesn't own a single focusable element — its
-          // keyboard handler fires off window keydown. Just blur whatever
-          // had DOM focus so the sidebar/notelist stop intercepting keys.
-          ;(document.activeElement as HTMLElement)?.blur()
-        } else if (next === 'comments') {
-          ;(document.activeElement as HTMLElement)?.blur()
-          requestAnimationFrame(() => {
-            focusCommentsPanel(state)
-          })
-        } else if (next === 'calendar') {
-          // Focus the calendar so its own handler takes over; the CalendarPanel
-          // also focuses itself via its focusedPanel effect as a backstop. (#285)
-          ;(document.activeElement as HTMLElement)?.blur()
-          requestAnimationFrame(() => {
-            document
-              .querySelector<HTMLElement>('[data-calendar-panel]')
-              ?.focus({ preventScroll: true })
-          })
-        } else {
-          // Steal focus away from the editor so it stops processing keys
-          ;(document.activeElement as HTMLElement)?.blur()
-          requestAnimationFrame(() => {
-            const selector =
-              next === 'sidebar'
-                ? '[data-sidebar-idx]'
-                : next === 'notelist'
-                  ? '[data-notelist-idx]'
-                  : '[data-connections-idx]'
-            const datasetKey =
-              next === 'sidebar'
-                ? 'sidebarIdx' as const
-                : next === 'notelist'
-                  ? 'notelistIdx' as const
-                  : 'connectionsIdx' as const
-            const cursorIndex =
-              next === 'sidebar'
-                ? state.sidebarCursorIndex
-                : next === 'notelist'
-                  ? state.noteListCursorIndex
-                  : state.connectionsCursorIndex
-            const setIndex =
-              next === 'sidebar'
-                ? state.setSidebarCursorIndex
-                : next === 'notelist'
-                  ? state.setNoteListCursorIndex
-                  : state.setConnectionsCursorIndex
-            const items = getIndexedElements(selector, datasetKey)
-            if (items.length > 0) {
-              const pos = findPositionByIndex(items, datasetKey, cursorIndex)
-              scrollToIndexedElement(items[pos], datasetKey, setIndex)
-            }
-          })
-        }
+        // Focusing is shared with the always-on `Alt+hjkl` path so both walk the
+        // same panels and land the same way. (#477)
+        focusPanel(next, direction === 'left' ? 'h' : 'l')
         return
       }
 
@@ -878,6 +868,15 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           state.setBufferPaletteOpen(true)
+          return
+        }
+        // Skipped outright when Workflows is off, so the key falls through as
+        // an unbound leader press instead of arming a dead view.
+        if (state.workflowsEnabled && matchesSequenceToken(e, overrides, 'vim.leaderWorkflows')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.openWorkflowsView()
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
@@ -1133,6 +1132,11 @@ export function VimNav(): JSX.Element | null {
 
       if (state.focusedPanel === 'comments') {
         handleCommentsKey(e, state)
+        return
+      }
+
+      if (state.focusedPanel === 'outline') {
+        handleOutlineKey(e, state)
         return
       }
 
@@ -1552,6 +1556,85 @@ export function VimNav(): JSX.Element | null {
     }
   }
 
+  /**
+   * Outline panel navigation, mirroring the connections panel: j/k (or the
+   * arrows) walk the headings, Enter / l jumps the editor to the one under the
+   * cursor, h / Escape hands focus back. Before #477 the Outline was the one
+   * right-side panel keyboard navigation couldn't reach at all.
+   */
+  function handleOutlineKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
+    const key = e.key
+    const overrides = state.keymapOverrides
+    const target = e.target instanceof HTMLElement ? e.target : null
+    // The heading filter is a real text field — let it keep its own keys.
+    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return
+
+    const items = getIndexedElements('[data-outline-idx]', 'outlineIdx')
+    const max = items.length - 1
+    const currentPos = findPositionByIndex(items, 'outlineIdx', state.outlineCursorIndex)
+    const wantsHandledKey =
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      key === 'Enter' ||
+      key === 'Escape' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight'
+    if (!wantsHandledKey) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+
+    if (items.length === 0) {
+      if (key === 'Escape' || matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft') {
+        focusEditor()
+      }
+      return
+    }
+
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      scrollToIndexedElement(items[Math.min(currentPos + 1, max)], 'outlineIdx', state.setOutlineCursorIndex)
+      return
+    }
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      scrollToIndexedElement(items[Math.max(currentPos - 1, 0)], 'outlineIdx', state.setOutlineCursorIndex)
+      return
+    }
+    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      scrollToIndexedElement(items[max], 'outlineIdx', state.setOutlineCursorIndex)
+      return
+    }
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => scrollToIndexedElement(items[0], 'outlineIdx', state.setOutlineCursorIndex),
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
+      return
+    }
+    if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
+      // The row owns the jump (EditorPane wires it to its own pane's view), so
+      // click it rather than re-deriving the target line here.
+      items[currentPos]?.click()
+      return
+    }
+    if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft' || key === 'Escape') {
+      focusEditor()
+    }
+  }
+
   function handleCommentsKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
     const overrides = state.keymapOverrides
@@ -1922,43 +2005,8 @@ export function VimNav(): JSX.Element | null {
     previewEl.scrollTo({ top: clamped, behavior: 'auto' })
   }
 
-  function getIndexedElements(
-    selector: string,
-    datasetKey: IndexedDatasetKey
-  ): HTMLElement[] {
-    return [...document.querySelectorAll<HTMLElement>(selector)]
-      .filter((el) => el.getClientRects().length > 0)
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect()
-        const bRect = b.getBoundingClientRect()
-        const rowDelta = aRect.top - bRect.top
 
-        // Follow the actual rendered row order first, then fall back
-        // to the assigned index for stable ordering within the same row.
-        if (Math.abs(rowDelta) > 2) return rowDelta
 
-        const colDelta = aRect.left - bRect.left
-        if (Math.abs(colDelta) > 2) return colDelta
-
-        return getIndexedValue(a, datasetKey) - getIndexedValue(b, datasetKey)
-      })
-  }
-
-  function getIndexedValue(
-    el: HTMLElement | null,
-    datasetKey: IndexedDatasetKey
-  ): number {
-    const value = Number(el?.dataset[datasetKey] ?? -1)
-    return Number.isFinite(value) ? value : -1
-  }
-
-  function getIndexedElementByIndex(
-    items: HTMLElement[],
-    datasetKey: IndexedDatasetKey,
-    index: number
-  ): HTMLElement | undefined {
-    return items.find((item) => getIndexedValue(item, datasetKey) === index)
-  }
 
   function getNoteListItemCount(renderedCount: number): number {
     const raw = document.querySelector<HTMLElement>('[data-notelist-count]')?.dataset.notelistCount
@@ -1967,40 +2015,9 @@ export function VimNav(): JSX.Element | null {
   }
 
   /** Find position in sorted items array by stored cursor index (no DOM focus dependency). */
-  function findPositionByIndex(
-    items: HTMLElement[],
-    datasetKey: IndexedDatasetKey,
-    cursorIndex: number
-  ): number {
-    const exact = items.findIndex((item) => getIndexedValue(item, datasetKey) === cursorIndex)
-    if (exact >= 0) return exact
-    // Index not found (e.g. collapsed parent removed children) — clamp to valid range
-    return items.length === 0 ? 0 : Math.max(0, Math.min(cursorIndex, items.length - 1))
-  }
 
   /** Update the cursor index and scroll the element into view. */
-  function scrollToIndexedElement(
-    el: HTMLElement | undefined,
-    datasetKey: IndexedDatasetKey,
-    setIndex: (idx: number) => void
-  ): void {
-    if (!el) return
-    const idx = getIndexedValue(el, datasetKey)
-    if (idx < 0) return
-    setIndex(idx)
-    el.scrollIntoView({ block: 'nearest' })
-  }
 
-  function scrollToIndexedIndex(
-    items: HTMLElement[],
-    datasetKey: IndexedDatasetKey,
-    index: number,
-    setIndex: (idx: number) => void
-  ): void {
-    const target = getIndexedElementByIndex(items, datasetKey, index)
-    setIndex(index)
-    target?.scrollIntoView({ block: 'nearest' })
-  }
 
   function getCommentItems(): HTMLElement[] {
     return getIndexedElements('[data-comments-idx]', 'commentsIdx')

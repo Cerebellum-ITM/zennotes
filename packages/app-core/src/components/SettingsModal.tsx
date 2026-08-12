@@ -91,6 +91,8 @@ import { DynamicIcon } from './DynamicIcon'
 import { LANG_ICON_LIST, DEFAULT_LANG_ICONS } from '../lib/lang-icons'
 import { normalizeIconRules } from '../lib/vault-layout'
 import { CODE_PALETTE_OPTIONS, CODE_BACKGROUND_OPTIONS } from '../lib/code-palette'
+import { WORKFLOW_PRESETS, hiddenPresetsInOrder } from '@shared/workflows/presets'
+import { startWorkflowTutorial } from '../lib/workflow-tutorial-flow'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -421,6 +423,14 @@ export function SettingsModal(): JSX.Element {
   const setMathRenderer = useStore((s) => s.setMathRenderer)
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters)
   const setLooseMathDelimiters = useStore((s) => s.setLooseMathDelimiters)
+  const typstTagPreambles = useStore((s) => s.typstTagPreambles)
+  const setTypstTagPreambles = useStore((s) => s.setTypstTagPreambles)
+  const syncTitleHeadingOnRename = useStore((s) => s.syncTitleHeadingOnRename)
+  const setSyncTitleHeadingOnRename = useStore((s) => s.setSyncTitleHeadingOnRename)
+  const workflowsEnabled = useStore((s) => s.workflowsEnabled)
+  const setWorkflowsEnabled = useStore((s) => s.setWorkflowsEnabled)
+  const hiddenWorkflowPresets = useStore((s) => s.hiddenWorkflowPresets)
+  const setHiddenWorkflowPresets = useStore((s) => s.setHiddenWorkflowPresets)
   const autoPairs = useStore((s) => s.autoPairs)
   const setAutoPairs = useStore((s) => s.setAutoPairs)
   const autoPairQuotesInProse = useStore((s) => s.autoPairQuotesInProse)
@@ -1686,6 +1696,36 @@ export function SettingsModal(): JSX.Element {
           keywords: ['math', 'katex', 'typst', 'latex', 'equation', 'formula', 'renderer', 'typesetter']
         },
         {
+          id: 'typst-tag-preambles',
+          title: 'Typst definitions from tags',
+          description: "Prepend shared Typst definitions to a note's formulas based on its tags.",
+          keywords: ['typst', 'preamble', 'definitions', 'tags', 'math', 'notation']
+        },
+        {
+          id: 'sync-title-heading-on-rename',
+          title: 'Sync title heading on rename',
+          description: 'Renaming a note rewrites its leading # heading to the new name.',
+          keywords: ['rename', 'title', 'heading', 'h1', 'sync', 'filename', 'first line']
+        },
+        {
+          id: 'workflows-enabled',
+          title: 'Workflows',
+          description: 'The Workflows canvas for running repeatable, file-changing steps over the vault.',
+          keywords: ['workflow', 'workflows', 'automation', 'canvas', 'pipeline', 'graph', 'nodes', 'run']
+        },
+        {
+          id: 'workflow-tutorial',
+          title: 'Guided tutorial',
+          description: 'A hands-on walkthrough of the whole workflows loop, on a seeded practice folder.',
+          keywords: ['workflow', 'tutorial', 'walkthrough', 'guide', 'learn', 'practice']
+        },
+        {
+          id: 'workflow-hidden-recipes',
+          title: 'Built-in recipes',
+          description: 'Which shipped workflow recipes appear in the recipe gallery.',
+          keywords: ['workflow', 'recipes', 'presets', 'gallery', 'hide', 'restore']
+        },
+        {
           id: 'loose-math-delimiters',
           title: 'Relaxed $$ math delimiters',
           description: 'Render $$…$$ display math even with text before or after the fences, like LaTeX.',
@@ -1953,6 +1993,8 @@ export function SettingsModal(): JSX.Element {
             'auto-pairs',
             'auto-pair-quotes-in-prose',
             'math-renderer',
+            'typst-tag-preambles',
+            'sync-title-heading-on-rename',
             'loose-math-delimiters',
             'completed-task-style',
             'keep-view-mode',
@@ -2019,6 +2061,22 @@ export function SettingsModal(): JSX.Element {
                 { value: 'typst', label: 'Typst' }
               ]}
               onChange={(next) => setMathRenderer(next)}
+            />
+            {mathRenderer === 'typst' && (
+              <ToggleRow
+                label="Typst definitions from tags"
+                description="Prepend shared Typst definitions to a note's formulas based on its tags, so the same notation can mean different things per subject. Write a preamble as an ordinary note in a folder named `typst`, titled with the tag path in dots — `typst/physics.md` applies to #physics, `typst/physics.mechanics.md` to #physics/mechanics, layered general to specific. Preamble notes sync and are editable like any other note."
+                value={typstTagPreambles}
+                settingId="typst-tag-preambles"
+                onChange={setTypstTagPreambles}
+              />
+            )}
+            <ToggleRow
+              label="Sync title heading on rename"
+              description="Renaming a note also rewrites its leading `# heading` to the new name, so the title line stops drifting from the filename. Only an existing top-level heading is rewritten — a note that opens with prose, a list, or a deeper heading is left alone, so deleting the `#` line opts that note out for good."
+              value={syncTitleHeadingOnRename}
+              settingId="sync-title-heading-on-rename"
+              onChange={setSyncTitleHeadingOnRename}
             />
             <ToggleRow
               label="Relaxed $$ math delimiters"
@@ -2126,6 +2184,85 @@ export function SettingsModal(): JSX.Element {
               settingId="quick-note-prefix"
               onChange={setQuickNoteTitlePrefix}
             />
+          </Section>
+        </div>
+          )
+        },
+        {
+          id: 'workflows',
+          title: 'Workflows',
+          searchIds: ['workflows-enabled', 'workflow-hidden-recipes', 'workflow-tutorial'],
+          content: (
+        <div className="space-y-6">
+          <Section
+            title="Workflows"
+            description="Repeatable steps you write once and run over the vault, edited on a canvas in their own view."
+          >
+            <ToggleRow
+              label="Workflows"
+              description="Run saved, repeatable steps over your notes from a canvas view. Off by default; turning it on adds the Workflows view with its sidebar row, command, and Leader shortcut. Turning it off hides all of that again and closes the view if it is open."
+              value={workflowsEnabled}
+              settingId="workflows-enabled"
+              onChange={setWorkflowsEnabled}
+            />
+            <div
+              className="flex items-center justify-between gap-5 px-5 py-4"
+              {...settingsSearchTargetProps('workflow-tutorial')}
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-900">Guided tutorial</div>
+                <div className="mt-1 text-xs leading-5 text-ink-500">
+                  A hands-on walkthrough of the whole loop: canvas, text, editing, activating,
+                  the dry run, apply, and undo. It seeds a small practice folder to learn on and
+                  removes everything it created when you finish.
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                className="shrink-0"
+                onClick={() => void startWorkflowTutorial()}
+              >
+                Start tutorial
+              </Button>
+            </div>
+            {(() => {
+              const total = WORKFLOW_PRESETS.length
+              const hidden = hiddenPresetsInOrder(hiddenWorkflowPresets).length
+              const copy =
+                hidden === 0
+                  ? `All ${total} shipped recipes appear in the recipe gallery, behind New workflow in the Workflows view.`
+                  : hidden === total
+                    ? 'Every shipped recipe is hidden; the recipe gallery (New workflow) starts from Blank.'
+                    : `${hidden} of ${total} recipes are hidden from the recipe gallery, behind New workflow (press x on a recipe there to hide one at a time).`
+              return (
+                <div
+                  className="flex items-center justify-between gap-5 px-5 py-4"
+                  {...settingsSearchTargetProps('workflow-hidden-recipes')}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink-900">Built-in recipes</div>
+                    <div className="mt-1 text-xs leading-5 text-ink-500">{copy}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={hidden === total}
+                      onClick={() => setHiddenWorkflowPresets(WORKFLOW_PRESETS.map((p) => p.id))}
+                    >
+                      Hide all
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={hidden === 0}
+                      onClick={() => setHiddenWorkflowPresets([])}
+                    >
+                      Restore all
+                    </Button>
+                  </div>
+                </div>
+              )
+            })()}
           </Section>
         </div>
           )

@@ -5,6 +5,7 @@ export const IPC = {
   WORKSPACE_GET_INFO: 'workspace:get-info',
   WORKSPACE_CONNECT_REMOTE: 'workspace:connect-remote',
   WORKSPACE_DISCONNECT_REMOTE: 'workspace:disconnect-remote',
+  WORKSPACE_RETRY_BOOT: 'workspace:retry-boot',
   WORKSPACE_LIST_REMOTE_PROFILES: 'workspace:list-remote-profiles',
   WORKSPACE_SAVE_REMOTE_PROFILE: 'workspace:save-remote-profile',
   WORKSPACE_DELETE_REMOTE_PROFILE: 'workspace:delete-remote-profile',
@@ -26,6 +27,15 @@ export const IPC = {
   VAULT_HAS_ASSETS_DIR: 'vault:has-assets-dir',
   VAULT_GENERATE_DEMO_TOUR: 'vault:generate-demo-tour',
   VAULT_REMOVE_DEMO_TOUR: 'vault:remove-demo-tour',
+  VAULT_LIST_WORKFLOWS: 'vault:list-workflows',
+  VAULT_APPLY_WORKFLOW: 'vault:apply-workflow',
+  VAULT_UNDO_WORKFLOW_RUN: 'vault:undo-workflow-run',
+  VAULT_LIST_WORKFLOW_RUNS: 'vault:list-workflow-runs',
+  VAULT_DELETE_WORKFLOW_RUNS: 'vault:delete-workflow-runs',
+  VAULT_WRITE_WORKFLOW: 'vault:write-workflow',
+  VAULT_DELETE_WORKFLOW: 'vault:delete-workflow',
+  VAULT_EXPORT_WORKFLOW: 'vault:export-workflow',
+  VAULT_IMPORT_WORKFLOW_FILE: 'vault:import-workflow-file',
   VAULT_LIST_TEMPLATES: 'vault:list-templates',
   VAULT_READ_TEMPLATE: 'vault:read-template',
   VAULT_WRITE_TEMPLATE: 'vault:write-template',
@@ -59,6 +69,7 @@ export const IPC = {
   VAULT_UNARCHIVE_NOTE: 'vault:unarchive-note',
   VAULT_DUPLICATE_NOTE: 'vault:duplicate-note',
   VAULT_EXPORT_NOTE_PDF: 'vault:export-note-pdf',
+  VAULT_EXPORT_NOTE_DOCX: 'vault:export-note-docx',
   VAULT_REVEAL_NOTE: 'vault:reveal-note',
   VAULT_REVEAL_NOTE_TARGET: 'vault:reveal-note-target',
   VAULT_MOVE_NOTE: 'vault:move-note',
@@ -147,6 +158,12 @@ export const IPC = {
   CUSTOM_THEMES_DELETE: 'custom-themes:delete',
   CUSTOM_THEMES_CREATE: 'custom-themes:create',
   CUSTOM_THEMES_ON_CHANGE: 'custom-themes:on-change',
+  CUSTOM_CODE_LANGUAGES_LIST: 'custom-code-languages:list',
+  CUSTOM_CODE_LANGUAGES_INSTALL: 'custom-code-languages:install',
+  CUSTOM_CODE_LANGUAGES_UPDATE: 'custom-code-languages:update',
+  CUSTOM_CODE_LANGUAGES_REVEAL: 'custom-code-languages:reveal',
+  CUSTOM_CODE_LANGUAGES_DELETE: 'custom-code-languages:delete',
+  CUSTOM_CODE_LANGUAGES_ON_CHANGE: 'custom-code-languages:on-change',
   OVERRIDES_LIST: 'overrides:list',
   OVERRIDES_REVEAL: 'overrides:reveal',
   OVERRIDES_DELETE: 'overrides:delete',
@@ -457,6 +474,7 @@ export interface IconRule {
  */
 export interface VaultViewSettings {
   noteSortOrder?: string
+  assetSortOrder?: string
   groupByKind?: boolean
   tasksViewMode?: string
   kanbanGroupBy?: string
@@ -505,6 +523,15 @@ export interface VaultSettings {
    * distinguishable. Order is the display order in the Favorites section.
    */
   favorites: string[]
+  /**
+   * Per-system-folder on-disk path overrides (#115). Maps internal folder IDs
+   * to vault-relative directory names (e.g. `{ inbox: '01 - Entry', archive: 'Archive' }`).
+   * Absent entries fall back to the default folder name (same as the ID).
+   * Notes stored in remapped folders retain their vault-relative paths as-is
+   * (e.g. `01 - Entry/Projects/Idea.md`), while `NoteMeta.folder` remains the
+   * internal ID (`inbox`).
+   */
+  systemFolderPaths?: Partial<Record<NoteFolder, string>>
   /**
    * Vault-relative note paths (POSIX) that have git-backed version history
    * enabled (opt-in per note). Snapshots for these notes live in a git repo
@@ -584,7 +611,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   folderColors: {},
   favorites: [],
   enabledHistoryPaths: [],
-  langIcons: {}
+  langIcons: {},
+  systemFolderPaths: {}
 }
 
 export interface NoteMeta {
@@ -801,6 +829,10 @@ export interface ServerCapabilities {
   supportsVaultSelection: boolean
   supportsDirectoryBrowsing: boolean
   supportsWatch: boolean
+  /** The server answers 404 (not 500) for a file that is not there. Optional
+   *  because no server before 2.20.2 said so, and its ABSENCE is the useful
+   *  half: it marks the servers whose 500 might only mean "missing". */
+  reportsMissingAsNotFound?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -817,6 +849,11 @@ export interface RemoteWorkspaceInfo {
   authConfigured: boolean
   capabilities: ServerCapabilities | null
   profileId: string | null
+  /** Why the configured remote workspace failed to connect at boot, or null
+   *  when it connected (or was never tried). Lets the renderer show a
+   *  reconnect screen instead of the first-boot Welcome (a configured
+   *  workspace that is unreachable is not the same as no workspace). */
+  bootError: string | null
 }
 
 export interface RemoteWorkspaceProfile {

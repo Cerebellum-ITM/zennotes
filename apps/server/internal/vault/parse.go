@@ -3,6 +3,7 @@ package vault
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Regexes below mirror the TS extractors in src/main/vault.ts. They are
@@ -16,7 +17,7 @@ var (
 	wikilinkRe    = regexp.MustCompile(`(!?)\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]`)
 	linkRe        = regexp.MustCompile(`(!?)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 	embedRe       = regexp.MustCompile(`!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]`)
-	frontmatterRe = regexp.MustCompile(`(?s)\A---\n(.*?)\n---\n?`)
+	frontmatterRe = regexp.MustCompile(`(?s)\A---\r?\n(.*?)\r?\n---\r?\n?`)
 	headingRe     = regexp.MustCompile(`(?m)^#{1,6}\s+`)
 	imageMdRe     = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
 	mdLinkRe      = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
@@ -77,14 +78,33 @@ func stripCodeContent(body string) string {
 	return out
 }
 
-// ExtractTags returns unique #tags from a markdown body, ignoring code.
+// ExtractTags returns unique tags from first-class frontmatter `tags` and inline #tags.
 func ExtractTags(body string) []string {
-	if !strings.Contains(body, "#") {
-		return []string{}
-	}
-	stripped := stripCodeContent(body)
 	seen := map[string]bool{}
 	out := []string{}
+	if m := frontmatterRe.FindStringSubmatch(body); len(m) >= 2 {
+		fm := parseTaskFrontmatter(m[1])
+		for _, raw := range fm["tags"] {
+			// A bare scalar splits on commas and whitespace: `tags: daily, work`
+			// is two tags and a tag can contain neither. Kept in sync with
+			// frontmatterTags in packages/shared-domain/src/frontmatter.ts.
+			for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+				return r == ',' || unicode.IsSpace(r)
+			}) {
+				tag := strings.TrimPrefix(part, "#")
+				if tag != "" && !seen[tag] {
+					seen[tag] = true
+					out = append(out, tag)
+				}
+			}
+		}
+	}
+
+	markdownBody := frontmatterRe.ReplaceAllString(body, "")
+	if !strings.Contains(markdownBody, "#") {
+		return out
+	}
+	stripped := stripCodeContent(markdownBody)
 	for _, m := range tagRe.FindAllStringSubmatch(stripped, -1) {
 		if len(m) >= 2 {
 			tag := m[1]
@@ -338,7 +358,7 @@ var (
 // then indented `  - a`). Keys are lower-cased; every value is stored as a
 // slice (a scalar becomes a single-element slice). Best-effort and never
 // panics: just enough YAML for task files, not a full parser. Mirrors
-// parseTaskFrontmatter in packages/shared-domain/src/tasks.ts.
+// parseFrontmatterFields in packages/shared-domain/src/frontmatter.ts.
 func parseTaskFrontmatter(block string) map[string][]string {
 	data := map[string][]string{}
 	listKey := ""

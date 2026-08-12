@@ -20,6 +20,11 @@ import type {
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import WebSocket from 'ws'
+import {
+  connectionErrorMessage,
+  normalizeBaseUrl,
+  requestErrorMessage
+} from './connection'
 
 export interface RemoteServerClientOptions {
   baseUrl: string
@@ -27,6 +32,24 @@ export interface RemoteServerClientOptions {
 }
 
 type JsonRequestInit = Omit<RequestInit, 'body'> & { body?: unknown }
+
+// Re-exported for the callers that grew up importing it from here.
+export { connectionErrorMessage }
+
+/** The server never answered: DNS/refused/timeout. The workspace may be
+ *  fine; the network is not. Callers must never read this as "absent". */
+export class RemoteConnectionError extends Error {}
+
+/** The server answered with a non-2xx status: it is alive and made a
+ *  decision. `status` lets callers separate a 404 from an auth failure. */
+export class RemoteRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+  }
+}
 
 export class RemoteServerClient {
   readonly baseUrl: string
@@ -316,32 +339,16 @@ export class RemoteServerClient {
         body: hasBody ? JSON.stringify(init!.body) : undefined
       })
     } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? ` Could not reach the server: ${error.message}.`
-          : ''
-      throw new Error(
-        `Could not connect to the ZenNotes server at ${this.baseUrl}. Make sure the server is running and the URL is correct.${message}`
-      )
+      throw new RemoteConnectionError(connectionErrorMessage(this.baseUrl, error))
     }
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      if (response.status === 401) {
-        throw new Error(
-          `The ZenNotes server rejected the connection. Check the auth token for ${this.baseUrl} and try again.`
-        )
-      }
-      throw new Error(
-        `Remote server request failed (${response.status} ${response.statusText}) for ${path}${text ? `: ${text}` : ''}`
+      throw new RemoteRequestError(
+        requestErrorMessage(this.baseUrl, path, response, text),
+        response.status
       )
     }
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
   }
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim()
-  const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
-  return normalized.replace(/\/+$/, '')
 }

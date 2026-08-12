@@ -24,7 +24,7 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { removeManagedLinks } from './cli-install'
+import { migrateLegacyCliLink, removeManagedLinks } from './cli-install'
 
 let home = ''
 const tempDirs: string[] = []
@@ -44,16 +44,28 @@ const wrapperLoc = (): { wrapperPath: string; cliJsPath: string } => ({
   cliJsPath: path.join(userDataDir, 'cli.js')
 })
 
+let realPath: string | undefined
+
 beforeEach(async () => {
   userDataDir = await mkdtemp(path.join(os.tmpdir(), 'zn-cli-ud-'))
   home = await mkdtemp(path.join(os.tmpdir(), 'zn-cli-home-'))
   tempDirs.push(userDataDir, home)
   vi.spyOn(os, 'homedir').mockReturnValue(home)
+  // Candidate-directory discovery walks the REAL $PATH as well as the home
+  // dirs, so a developer who has actually installed the CLI (which every
+  // ZenNotes user now has, since the app heals the link on launch) would see
+  // `migrateLegacyCliLink` correctly decline against their own `zn` and this
+  // suite fail on their machine but not in CI. Point PATH at the temp home so
+  // the discovery can only find what a test put there.
+  realPath = process.env.PATH
+  process.env.PATH = path.join(home, '.local', 'bin')
   await writeFile(wrapperLoc().wrapperPath, '#!/bin/sh\n')
 })
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  if (realPath === undefined) delete process.env.PATH
+  else process.env.PATH = realPath
   for (const d of tempDirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 
@@ -90,5 +102,67 @@ describe('removeManagedLinks — migrate off `zen`, spare foreign (#126)', () =>
     expect(await linkExists(path.join(bin, 'zen'))).toBe(true)
     expect(await readlink(path.join(bin, 'zen'))).toBe(foreign)
     expect(await linkExists(path.join(bin, 'zn'))).toBe(true)
+  })
+})
+
+describe('migrateLegacyCliLink — heal pre-2.10 installs on launch', () => {
+  // The heal is a symlink operation over POSIX bin dirs; `migrateLegacyCliLink`
+  // deliberately declines off darwin/linux (a pre-2.10 symlink install never
+  // existed on Windows), so the positive path is asserted where it can run and
+  // the platform gate is pinned separately below.
+  it.skipIf(process.platform === 'win32')(
+    'replaces a managed `zen` with `zn` in the same directory',
+    async () => {
+      const bin = path.join(home, '.local', 'bin')
+      await mkdir(bin, { recursive: true })
+      await symlink(wrapperLoc().wrapperPath, path.join(bin, 'zen'))
+
+      const linkPath = await migrateLegacyCliLink(wrapperLoc())
+
+      expect(linkPath).toBe(path.join(bin, 'zn'))
+      expect(await readlink(path.join(bin, 'zn'))).toBe(wrapperLoc().wrapperPath)
+      // The legacy name is gone, so `zen` stops shadowing anything (#126).
+      expect(await linkExists(path.join(bin, 'zen'))).toBe(false)
+    }
+  )
+
+  it.runIf(process.platform === 'win32')(
+    'declines on Windows even with a managed legacy link present',
+    async () => {
+      const bin = path.join(home, '.local', 'bin')
+      await mkdir(bin, { recursive: true })
+      await symlink(wrapperLoc().wrapperPath, path.join(bin, 'zen'))
+
+      expect(await migrateLegacyCliLink(wrapperLoc())).toBeNull()
+      expect(await linkExists(path.join(bin, 'zen'))).toBe(true)
+    }
+  )
+
+  it('does nothing when `zn` already exists', async () => {
+    const bin = path.join(home, '.local', 'bin')
+    await mkdir(bin, { recursive: true })
+    await symlink(wrapperLoc().wrapperPath, path.join(bin, 'zen'))
+    await symlink(wrapperLoc().wrapperPath, path.join(bin, 'zn'))
+
+    expect(await migrateLegacyCliLink(wrapperLoc())).toBeNull()
+    // In particular the legacy link is left alone: migration is one atomic
+    // pair of steps or nothing, never a delete on its own.
+    expect(await linkExists(path.join(bin, 'zen'))).toBe(true)
+  })
+
+  it('never touches a foreign `zen` (Zen Browser)', async () => {
+    const bin = path.join(home, '.local', 'bin')
+    await mkdir(bin, { recursive: true })
+    const foreign = path.join(userDataDir, 'zen-browser')
+    await writeFile(foreign, '#!/bin/sh\n')
+    await symlink(foreign, path.join(bin, 'zen'))
+
+    expect(await migrateLegacyCliLink(wrapperLoc())).toBeNull()
+    expect(await readlink(path.join(bin, 'zen'))).toBe(foreign)
+    expect(await linkExists(path.join(bin, 'zn'))).toBe(false)
+  })
+
+  it('is a no-op on a machine with nothing installed', async () => {
+    expect(await migrateLegacyCliLink(wrapperLoc())).toBeNull()
   })
 })

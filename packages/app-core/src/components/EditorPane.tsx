@@ -51,8 +51,10 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
+import { hopMarkerBackward, hopMarkerForward } from '../lib/cm-marker-hop'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
 import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
@@ -114,6 +116,7 @@ import { OutlinePanel } from './OutlinePanel'
 import { HistoryTimelinePane } from './HistoryTimelinePane'
 import { HistoryPreviewOverlay } from './HistoryPreviewOverlay'
 import { CalendarPanel } from './CalendarPanel'
+import { selectTypstPreambleFor } from '../lib/typst-preamble-select'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { promptApp } from '../lib/prompt-requests'
@@ -135,6 +138,8 @@ import { AssetsView } from './AssetsView'
 import { QuickNotesView } from './QuickNotesView'
 import type { MathRenderer } from '@shared/app-config'
 import { isTasksTabPath } from '@shared/tasks'
+import { isWorkflowsTabPath } from '@shared/workflows-view'
+import { LazyWorkflowsView } from './LazyWorkflowsView'
 import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
@@ -197,6 +202,7 @@ import {
   PinIcon,
   TagIcon,
   TrashIcon,
+  WorkflowIcon,
   ZapIcon
 } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -233,6 +239,13 @@ import {
 } from '../lib/pane-mode'
 import { resolveCommentAnchor, selectionToCommentAnchor } from '../lib/comments'
 import { ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT } from '../lib/keyboard-context-menu'
+import { armMiddleClickPasteGuard } from '../lib/middle-click-paste-guard'
+import {
+  CALENDAR_PANEL_CLOSED,
+  calendarPanelOnNote,
+  calendarPanelOnToggle,
+  type CalendarPanelState
+} from '../lib/calendar-panel-auto'
 import {
   assetPathFromTab,
   assetTitleFromPath,
@@ -299,6 +312,16 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
       run: moveLineDown
     },
+    // Step across inline markers, so a formatted word can be finished without
+    // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerForward')),
+      run: hopMarkerForward
+    },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerBackward')),
+      run: hopMarkerBackward
+    },
     // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
     // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
     // jumplist collision on Linux); in non-Vim mode that handler is disabled, so
@@ -330,6 +353,7 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
 function markdownEditingExtensions(): Extension[] {
   return [
     markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+    customCodeFenceHighlightExtension,
     vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
     frontmatterStyle,
@@ -361,7 +385,11 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
  * frontmatter-properties panel is intentionally excluded — it depends on
  * the PR's breaking database restructure.
  */
-function wysiwygExtensions(renderTables: boolean, mathRenderer: MathRenderer): Extension[] {
+function wysiwygExtensions(
+  renderTables: boolean,
+  mathRenderer: MathRenderer,
+  typstPreamble: string
+): Extension[] {
   return [
     livePreviewPlugin,
     codeBlockFlairPlugin,
@@ -373,16 +401,21 @@ function wysiwygExtensions(renderTables: boolean, mathRenderer: MathRenderer): E
     ...taskMetadataExtension,
     ...highlightExtension,
     ...wikilinkRenderExtension,
-    mathRenderExtension(mathRenderer),
+    mathRenderExtension(mathRenderer, typstPreamble),
     embedRenderExtension,
     urlPasteMenuExtension
   ]
 }
 
-/** Current live-preview extension set, pulling both gating prefs from the store. */
-function currentWysiwygExtensions(): Extension[] {
+/** Current live-preview extension set, pulling the gating prefs from the store.
+ *  `notePath` selects that note's tag-driven Typst preamble (#486). */
+function currentWysiwygExtensions(notePath: string | null): Extension[] {
   const s = useStore.getState()
-  return wysiwygExtensions(s.renderTablesInLivePreview, s.mathRenderer)
+  return wysiwygExtensions(
+    s.renderTablesInLivePreview,
+    s.mathRenderer,
+    selectTypstPreambleFor(s, notePath)
+  )
 }
 
 const paperHighlight = HighlightStyle.define([
@@ -791,6 +824,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings)
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
   const historyPreview = useStore((s) => s.historyPreview)
+  // Tag-driven Typst definitions for this pane's note (#486); '' unless the
+  // setting is on, Typst is the renderer, and the note's tags match a preamble.
+  const typstPreamble = useStore((s) => selectTypstPreambleFor(s, content?.path ?? null))
 
   const modesByPath = useStore((s) => s.paneModes[paneId]) ?? EMPTY_PANE_MODES
   const setPaneModeForPath = useStore((s) => s.setPaneModeForPath)
@@ -807,7 +843,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
-  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [calendarPanel, setCalendarPanel] = useState<CalendarPanelState>(CALENDAR_PANEL_CLOSED)
+  const calendarOpen = calendarPanel.open
   const [historyOpen, setHistoryOpen] = useState(false)
   // The calendar panel is a date navigator. It auto-opens while the pane shows
   // a daily/weekly note, but stays available (Obsidian-style) on any note as
@@ -1002,7 +1039,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [])
 
   const toggleCalendarPanel = useCallback(() => {
-    setCalendarOpen((open) => !open)
+    setCalendarPanel(calendarPanelOnToggle)
   }, [])
 
   const toggleHistoryPanel = useCallback(() => {
@@ -1092,7 +1129,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setConnectionsOpen(false)
       setOutlineOpen(false)
       setCommentsOpen(false)
-      setCalendarOpen(false)
+      setCalendarPanel(CALENDAR_PANEL_CLOSED)
       setHistoryOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
@@ -1104,17 +1141,21 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener('zen:close-right-panel', handler)
   }, [isActive, setConnectionPreview, setFocusedPanel])
 
-  // Auto-show the calendar when this pane lands on a daily/weekly note. On other
-  // notes we leave it as-is (Obsidian-style persistence) so it stays open while
-  // you browse, and only force it closed when the feature is turned off entirely.
-  // Keyed on the note identity (not every render) so a manual `leader c` / icon
-  // close sticks until the note changes.
+  // Auto-show the calendar when this pane lands on a daily/weekly note. A
+  // panel the USER opened keeps Obsidian-style persistence and stays open
+  // while they browse; a panel THIS effect opened is scoped to the periodic
+  // notes and closes on the way out, so a visit to a daily note can no longer
+  // overwrite a close the user made elsewhere (#502). The transitions live in
+  // `calendar-panel-auto`; keyed on the note identity (not every render) so a
+  // manual `leader c` / icon close sticks until the note changes.
   useEffect(() => {
-    if (!calendarAvailable) {
-      setCalendarOpen(false)
-      return
-    }
-    if (isDateNote && autoCalendarPanel) setCalendarOpen(true)
+    setCalendarPanel((state) =>
+      calendarPanelOnNote(state, {
+        isDateNote,
+        autoEnabled: autoCalendarPanel,
+        available: calendarAvailable
+      })
+    )
   }, [content?.path, isDateNote, autoCalendarPanel, calendarAvailable])
 
   useEffect(() => {
@@ -1662,7 +1703,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ),
           livePreviewCompartment.of(
             s0.livePreview && !deferInitialRichMarkdown
-              ? wysiwygExtensions(s0.renderTablesInLivePreview, s0.mathRenderer)
+              ? wysiwygExtensions(
+                  s0.renderTablesInLivePreview,
+                  s0.mathRenderer,
+                  selectTypstPreambleFor(s0, initialPath)
+                )
               : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
@@ -1850,7 +1895,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
           if (useStore.getState().livePreview) {
-            restoreEffects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
+            restoreEffects.push(
+              livePreviewCompartment.reconfigure(currentWysiwygExtensions(initialPath))
+            )
           }
           view.dispatch({ effects: restoreEffects })
         }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
@@ -1943,7 +1990,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
       if (livePreviewEnabled && livePreviewCompartment) {
-        effects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
+        effects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions(nextPath)))
       }
     }
     const dispatchStartedAt = performance.now()
@@ -2007,7 +2054,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (useStore.getState().livePreview && livePreviewCompartment) {
-          restoreEffects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions()))
+          restoreEffects.push(
+            livePreviewCompartment.reconfigure(currentWysiwygExtensions(viewPathRef.current))
+          )
         }
         view.dispatch({
           effects: restoreEffects
@@ -2062,13 +2111,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(currentWysiwygExtensions()))
+        effects.push(comp.reconfigure(currentWysiwygExtensions(viewPathRef.current)))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(livePreview ? currentWysiwygExtensions() : []) })
-  }, [livePreview, renderTablesInLivePreview, mathRenderer])
+    view.dispatch({
+      effects: comp.reconfigure(
+        livePreview ? currentWysiwygExtensions(viewPathRef.current) : []
+      )
+    })
+    // `typstPreamble` is in the deps so retagging a note — or editing the
+    // preamble note it points at — reconfigures this pane and repaints its
+    // formulas with the new definitions. (#486)
+  }, [livePreview, renderTablesInLivePreview, mathRenderer, typstPreamble])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current
@@ -2568,6 +2624,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           preview: path === previewTab,
           isQuick: false,
           isTasks: false,
+          isWorkflows: false,
           isTag: false,
           isHelp: false,
           isArchive: false,
@@ -2576,6 +2633,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isAsset: false,
           isDiagram: false,
           isDatabase: false
+        }
+        if (isWorkflowsTabPath(path)) {
+          return {
+            ...base,
+            title: 'Workflows',
+            isWorkflows: true
+          }
         }
         if (isTasksTabPath(path)) {
           return {
@@ -2718,6 +2782,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // close, close relatives, or split them into another pane.
     if (
       isQuickNotesTabPath(path) ||
+      isWorkflowsTabPath(path) ||
       isTagsTabPath(path) ||
       isHelpTabPath(path) ||
       isArchiveTabPath(path) ||
@@ -2824,6 +2889,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       preview: boolean
       isQuick: boolean
       isTasks: boolean
+      isWorkflows: boolean
       isTag: boolean
       isHelp: boolean
       isArchive: boolean
@@ -2836,6 +2902,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const isVirtual =
         tab.isQuick ||
         tab.isTasks ||
+        tab.isWorkflows ||
         tab.isTag ||
         tab.isHelp ||
         tab.isArchive ||
@@ -2912,9 +2979,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               e.preventDefault()
             }
           }}
+          onMouseUp={(e) => {
+            // Some Chromium paths run the Linux primary-selection paste as the
+            // mouseup default action, before auxclick can refuse it. (#498)
+            if (e.button === 1) {
+              e.preventDefault()
+            }
+          }}
           onAuxClick={(e) => {
             if (e.button === 1) {
               e.preventDefault()
+              // Under Wayland the paste can be delivered to the FOCUSED editor
+              // rather than to this tab, so cancelling events here is not
+              // enough on its own; the guard catches the paste itself. (#498)
+              armMiddleClickPasteGuard()
               void closeTabInPane(paneId, tab.path)
             }
           }}
@@ -2970,6 +3048,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             >
               {tab.isTasks && (
                 <CheckSquareIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isWorkflows && (
+                <WorkflowIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isQuick && (
                 <ZapIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -3454,8 +3535,21 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         setActivePane(paneId)
         setFocusedPanel('editor')
       }}
-      onFocusCapture={() => {
+      onFocusCapture={(e) => {
         setActivePane(paneId)
+        // The right-side panels live inside this pane, so focusing one of them
+        // bubbles up here. Claiming 'editor' then would undo the panel focus
+        // that pane navigation just set — which is why `<C-w>l` onto the
+        // calendar used to bounce back to the editor, making it a dead end in
+        // the focus cycle. Only the editor's own surfaces claim it. (#477)
+        if (
+          e.target instanceof HTMLElement &&
+          e.target.closest(
+            '[data-connections-panel],[data-comments-panel],[data-outline-panel],[data-calendar-panel]'
+          )
+        ) {
+          return
+        }
         setFocusedPanel('editor')
       }}
     >
@@ -3569,7 +3663,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           {assetDropActive && (
             <div className="pointer-events-none absolute inset-3 z-20 rounded-xl border-2 border-dashed border-accent/55 bg-accent/8" />
           )}
-          {isTasksTabPath(activeTab) ? (
+          {isWorkflowsTabPath(activeTab) ? (
+            <LazyWorkflowsView />
+          ) : isTasksTabPath(activeTab) ? (
             <TasksView />
           ) : isQuickNotesTabPath(activeTab) ? (
             <QuickNotesView />

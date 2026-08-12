@@ -20,6 +20,7 @@ import {
   type PortablePrefKey
 } from '@shared/app-config'
 import {
+  catalogDefaultBinding,
   KEYMAP_CATALOG,
   KEYMAP_GROUP_ORDER,
   KEYMAP_GROUP_LABELS
@@ -97,6 +98,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'render_tables',
     comment: 'render tables as widgets in live preview; off keeps them as plain text'
   },
+  syncTitleHeadingOnRename: {
+    section: 'editor',
+    tomlKey: 'sync_title_heading_on_rename',
+    comment: "renaming a note rewrites its leading '# heading' to match"
+  },
   markdownSnippets: {
     section: 'editor',
     tomlKey: 'markdown_snippets',
@@ -158,6 +164,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'editor',
     tomlKey: 'math_renderer',
     comment: 'katex | typst: typesetter for $…$ / $$…$$ math'
+  },
+  typstTagPreambles: {
+    section: 'editor',
+    tomlKey: 'typst_tag_preambles',
+    comment: 'true | false — prepend Typst definitions from notes in a `typst` folder, chosen by a note\'s tags'
   },
   looseMathDelimiters: {
     section: 'editor',
@@ -240,6 +251,17 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'code / monospace font; empty = system default'
   },
   // view
+  workflowsEnabled: {
+    section: 'view',
+    tomlKey: 'workflows_enabled',
+    comment:
+      'opt in to the Workflows view, its sidebar row, command, and leader shortcut (off by default)'
+  },
+  assetSortOrder: {
+    section: 'view',
+    tomlKey: 'asset_sort_order',
+    comment: 'Assets view sort: name | used | type | size | modified, each -asc or -desc'
+  },
   noteSortOrder: {
     section: 'view',
     tomlKey: 'note_sort_order',
@@ -310,6 +332,11 @@ const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
     section: 'view',
     tomlKey: 'kanban_statuses',
     comment: 'custom-status Kanban columns, in order — e.g. ["backlog", "in_progress", "review", "done"]'
+  },
+  hiddenWorkflowPresets: {
+    section: 'view',
+    tomlKey: 'hidden_workflow_presets',
+    comment: 'built-in workflow recipes hidden from the gallery, by id — e.g. ["reading-log"]'
   }
 }
 
@@ -529,7 +556,9 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     if (entries.length === 0) continue
     lines.push(`# ${KEYMAP_GROUP_LABELS[group] ?? group}`)
     for (const entry of entries) {
-      lines.push(`# ${tomlKey(entry.id)} = ${tomlValue(entry.defaultBinding)}  # ${entry.title}`)
+      lines.push(
+        `# ${tomlKey(entry.id)} = ${tomlValue(catalogDefaultBinding(entry, process.platform === 'darwin'))}  # ${entry.title}`
+      )
     }
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.16.0",
+  "version": "2.20.2",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -51,11 +51,13 @@
     "@myriaddreamin/typst-ts-web-compiler": "^0.7.0",
     "@myriaddreamin/typst.ts": "^0.7.0",
     "@replit/codemirror-vim": "^6.3.0",
+    "@xyflow/react": "^12.11.2",
     "@zennotes/app-core": "*",
     "@zennotes/bridge-contract": "*",
     "@zennotes/shared-domain": "*",
     "chokidar": "^4.0.3",
     "codemirror": "^6.0.1",
+    "docx": "^9.7.1",
     "dompurify": "^3.3.4",
     "electron-updater": "^6.8.3",
     "font-list": "^2.0.2",
@@ -83,6 +85,8 @@
     "smol-toml": "^1.7.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2",
     "ws": "^8.20.0",
     "zustand": "^5.0.2"
   },
@@ -210,6 +214,7 @@
       "extendInfo": {
         "CFBundleName": "ZenNotes",
         "CFBundleDisplayName": "ZenNotes",
+        "NSLocalNetworkUsageDescription": "ZenNotes needs local network access to connect to a self-hosted ZenNotes server on your network.",
         "CFBundleDocumentTypes": [
           {
             "CFBundleTypeName": "Markdown Document",

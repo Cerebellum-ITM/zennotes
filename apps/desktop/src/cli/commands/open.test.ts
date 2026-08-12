@@ -4,7 +4,15 @@ import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:child_process', () => ({
-  spawn: vi.fn(() => ({ unref: vi.fn() }))
+  // The command now watches the child for an immediate failure before
+  // reporting success. Firing exit(0) on the next tick models the warm
+  // hand-off to a running instance and keeps every success-path test instant.
+  spawn: vi.fn(() => ({
+    unref: vi.fn(),
+    once: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+      if (event === 'exit') setImmediate(() => cb(0, null))
+    })
+  }))
 }))
 
 import { spawn } from 'node:child_process'
@@ -51,7 +59,7 @@ beforeEach(() => {
 
 describe('cmdOpen', () => {
   it('rejects when no path is given', async () => {
-    await expect(cmdOpen('', makeArgs([]))).rejects.toThrow(/needs a file path/)
+    await expect(cmdOpen('', makeArgs([]))).rejects.toThrow(/needs a path/)
     expect(spawn).not.toHaveBeenCalled()
   })
 
@@ -126,7 +134,7 @@ describe('cmdOpen', () => {
 
   it('reports the failing token and the joined attempt when nothing matches', async () => {
     await expect(cmdOpen(vaultDir, makeArgs(['inbox/nope', 'really.md']))).rejects.toThrow(
-      /No such file: inbox\/nope[\s\S]*also tried as one path/
+      /No such file or folder: inbox\/nope[\s\S]*also tried as one path/
     )
     expect(spawn).not.toHaveBeenCalled()
   })
@@ -135,5 +143,40 @@ describe('cmdOpen', () => {
     await fsp.writeFile(path.join(vaultDir, 'inbox', 'plain.txt'), 'hi\n')
     await expect(cmdOpen(vaultDir, makeArgs(['inbox/plain.txt']))).rejects.toThrow(/markdown/)
     expect(spawn).not.toHaveBeenCalled()
+  })
+
+  // #466: a folder opens as a focused session — no markdown-extension check.
+  it('launches the app with a folder path (focused session)', async () => {
+    await cmdOpen('', makeArgs([vaultDir]))
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([vaultDir])
+  })
+
+  it('resolves a vault-relative folder', async () => {
+    await cmdOpen(vaultDir, makeArgs(['inbox']))
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([path.join(vaultDir, 'inbox')])
+  })
+
+  it('opens a mix of files and folders in one launch', async () => {
+    await cmdOpen('', makeArgs([mdFile, vaultDir]))
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([mdFile, vaultDir])
+  })
+
+  it('reports a launch that dies instead of printing success', async () => {
+    // A crash in the app's first moments (no display, broken sandbox) used to
+    // be invisible: the CLI printed "Opening …" regardless.
+    vi.mocked(spawn).mockReturnValueOnce({
+      unref: vi.fn(),
+      once: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+        if (event === 'exit') setImmediate(() => cb(1, null))
+      })
+    } as never)
+    await expect(cmdOpen('', makeArgs([mdFile]))).rejects.toThrow(
+      'exited before it could open anything'
+    )
   })
 })
